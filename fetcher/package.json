@@ -1,0 +1,15 @@
+﻿{
+  "name": "worldview-fetcher",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "nas": "node nas.js"
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

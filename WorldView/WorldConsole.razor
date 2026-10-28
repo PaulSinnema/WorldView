@@ -1,0 +1,520 @@
+﻿@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div id="globe" class="globe"></div>
+
+<div class="version">v@(AppVersion)</div>
+
+@if (loading)
+{
+    <div class="boot">WORLDVIEW · GLOBE INITIALISEREN…</div>
+}
+else if (error is not null)
+{
+    <div class="boot error">
+        <div>WorldView kon niet starten.</div>
+        <div>@error</div>
+    </div>
+}
+
+@if (hud && !loading)
+{
+    <div class="hud">
+        <div class="hud-title">WORLDVIEW</div>
+        <div>@DateTime.UtcNow.ToString("HH:mm:ss") UTC</div>
+        <div>POS @FormatLat(camLat) @FormatLon(camLon)</div>
+        <div>ALT @FormatAlt(camAlt) · HDG @camHeading.ToString("000")°</div>
+        <div>OPTIEK @StyleLabel(style).ToUpperInvariant()@(detect ? " · DETECTIE" : "")@(cockpit ? " · COCKPIT" : "")</div>
+        @if (selection is not null)
+        {
+            <div class="hud-target">DOEL @selection.Title</div>
+        }
+    </div>
+    <div class="crosshair"></div>
+}
+
+<div class="topbar">
+    <form class="search" @onsubmit="DoSearch">
+        <input @bind="searchText" @bind:event="oninput" placeholder="Zoek plaats of lat, lon…" aria-label="Zoeken" />
+        <button type="submit" title="Zoeken">⌕</button>
+    </form>
+    <button class="mic @(listening ? "on" : "")" title="Spraakbesturing" @onclick="StartVoice">🎙</button>
+    <button title="Paneel" @onclick="() => panelToggled = !panelToggled">☰</button>
+</div>
+
+<aside class="panel @(panelToggled ? "toggled" : "")">
+    <h3>DATALAGEN</h3>
+    @foreach (var l in LayerDefs)
+    {
+        var on = layers.GetValueOrDefault(l.Key);
+        var st = layerStatus.GetValueOrDefault(l.Key);
+        var zoom = zoomOn.GetValueOrDefault(l.Key);
+        <div class="layer-row">
+            <label class="layer">
+                <input type="checkbox" checked="@on" @onchange="e => ToggleLayer(l.Key, e.Value is true)" />
+                <span class="dot" style="background:@l.Color"></span>
+                <span class="name">@l.Label</span>
+                <span class="count">@(on && st.Count > 0 ? st.Count.ToString("N0") : "")</span>
+            </label>
+            <button class="zoom @(zoom ? "active" : "")" title="@(zoom ? "Inzoomen bij klikken: aan" : "Inzoomen bij klikken: uit")" @onclick="() => ToggleZoom(l.Key)">⌖</button>
+        </div>
+        @if (on && !string.IsNullOrEmpty(st.Status))
+        {
+            <div class="layer-status">@st.Status</div>
+        }
+    }
+
+    <h3>OPTIEK</h3>
+    <div class="styles">
+        @for (var i = 0; i < Styles.Length; i++)
+        {
+            var s = Styles[i];
+            var n = i + 1;
+            <button class="@(style == s.Key ? "active" : "")" @onclick="() => SetStyle(s.Key)"><b>@n</b> @s.Label</button>
+        }
+    </div>
+
+    <h3>WEERGAVE</h3>
+    <div class="toggles">
+        <button class="@(hud ? "active" : "")" @onclick="ToggleHud">H · HUD</button>
+        <button class="@(detect ? "active" : "")" @onclick="ToggleDetect">D · Detectie</button>
+        <button class="@(dayNight ? "active" : "")" @onclick="ToggleDayNight">N · Dag/nacht</button>
+    </div>
+    @if (dayNight)
+    {
+        <label class="slider">
+            <span>Nacht</span>
+            <input type="range" min="0" max="100" value="@nightLight" @oninput="SetNightLight" aria-label="Helderheid nachtzijde" />
+            <span>@nightLight%</span>
+        </label>
+    }
+    @if (!string.IsNullOrEmpty(gpu))
+    {
+        <div class="hint">GPU: @gpu</div>
+    }
+
+    <h3>KAART</h3>
+    <select value="@basemap" @onchange="OnBasemapChange">
+        <option value="esri">Esri satelliet</option>
+        <option value="dark">Donker (CARTO)</option>
+        <option value="osm">OpenStreetMap</option>
+        <option value="google">Google 3D (ion-token)</option>
+    </select>
+    <div class="actions">
+        <button @onclick="ResetGlobe">⌂ Reset globe</button>
+        <button @onclick="Share">🔗 Deel link</button>
+    </div>
+
+    <h3>POWER UP</h3>
+    <div class="powerup">
+        <input type="password" @bind="ionToken" @bind:event="oninput" placeholder="Cesium ion-token" aria-label="Cesium ion-token" />
+        <button @onclick="SaveToken">Opslaan</button>
+    </div>
+    <div class="hint">Optioneel. Gratis token via cesium.com/ion schakelt Google 3D-steden en wereldterrein in. Wordt alleen in deze browser bewaard.</div>
+    <div class="hint">Vluchtdata: OpenSky Network · militair: adsb.lol (ODbL)</div>
+    <div class="keys">1–7 optiek · H HUD · D detectie · N dag/nacht · C cockpit · Esc loslaten</div>
+</aside>
+
+@if (selection is not null)
+{
+    <section class="info">
+        <header><span>@selection.Title</span><button class="x" title="Sluiten" @onclick="ClearSelection">✕</button></header>
+        @if (!string.IsNullOrEmpty(selection.Video))
+        {
+            <video class="media" src="@selection.Video" autoplay muted loop playsinline title="Klik om te vergroten" @onclick="ToggleEnlarge"></video>
+        }
+        else if (!string.IsNullOrEmpty(selection.Image))
+        {
+            <img class="media" src="@selection.Image" alt="Camerabeeld" title="Klik om te vergroten" @onclick="ToggleEnlarge" />
+        }
+        <table>
+            @foreach (var f in selection.Fields)
+            {
+                if (f.Length < 2) continue;
+                <tr><th>@f[0]</th><td>@f[1]</td></tr>
+            }
+        </table>
+        <div class="info-actions">
+            @if (HasMedia)
+            {
+                <button @onclick="ToggleEnlarge">⤢ Vergroot</button>
+            }
+            @if (selection.CanCockpit)
+            {
+                <button class="@(cockpit ? "active" : "")" @onclick="ToggleCockpit">C · Cockpit</button>
+                <button @onclick="LoadContacts">Contacten 250 km</button>
+            }
+            @if (selection.IsRadio)
+            {
+                <button @onclick="ClearSelection">■ Stop radio</button>
+            }
+        </div>
+        @if (contacts is { Count: > 0 })
+        {
+            <ul class="contacts">
+                @foreach (var c in contacts)
+                {
+                    <li @onclick="() => SelectContact(c)"><span>@c.Label</span><span>@c.DistKm km · @c.Alt.ToString("N0") m</span></li>
+                }
+            </ul>
+        }
+    </section>
+}
+
+@if (enlarged && selection is not null && HasMedia)
+{
+    <div class="lightbox" title="Klik om te verkleinen" @onclick="ToggleEnlarge">
+        @if (!string.IsNullOrEmpty(selection.Video))
+        {
+            <video src="@selection.Video" autoplay muted loop playsinline></video>
+        }
+        else
+        {
+            <img src="@selection.Image" alt="Camerabeeld" />
+        }
+        <div class="lb-cap">@selection.Title · klik om te verkleinen</div>
+    </div>
+}
+
+@if (layers.GetValueOrDefault("radio") && RadioCount > 0)
+{
+    <div class="tuner">
+        <span>📻 AFSTEMMEN</span>
+        <input type="range" min="0" max="@(RadioCount - 1)" value="@radioIndex" @onchange="Tune" aria-label="Radio afstemmen" />
+        <span class="station">@radioStation</span>
+    </div>
+}
+
+@if (toast is not null)
+{
+    <div class="toast">@toast</div>
+}
+
+@code {
+    private static readonly string AppVersion = GetVersion();
+    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
+
+    private sealed record LayerDef(string Key, string Label, string Color);
+    private static readonly LayerDef[] LayerDefs =
+    [
+        new("flights", "Vluchten", "#3fd0ff"),
+        new("military", "Militaire vluchten", "#ffb020"),
+        new("satellites", "Satellieten", "#ffffff"),
+        new("telescopes", "Ruimtetelescopen", "#00e5ff"),
+        new("quakes", "Aardbevingen", "#ff5050"),
+        new("fires", "Bosbranden", "#ff7a1a"),
+        new("launches", "Lanceringen", "#c080ff"),
+        new("radio", "Radio", "#ff4fd8"),
+        new("cameras", "Verkeerscamera's", "#ff3b3b")
+    ];
+    private static readonly (string Key, string Label)[] Styles =
+    [
+        ("normal", "Normaal"), ("crt", "CRT"), ("nvg", "NVG"), ("flir", "FLIR"), ("ironbow", "Ironbow"), ("noir", "Noir"), ("snow", "Sneeuw")
+    ];
+
+    private DotNetObjectReference<WorldConsole>? selfRef;
+    private IJSObjectReference? module;
+    private readonly Dictionary<string, bool> layers = new();
+    private readonly Dictionary<string, (int Count, string Status)> layerStatus = new();
+    private string style = "normal", basemap = "esri", ionToken = "", searchText = "", radioStation = "";
+    private string gpu = "";
+    private int nightLight = 60;
+    private readonly Dictionary<string, bool> zoomOn = new();
+    private bool hud = true, dayNight = true, detect, cockpit, panelToggled, listening, loading = true;
+    private string? error, toast;
+    private double camLat, camLon, camAlt, camHeading;
+    private SelectionInfo? selection;
+    private List<ContactInfo>? contacts;
+    private int radioIndex, toastId;
+
+    private int RadioCount => layerStatus.GetValueOrDefault("radio").Count;
+    private bool enlarged;
+    private bool HasMedia => !string.IsNullOrEmpty(selection?.Video) || !string.IsNullOrEmpty(selection?.Image);
+
+    private void ToggleEnlarge() => enlarged = !enlarged;
+
+    private static string GetVersion()
+    {
+        var info = typeof(WorldConsole).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
+        var plus = info.IndexOf('+');
+        return plus >= 0 ? info[..plus] : info;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // Background update check (GitHub Pages)
+        await JS.InvokeVoidAsync("wvUpdater.start", AppVersion);
+
+        try
+        {
+            selfRef = DotNetObjectReference.Create(this);
+            // Version query busts the browser/CDN cache for the engine script
+            module = await JS.InvokeAsync<IJSObjectReference>("import", $"./js/worldview.js?v={AppVersion}");
+            var json = await module.InvokeAsync<string>("init", "globe", selfRef);
+            var st = JsonSerializer.Deserialize<InitState>(json, JsonOpts);
+            if (st is not null)
+            {
+                foreach (var (k, v) in st.Layers) layers[k] = v;
+                style = st.Style;
+                basemap = st.Basemap;
+                ionToken = st.IonToken;
+                hud = st.Hud;
+                detect = st.Detect;
+                dayNight = st.DayNight;
+                nightLight = st.NightLight;
+                foreach (var (k, v) in st.Zoom) zoomOn[k] = v;
+                gpu = st.Gpu;
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        loading = false;
+        StateHasChanged();
+    }
+
+    private async Task ToggleLayer(string key, bool on)
+    {
+        layers[key] = on;
+        if (module is not null) await module.InvokeVoidAsync("setLayer", key, on);
+    }
+
+    private async Task SetStyle(string key)
+    {
+        style = key;
+        if (module is not null) await module.InvokeVoidAsync("setStyle", key, false);
+    }
+
+    private async Task ToggleHud()
+    {
+        hud = !hud;
+        if (module is not null) await module.InvokeVoidAsync("setHud", hud);
+    }
+
+    private async Task ToggleDetect()
+    {
+        detect = !detect;
+        if (module is not null) await module.InvokeVoidAsync("setDetect", detect, false);
+    }
+
+    private async Task ToggleDayNight()
+    {
+        dayNight = !dayNight;
+        if (module is not null) await module.InvokeVoidAsync("setDayNight", dayNight, false);
+    }
+
+    private async Task SetNightLight(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var v)) return;
+        nightLight = v;
+        if (module is not null) await module.InvokeVoidAsync("setNightLight", v);
+    }
+
+    private async Task ToggleZoom(string key)
+    {
+        var on = !zoomOn.GetValueOrDefault(key);
+        zoomOn[key] = on;
+        if (module is not null) await module.InvokeVoidAsync("setZoom", key, on);
+    }
+
+    private async Task ToggleCockpit()
+    {
+        // Engine reports the resulting state via OnToggle
+        if (module is not null) await module.InvokeVoidAsync("setCockpit", !cockpit);
+    }
+
+    private Task OnBasemapChange(ChangeEventArgs e) => SetBasemap(e.Value?.ToString() ?? "esri");
+
+    private async Task SetBasemap(string name)
+    {
+        basemap = name;
+        if (module is null) return;
+        var result = await module.InvokeAsync<string>("setBasemap", name);
+        var parts = result.Split('|', 2);
+        basemap = parts[0];
+        if (parts.Length > 1 && parts[1].Length > 0) _ = ShowToastAsync(parts[1]);
+    }
+
+    private async Task DoSearch()
+    {
+        if (module is null || string.IsNullOrWhiteSpace(searchText)) return;
+        var result = await module.InvokeAsync<string?>("search", searchText);
+        _ = ShowToastAsync(result is null ? $"Niet gevonden: {searchText}" : $"→ {result}");
+    }
+
+    private async Task ResetGlobe()
+    {
+        if (module is not null) await module.InvokeVoidAsync("resetGlobe");
+    }
+
+    private async Task Share()
+    {
+        if (module is null) return;
+        await module.InvokeAsync<string>("shareLink");
+        _ = ShowToastAsync("Link met camera, lagen en optiek gekopieerd");
+    }
+
+    private async Task SaveToken()
+    {
+        if (module is not null) await module.InvokeVoidAsync("setIonToken", ionToken);
+    }
+
+    private async Task StartVoice()
+    {
+        if (module is null) return;
+        listening = await module.InvokeAsync<bool>("startVoice");
+        if (!listening) _ = ShowToastAsync("Spraakherkenning wordt niet ondersteund in deze browser");
+    }
+
+    private async Task ClearSelection()
+    {
+        if (module is not null) await module.InvokeVoidAsync("clearSelection", true);
+    }
+
+    private async Task LoadContacts()
+    {
+        if (module is null) return;
+        var json = await module.InvokeAsync<string>("getContacts");
+        contacts = JsonSerializer.Deserialize<List<ContactInfo>>(json, JsonOpts) ?? [];
+        if (contacts.Count == 0) _ = ShowToastAsync("Geen vliegtuigen binnen 250 km");
+    }
+
+    private async Task SelectContact(ContactInfo c)
+    {
+        contacts = null;
+        if (module is not null) await module.InvokeVoidAsync("selectItem", c.Layer, c.Key);
+    }
+
+    private async Task Tune(ChangeEventArgs e)
+    {
+        if (module is null || !int.TryParse(e.Value?.ToString(), out var i)) return;
+        radioIndex = i;
+        radioStation = await module.InvokeAsync<string>("tuneRadio", i);
+    }
+
+    private async Task ShowToastAsync(string message)
+    {
+        var id = ++toastId;
+        toast = message;
+        StateHasChanged();
+        await Task.Delay(4000);
+        if (id != toastId) return;
+        toast = null;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnLayerStatus(string layer, int count, string status)
+    {
+        layerStatus[layer] = (count, status);
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnCamera(double lat, double lon, double alt, double heading)
+    {
+        camLat = lat;
+        camLon = lon;
+        camAlt = alt;
+        camHeading = heading;
+        if (hud) StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnSelect(string? json)
+    {
+        var prevKey = selection?.Key;
+        selection = string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<SelectionInfo>(json, JsonOpts);
+        if (selection?.Key != prevKey) { contacts = null; enlarged = false; }
+        if (selection?.IsRadio == true) radioStation = selection.Title;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnLayerChanged(string layer, bool on)
+    {
+        layers[layer] = on;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnStyleChanged(string newStyle)
+    {
+        style = newStyle;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnToggle(string name, bool on)
+    {
+        switch (name)
+        {
+            case "hud": hud = on; break;
+            case "detect": detect = on; break;
+            case "daynight": dayNight = on; break;
+            case "cockpit": cockpit = on; break;
+            case "listening": listening = on; break;
+        }
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnToast(string message) => _ = ShowToastAsync(message);
+
+    [JSInvokable]
+    public void OnVoice(string heard, string reply) => _ = ShowToastAsync($"🎙 \"{heard}\" {reply}");
+
+    private static string FormatLat(double v) => $"{Math.Abs(v):0.0000}°{(v >= 0 ? "N" : "Z")}";
+    private static string FormatLon(double v) => $"{Math.Abs(v):0.0000}°{(v >= 0 ? "O" : "W")}";
+    private static string FormatAlt(double m) => m >= 10000 ? $"{m / 1000:N0} km" : $"{m:N0} m";
+    private static string StyleLabel(string key) => Styles.FirstOrDefault(s => s.Key == key).Label ?? key;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            try { await module.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+        selfRef?.Dispose();
+    }
+
+    private sealed class InitState
+    {
+        public Dictionary<string, bool> Layers { get; set; } = new();
+        public string Style { get; set; } = "normal";
+        public string Basemap { get; set; } = "esri";
+        public string IonToken { get; set; } = "";
+        public bool Hud { get; set; } = true;
+        public bool Detect { get; set; }
+        public bool DayNight { get; set; } = true;
+        public int NightLight { get; set; } = 60;
+        public Dictionary<string, bool> Zoom { get; set; } = new();
+        public string Gpu { get; set; } = "";
+    }
+
+    private sealed class SelectionInfo
+    {
+        public string Layer { get; set; } = "";
+        public string Key { get; set; } = "";
+        public string Title { get; set; } = "";
+        public List<string[]> Fields { get; set; } = new();
+        public string? Image { get; set; }
+        public string? Video { get; set; }
+        public bool CanCockpit { get; set; }
+        public bool IsRadio { get; set; }
+    }
+
+    private sealed class ContactInfo
+    {
+        public string Layer { get; set; } = "";
+        public string Key { get; set; } = "";
+        public string Label { get; set; } = "";
+        public int DistKm { get; set; }
+        public int Alt { get; set; }
+    }
+}
