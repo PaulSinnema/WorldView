@@ -67,19 +67,50 @@
         .info img, .info video { display: block; width: 100%; background: #000; }
         .info { resize: horizontal; min-width: 240px; max-width: calc(100% - 24px); }
         .info .media { cursor: zoom-in; }
-        .lightbox { position: fixed; inset: 0; z-index: 45; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: rgba(0,0,0,.88); cursor: zoom-out; }
-        .lightbox img, .lightbox video { width: min(95vw, calc(85vh * 16 / 9)); height: auto; max-height: 85vh; object-fit: contain; border: 1px solid var(--ok); background: #000; }
-        .lb-cap { font-size: 12px; opacity: .8; }
+        .lightbox { position: fixed; inset: 0; z-index: 45; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: rgba(0,0,0,.88); }
+        .lb-stage { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; }
+        .lb-media { width: min(95vw, calc(85vh * 16 / 9)); height: auto; max-height: 85vh; object-fit: contain; border: 1px solid var(--ok); background: #000;
+            transform-origin: 0 0; cursor: grab; user-select: none; touch-action: none; will-change: transform; }
+        .lb-media.dragging { cursor: grabbing; }
+        .lb-bar { display: flex; align-items: center; gap: 6px; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); max-width: 100%; }
+        .lb-bar button { min-width: 34px; padding: 5px 8px; background: var(--bg); border: 1px solid var(--line); cursor: pointer; }
+        .lb-cap { font-size: 12px; opacity: .8; flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .info table { width: 100%; border-collapse: collapse; margin: 4px 0; }
         .info th { text-align: left; font-weight: normal; color: var(--acc); padding: 2px 10px; vertical-align: top; white-space: nowrap; }
         .info td { padding: 2px 10px 2px 0; word-break: break-word; }
+        .info .summary { margin: 4px 10px 6px; line-height: 1.45; font-family: system-ui, sans-serif; font-size: 13px; }
+        .info .wiki { display: block; margin: 0 10px 6px; color: var(--acc); }
         .info-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 10px 10px; }
         .contacts { list-style: none; margin: 0; padding: 0 10px 10px; }
         .contacts li { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid var(--line); cursor: pointer; }
         .contacts li:hover { color: #fff; }
-        .tuner { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 10px; padding: 7px 12px; width: min(560px, calc(100% - 24px)); box-sizing: border-box; background: var(--bg); border: 1px solid #ff4fd8; }
-        .tuner input { flex: 1; accent-color: #ff4fd8; }
-        .tuner .station { width: 34%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .radio { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 20; width: min(600px, calc(100% - 24px)); box-sizing: border-box; background: rgba(4, 12, 16, .95); border: 1px solid #ff4fd8; }
+        .radio button { padding: 4px 8px; background: rgba(255,255,255,.04); border: 1px solid var(--line); cursor: pointer; }
+        .radio button.active { background: rgba(255,79,216,.25); border-color: #ff4fd8; }
+        .radio-head { display: flex; align-items: center; gap: 5px; padding: 6px 8px; }
+        .radio-now { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+        .radio-now b, .radio-now span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .radio-now b { color: #fff; font-weight: normal; }
+        .radio-now span { font-size: 11px; opacity: .7; }
+        .radio-now.on b { color: #ff9be9; }
+        .radio .star { color: rgba(255,255,255,.35); }
+        .radio .star.on { color: #ffd23f; }
+        .radio-vol { width: 80px; accent-color: #ff4fd8; }
+        .radio-filters { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 8px 6px; }
+        .radio-filters input, .radio-filters select { padding: 5px; background: #061218; border: 1px solid var(--line); min-width: 0; }
+        .radio-filters input { flex: 2 1 140px; }
+        .radio-filters select { flex: 1 1 110px; max-width: 180px; }
+        .radio-count { padding: 0 8px 4px; font-size: 11px; opacity: .6; }
+        .radio-list { list-style: none; margin: 0; padding: 0 4px 6px; max-height: 32vh; overflow-y: auto; }
+        .radio-list li { display: flex; align-items: center; gap: 8px; padding: 4px; border-top: 1px solid var(--line); cursor: pointer; }
+        .radio-list li:hover { background: rgba(255,255,255,.05); }
+        .radio-list li.current { background: rgba(255,79,216,.18); }
+        .radio-list img, .radio-list .noicon { width: 22px; height: 22px; flex: none; object-fit: contain; text-align: center; }
+        .rs-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .rs-main b, .rs-main span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .rs-main b { font-weight: normal; color: #fff; }
+        .rs-main span { font-size: 11px; opacity: .6; }
+        .radio-list .star { border: 0; background: none; font-size: 15px; }
         .toast { position: fixed; left: 50%; top: calc(52px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 30; max-width: calc(100% - 40px); padding: 7px 14px; background: var(--bg); border: 1px solid var(--acc); }
         .boot { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #000; color: var(--ok); letter-spacing: 3px; text-align: center; padding: 20px; }
         .boot.error { color: #ff6b6b; letter-spacing: 0; }
@@ -89,7 +120,8 @@
             .hud { top: calc(48px + env(safe-area-inset-top)); font-size: 11px; }
             .hud-title { font-size: 13px; }
             .topbar { left: 12px; transform: none; width: calc(100% - 110px); }
-            .tuner .station { display: none; }
+            .radio-vol { width: 56px; }
+            .radio-list { max-height: 24vh; }
         }
         #blazor-error-ui { display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; padding: 8px 12px; background: #b32121; color: #fff; }
         #blazor-error-ui .dismiss { float: right; cursor: pointer; }
@@ -137,11 +169,105 @@
     </script>
 </head>
 <body>
-    <div id="app"><div class="boot">WORLDVIEW · LADEN…</div></div>
+    <div id="app"><div class="boot">WORLDVIEW · …</div></div>
     <div id="blazor-error-ui">
-        Er is een fout opgetreden. <a href="." class="reload">Herladen</a>
+        <span id="err-text">An error occurred.</span> <a href="." class="reload" id="err-reload">Reload</a>
         <span class="dismiss">✕</span>
     </div>
+    <script>
+        // Lightbox zoom/pan: wheel or pinch zooms around the pointer, drag pans, double-click resets
+        (function () {
+            const st = new WeakMap();
+            const get = el => st.get(el) ?? (st.set(el, { s: 1, x: 0, y: 0 }), st.get(el));
+            const apply = (el, z) => {
+                z.s = Math.min(12, Math.max(1, z.s));
+                if (z.s === 1) { z.x = 0; z.y = 0; }
+                el.style.transform = `translate(${z.x}px, ${z.y}px) scale(${z.s})`;
+            };
+            // Zoom by factor around a screen point (cx, cy)
+            const zoomAt = (el, f, cx, cy) => {
+                const z = get(el), r = el.getBoundingClientRect();
+                const ox = r.left - z.x, oy = r.top - z.y; // untransformed origin
+                const px = (cx - ox - z.x) / z.s, py = (cy - oy - z.y) / z.s;
+                z.s *= f;
+                z.s = Math.min(12, Math.max(1, z.s));
+                z.x = cx - ox - px * z.s; z.y = cy - oy - py * z.s;
+                apply(el, z);
+            };
+            const media = () => document.querySelector('.lightbox .lb-media');
+
+            document.addEventListener('wheel', e => {
+                const el = e.target.closest?.('.lb-media');
+                if (!el) return;
+                e.preventDefault();
+                zoomAt(el, Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+            }, { passive: false });
+
+            document.addEventListener('dblclick', e => {
+                const el = e.target.closest?.('.lb-media');
+                if (!el) return;
+                const z = get(el);
+                if (z.s > 1) { z.s = 1; apply(el, z); } else zoomAt(el, 3, e.clientX, e.clientY);
+            });
+
+            document.addEventListener('click', e => {
+                const b = e.target.closest?.('[data-zoom]'), el = media();
+                if (!b || !el) return;
+                const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+                if (b.dataset.zoom === 'reset') { const z = get(el); z.s = 1; apply(el, z); }
+                else zoomAt(el, b.dataset.zoom === 'in' ? 1.5 : 1 / 1.5, cx, cy);
+            });
+
+            // Drag (1 pointer) and pinch (2 pointers)
+            const ptrs = new Map();
+            let last = null;
+            document.addEventListener('pointerdown', e => {
+                const el = e.target.closest?.('.lb-media');
+                if (!el) return;
+                el.setPointerCapture(e.pointerId);
+                ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                last = null;
+                el.classList.add('dragging');
+            });
+            document.addEventListener('pointermove', e => {
+                const el = media();
+                if (!el || !ptrs.has(e.pointerId)) return;
+                const prev = ptrs.get(e.pointerId);
+                ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                const z = get(el);
+                if (ptrs.size === 1) {
+                    if (z.s === 1) return;
+                    z.x += e.clientX - prev.x; z.y += e.clientY - prev.y;
+                    apply(el, z);
+                } else if (ptrs.size === 2) {
+                    const [a, b] = [...ptrs.values()];
+                    const d = Math.hypot(a.x - b.x, a.y - b.y);
+                    if (last) zoomAt(el, d / last, (a.x + b.x) / 2, (a.y + b.y) / 2);
+                    last = d;
+                }
+            });
+            const up = e => {
+                ptrs.delete(e.pointerId);
+                last = null;
+                if (!ptrs.size) media()?.classList.remove('dragging');
+            };
+            document.addEventListener('pointerup', up);
+            document.addEventListener('pointercancel', up);
+        })();
+    </script>
+    <script>
+        // Error bar in the saved/browser language (before Blazor starts)
+        (function () {
+            const T = { en: ['An error occurred.', 'Reload'], nl: ['Er is een fout opgetreden.', 'Herladen'], de: ['Ein Fehler ist aufgetreten.', 'Neu laden'], fr: ['Une erreur s’est produite.', 'Recharger'], zh: ['发生错误。', '重新加载'] };
+            let l = null;
+            try { l = JSON.parse(localStorage.getItem('wv-settings') || '{}').lang; } catch { }
+            l = l || (navigator.language || 'en').slice(0, 2);
+            const s = T[l] || T.en;
+            document.documentElement.lang = T[l] ? l : 'en';
+            document.getElementById('err-text').textContent = s[0];
+            document.getElementById('err-reload').textContent = s[1];
+        })();
+    </script>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js" onerror="wvRecover()"></script>
 </body>
 </html>

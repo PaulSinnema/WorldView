@@ -5,17 +5,24 @@ const LAYERS = ['flights', 'military', 'satellites', 'telescopes', 'quakes', 'fi
 const ORBITERS = ['satellites', 'telescopes'];
 const TEL_COLOR = '#00e5ff';
 // Earth-orbiting space telescopes (NORAD id, name)
-const TELESCOPES = [[20580, 'Hubble'], [25867, 'Chandra'], [25989, 'XMM-Newton'], [33053, 'Fermi'], [28485, 'Swift'], [38358, 'NuSTAR'], [43435, 'TESS'], [49954, 'IXPE'], [57800, 'XRISM'], [27540, 'INTEGRAL']];
+// [NORAD id, name, English Wikipedia title (photo + description)]
+const TELESCOPES = [[20580, 'Hubble', 'Hubble Space Telescope'], [25867, 'Chandra', 'Chandra X-ray Observatory'], [25989, 'XMM-Newton', 'XMM-Newton'],
+    [33053, 'Fermi', 'Fermi Gamma-ray Space Telescope'], [28485, 'Swift', 'Neil Gehrels Swift Observatory'], [38358, 'NuSTAR', 'NuSTAR'],
+    [43435, 'TESS', 'Transiting Exoplanet Survey Satellite'], [49954, 'IXPE', 'Imaging X-ray Polarimetry Explorer'], [57800, 'XRISM', 'XRISM'], [27540, 'INTEGRAL', 'INTEGRAL']];
 // Sun-Earth L2 telescopes: no TLE, shown at approximate L2 (offset avoids overlap)
-const L2_TELESCOPES = [['jwst', 'James Webb (JWST)', 3e8], ['euclid', 'Euclid', -3e8]];
+const L2_TELESCOPES = [['jwst', 'James Webb (JWST)', 3e8, 'James Webb Space Telescope'], ['euclid', 'Euclid', -3e8, 'Euclid (spacecraft)']];
 const L2_DIST = 1.5e9;
 const STYLE_KEYS = ['normal', 'crt', 'nvg', 'flir', 'ironbow', 'noir', 'snow'];
 const BILLBOARD_LAYERS = ['flights', 'military', 'launches', 'cameras'];
 const MOVERS = ['flights', 'military'];
 const FT = 0.3048, R_EARTH = 6371000;
-const FEED_URL = 'https://data.sinnema.ch';
+const FEED_URL = 'https://flights.sinnema.ch'; // netcup VPS, see fetcher/README.md
 const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff' };
-const SAT_GROUPS = [['stations', '#ff5a5a', 'Ruimtestation'], ['visual', '#ffffff', 'Helder zichtbaar'], ['gps-ops', '#4cff8a', 'GPS'], ['weather', '#5ac8ff', 'Weersatelliet'], ['science', '#ffd23f', 'Wetenschap'], ['geo', '#b07aff', 'Geostationair']];
+// Translations (same cache-busting version as this module)
+const { LANGS, LOCALES, pickLang, t, strings } = await import(`./i18n.js${new URL(import.meta.url).search}`);
+const tr = (key, params) => t(S.lang, key, params);
+const loc = () => LOCALES[S.lang] || 'en-GB';
+const SAT_GROUPS = [['stations', '#ff5a5a', 'grp.stations'], ['visual', '#ffffff', 'grp.visual'], ['gps-ops', '#4cff8a', 'grp.gps'], ['weather', '#5ac8ff', 'grp.weather'], ['science', '#ffd23f', 'grp.science'], ['geo', '#b07aff', 'grp.geo']];
 const RADIO_HOSTS = ['https://de1.api.radio-browser.info', 'https://nl1.api.radio-browser.info', 'https://at1.api.radio-browser.info', 'https://fi1.api.radio-browser.info'];
 const CITIES = {
     apeldoorn: [52.211, 5.969], amsterdam: [52.373, 4.893], rotterdam: [51.922, 4.479], 'den haag': [52.078, 4.288], utrecht: [52.091, 5.122],
@@ -29,9 +36,9 @@ const CITIES = {
 };
 
 let viewer = null, dotnet = null, sat = null;
-const S = { layers: {}, style: 'normal', basemap: 'esri', ionToken: '', hud: true, detect: false, daynight: true, nightLight: 60, zoom: {}, cockpit: false };
+const S = { layers: {}, style: 'normal', basemap: 'esri', ionToken: '', hud: true, detect: false, daynight: true, nightLight: 60, borders: false, regions: true, cities: true, zoom: {}, cockpit: false };
 // Per layer: zoom/follow on click
-const ZOOM_DEFAULT = { flights: false, military: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false };
+const ZOOM_DEFAULT = { cities: false, flights: false, military: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false };
 const NIGHT_URL = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png';
 let nightLayer = null;
 // Night brightness 0..100 → city-lights blend 0.8..0.05 (60 ≈ 0.35)
@@ -44,7 +51,6 @@ const store = Object.fromEntries(LAYERS.map(l => [l, new Map()]));
 const coll = {};
 const gen = {};
 const icons = {};
-let radioOrder = [];
 let telLabels = null, telOrbits = null, lastTelOrbit = 0;
 let selected = null, trackEntity = null, orbitEntity = null, trail = [];
 let styleStage = null, googleTiles = null;
@@ -65,6 +71,10 @@ function loadSettings() {
     if (!STYLE_KEYS.includes(S.style)) S.style = 'normal';
     if (typeof S.daynight !== 'boolean') S.daynight = true;
     if (!Number.isFinite(S.nightLight)) S.nightLight = 60;
+    if (typeof S.regions !== 'boolean') S.regions = true;
+    if (typeof S.cities !== 'boolean') S.cities = true;
+    S.lang = pickLang(S.lang);
+    if (!Array.isArray(S.radioFav)) S.radioFav = [];
     S.zoom = { ...ZOOM_DEFAULT, ...(S.zoom && typeof S.zoom === 'object' ? S.zoom : {}) };
     delete S.camZoom;
     // One-off reset: zoom now defaults to off for every layer
@@ -106,7 +116,7 @@ function imagery(name) {
     return new Cz.UrlTemplateImageryProvider({ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', maximumLevel: 19, credit: 'Esri, Maxar, Earthstar Geographics' });
 }
 export async function setBasemap(name) {
-    if (name === 'google' && !S.ionToken) return `${S.basemap}|Google 3D vereist een Cesium ion-token (POWER UP).`;
+    if (name === 'google' && !S.ionToken) return `${S.basemap}|${tr('err.ionNeeded')}`;
     if (googleTiles) { viewer.scene.primitives.remove(googleTiles); googleTiles = null; }
     viewer.scene.globe.show = true;
     if (name === 'google') {
@@ -120,7 +130,7 @@ export async function setBasemap(name) {
             name = 'esri';
             setImagery(name);
             S.basemap = name; saveSettings();
-            return `esri|Google 3D niet beschikbaar: ${e?.message ?? e}`;
+            return `esri|${tr('err.google3d', { e: e?.message ?? e })}`;
         }
     }
     setImagery(name);
@@ -158,9 +168,10 @@ export function setIonToken(token) {
 
 // ---------- init ----------
 export async function init(containerId, ref) {
-    if (!Cz) throw new Error('CesiumJS kon niet worden geladen (controleer de internetverbinding).');
     dotnet = ref;
     loadSettings();
+    document.documentElement.lang = S.lang;
+    if (!Cz) throw new Error(tr('err.cesium'));
     const cam = parseHash();
     Cz.Ion.defaultAccessToken = S.ionToken || '';
 
@@ -176,7 +187,9 @@ export async function init(containerId, ref) {
     });
     checkGpu();
     const scene = viewer.scene;
-    scene.postProcessStages.fxaa.enabled = true;
+    // Sharp text: FXAA blurs labels (MSAA handles edges); render at full device resolution
+    scene.postProcessStages.fxaa.enabled = false;
+    viewer.useBrowserRecommendedResolution = false;
     scene.screenSpaceCameraController.minimumZoomDistance = 30;
     // Keep sun lighting at every zoom level (default lights everything below 10,000 km)
     const globe = scene.globe;
@@ -207,9 +220,18 @@ export async function init(containerId, ref) {
     handler.setInputAction(e => {
         const p = scene.pick(e.position);
         if (p?.id?.wv) select(p.id.wv.layer, p.id.wv.key, true);
+        else if (p?.id?.city) selectCity(p.id.city);
+        // Click on empty globe/space closes the info box (not while riding in the cockpit)
+        else if ((selected || cityPick) && !S.cockpit) clearSelection();
     }, Cz.ScreenSpaceEventType.LEFT_CLICK);
 
     window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    viewer.camera.moveEnd.addEventListener(() => {
+        if (radioQuery.inView && S.layers.radio) runRadioSearch();
+        if (S.layers.flights) startLayer('flights'); // load the tiles for the new view
+    });
+    window.addEventListener('blur', () => navHeld.clear());
     scene.preRender.addEventListener(onPreRender);
     scene.postRender.addEventListener(onPostRender);
     setInterval(tick, 250);
@@ -218,9 +240,10 @@ export async function init(containerId, ref) {
     else viewer.camera.setView({ destination: Cz.Cartesian3.fromDegrees(8, 38, 2.2e7) });
 
     setStyle(S.style);
+    if (S.borders) setBorders(true);
     for (const l of LAYERS) if (S.layers[l]) startLayer(l);
 
-    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, zoom: S.zoom, gpu: gpuName });
+    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, zoom: S.zoom, gpu: gpuName });
 }
 
 // Warn when the browser renders in software (hardware acceleration off or no GPU)
@@ -232,7 +255,7 @@ function checkGpu() {
         gpuName = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
         if (/swiftshader|llvmpipe|softpipe|basic render|software/i.test(gpuName)) {
             viewer.resolutionScale = 0.75;
-            toast('Geen GPU-versnelling actief: zet hardwareversnelling aan in de browser');
+            toast(tr('toast.noGpu'));
         }
     } catch { }
 }
@@ -247,6 +270,7 @@ function applyLayer(name, on, fromEngine) {
     S.layers[name] = on; saveSettings();
     coll[name].show = on;
     if (name === 'telescopes') telLabels.show = telOrbits.show = on;
+    if (name === 'radio' && !on) radioStop();
     if (on) startLayer(name); else stopLayer(name);
     if (!on && selected?.layer === name) clearSelection();
     if (fromEngine) notify('OnLayerChanged', name, on);
@@ -256,13 +280,23 @@ function startLayer(name) {
     const run = async () => {
         if (gen[name] !== my || !S.layers[name]) return;
         let next = 0;
-        try { next = await LOADERS[name](); } catch (e) { report(name, `fout: ${e?.message ?? e}`); next = 60000; }
+        try { next = await LOADERS[name](); } catch (e) { report(name, 'st.error', { e: e?.message ?? e }); next = 60000; }
         if (next > 0 && gen[name] === my && S.layers[name]) setTimeout(run, next);
     };
     run();
 }
 function stopLayer(name) { gen[name] = (gen[name] || 0) + 1; }
-function report(name, status) { notify('OnLayerStatus', name, store[name].size, status || ''); }
+// Status = translation key (+params) or a function, re-evaluated on language change
+const lastStatus = {};
+function report(name, key, params) {
+    lastStatus[name] = [key, params];
+    notify('OnLayerStatus', name, store[name].size, statusText(name));
+}
+function statusText(name) {
+    const [key, params] = lastStatus[name] || [];
+    if (!key) return '';
+    return typeof key === 'function' ? key() : tr(key, params);
+}
 function validateSel(layer) { if (selected?.layer === layer && !store[layer].has(selected.key)) clearSelection(); }
 function clearLayer(layer) { coll[layer].removeAll(); store[layer].clear(); }
 
@@ -285,7 +319,7 @@ function fromFeedCivil(a, t) {
     return {
         key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: false, t: (a[10] || t) * 1000,
         label: a[1] || a[0],
-        info: { Callsign: a[1] || '—', Land: a[8] || '—', ICAO: a[0], Squawk: a[9] || '—' }
+        info: [['callsign', a[1] || '—'], ['country', a[8] || '—'], ['icao', a[0]], ['squawk', a[9] || '—']]
     };
 }
 // military: [hex, call, lat, lon, altM, gsMs, track, ground, reg, type, squawk, tPos]
@@ -293,24 +327,32 @@ function fromFeedMil(a, t) {
     return {
         key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: true, t: (a[11] || t) * 1000,
         label: a[1] || a[8] || a[0],
-        info: { Callsign: a[1] || '—', Registratie: a[8] || '—', Type: a[9] || '—', ICAO: a[0], Squawk: a[10] || '—' }
+        info: [['callsign', a[1] || '—'], ['registration', a[8] || '—'], ['type', a[9] || '—'], ['icao', a[0]], ['squawk', a[10] || '—']]
     };
 }
 // 30 s bucket keeps the CDN cache key shared by all users
 const getFeed = name => tryJson(`${FEED_URL}/${name}.json?b=${Math.floor(Date.now() / 30000)}`, 20000);
-const ageText = t => `${Math.max(0, Math.round(Date.now() / 1000 - t))} s oud`;
+const age = t => Math.max(0, Math.round(Date.now() / 1000 - t));
+// Zoomed in: only the 10° tiles in view (≈10–40 KB each); zoomed out: the world file (≈360 KB)
 async function loadFlights() {
-    const j = await getFeed('flights');
-    if (!j?.ac) { report('flights', 'datafeed niet bereikbaar, nieuwe poging…'); return 30000; }
-    merge('flights', j.ac.map(a => fromFeedCivil(a, j.t)).filter(f => !store.military.has(f.key)), 'plane', '#3fd0ff');
-    report('flights', `${j.src}, ${ageText(j.t)}`);
-    return 30000;
+    const idx = await getFeed('flights-index');
+    if (!idx?.tiles) { report('flights', 'st.feedDown'); return 30000; }
+    const have = new Set(idx.tiles);
+    const keys = tilesInView(viewer.camera.computeViewRectangle(), idx.tile, 3).filter(k => have.has(k));
+    const zoomed = camHeight() < 4e6 && keys.length > 0;
+    const parts = zoomed ? await Promise.all(keys.map(k => getFeed(`flights/${k}`))) : [await getFeed('flights')];
+    const ok = parts.filter(p => p?.ac);
+    if (!ok.length) { report('flights', 'st.feedDown'); return 30000; }
+    const list = ok.flatMap(p => p.ac.map(a => fromFeedCivil(a, p.t)));
+    merge('flights', list.filter(f => !store.military.has(f.key)), 'plane', '#3fd0ff');
+    report('flights', 'st.age', { src: idx.src, s: age(idx.t) });
+    return zoomed ? 30000 : 60000;
 }
 async function loadMilitary() {
     const j = await getFeed('military');
-    if (!j?.ac) { report('military', 'datafeed niet bereikbaar, nieuwe poging…'); return 30000; }
+    if (!j?.ac) { report('military', 'st.feedDown'); return 30000; }
     merge('military', j.ac.map(a => fromFeedMil(a, j.t)), 'plane', '#ffb020');
-    report('military', `${j.src}, ${ageText(j.t)}`);
+    report('military', 'st.age', { src: j.src, s: age(j.t) });
     return 30000;
 }
 function merge(layer, list, kind, color) {
@@ -371,7 +413,7 @@ async function loadSatellites() {
         }
         propagateSats();
     }
-    report('satellites', store.satellites.size ? 'CelesTrak (SGP4)' : 'bron niet bereikbaar, nieuwe poging…');
+    report('satellites', store.satellites.size ? () => 'CelesTrak (SGP4)' : 'st.sourceDown');
     return store.satellites.size ? 0 : 120000;
 }
 function satGeo(r, date, gmst) {
@@ -403,6 +445,278 @@ function drawOrbit(r) {
     orbitEntity = viewer.entities.add({ polyline: { positions: pts, width: 1.5, material: Cz.Color.fromCssColorString(r.color).withAlpha(0.7) } });
 }
 
+// country borders + names (Natural Earth, public domain)
+const NE_BASE = 'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/';
+let borderLines = null, countryLabels = null, bordersLoading = null, countryProps = [];
+// Natural Earth carries NAME_EN/NL/DE/FR/ZH
+const countryName = p => p[`NAME_${S.lang.toUpperCase()}`] || p.NAME_EN || p.NAME;
+function relabelCountries() {
+    if (!countryLabels) return;
+    for (let i = 0; i < countryLabels.length; i++) countryLabels.get(i).text = countryName(countryProps[i]).toUpperCase();
+}
+export async function setBorders(on, fromEngine = false) {
+    S.borders = !!on; saveSettings();
+    if (fromEngine) notify('OnToggle', 'borders', S.borders);
+    if (S.borders && !borderLines) await loadBorders();
+    if (countryLabels) countryLabels.show = S.borders;
+    await applyOverlays();
+}
+
+// Detailed borders (geoBoundaries, tools/build-borders.mjs): 5° tiles when zoomed in, else the coarse line
+const DETAIL_BORDER_H = 1e6;
+let borderTileSize = 5, borderTileKeys = new Set();
+const borderTiles = new Map(); // key -> primitive | 'loading'
+function refreshBorders(rect, h) {
+    const detail = S.borders && h < DETAIL_BORDER_H && borderTileKeys.size > 0;
+    const visible = new Set(detail ? tilesInView(rect, borderTileSize, 8) : []);
+    // Coarse line stays until every visible detail tile is loaded
+    const pending = [...visible].some(k => borderTileKeys.has(k) && !(borderTiles.get(k) instanceof Cz.Primitive));
+    if (borderLines) borderLines.show = S.borders && (!detail || visible.size === 0 || pending);
+    for (const k of visible) {
+        if (!borderTileKeys.has(k) || borderTiles.has(k)) continue;
+        borderTiles.set(k, 'loading');
+        tryJson(`data/borders/${k}.json`, 20000).then(d => {
+            if (!d) { borderTiles.delete(k); return; }
+            borderTiles.set(k, viewer.scene.primitives.add(linePrimitive(d, Cz.Color.WHITE.withAlpha(0.8), 1.5)));
+            refreshOverlayLabels();
+        });
+    }
+    for (const [k, p] of borderTiles) if (p !== 'loading') p.show = visible.has(k);
+}
+function loadBorders() {
+    bordersLoading ??= (async () => {
+        // 10m borders (built by tools/build-geo.mjs) for accurate positions near border towns
+        const [lines, countries, index] = await Promise.all([
+            tryJson('data/admin0-lines.json', 30000),
+            tryJson(NE_BASE + 'ne_110m_admin_0_countries.geojson', 30000),
+            tryJson('data/borders-index.json', 15000)]);
+        if (!lines || !countries) { bordersLoading = null; toast(tr('toast.bordersFail')); return; }
+        if (index?.tiles) { borderTileSize = index.tile; borderTileKeys = new Set(index.tiles); }
+        const pl = linePrimitive(lines, Cz.Color.WHITE.withAlpha(0.75), 1.5);
+        const lc = new Cz.LabelCollection();
+        countryProps = [];
+        for (const f of countries.features) {
+            const p = f.properties, name = countryName(p);
+            if (!name || !Number.isFinite(p.LABEL_X) || !Number.isFinite(p.LABEL_Y)) continue;
+            countryProps.push(p);
+            // Small countries only appear when zoomed in
+            const rank = p.LABELRANK ?? 5, far = rank <= 2 ? 3e7 : rank <= 4 ? 1.2e7 : 5e6;
+            lc.add({
+                position: Cz.Cartesian3.fromDegrees(p.LABEL_X, p.LABEL_Y, 200), text: name.toUpperCase(),
+                font: '600 26px "Share Tech Mono", monospace', scale: 0.5, fillColor: Cz.Color.WHITE.withAlpha(0.9),
+                outlineColor: Cz.Color.BLACK, outlineWidth: 5, style: Cz.LabelStyle.FILL_AND_OUTLINE,
+                horizontalOrigin: Cz.HorizontalOrigin.CENTER, verticalOrigin: Cz.VerticalOrigin.CENTER,
+                distanceDisplayCondition: new Cz.DistanceDisplayCondition(0, far), scaleByDistance: new Cz.NearFarScalar(1e6, 1.1, 2e7, 0.75)
+            });
+        }
+        borderLines = viewer.scene.primitives.add(pl);
+        countryLabels = viewer.scene.primitives.add(lc);
+    })();
+    return bordersLoading;
+}
+
+// Decode { s, l: delta-encoded lines } into one batched primitive (single draw call)
+function linePrimitive(data, color, width) {
+    const s = data.s || 100, rows = data.l || data;
+    const attr = Cz.ColorGeometryInstanceAttribute.fromColor(color);
+    const instances = [];
+    for (const d of rows) {
+        const flat = []; let x = 0, y = 0;
+        for (let i = 0; i < d.length; i += 2) { x += d[i]; y += d[i + 1]; flat.push(x / s, y / s); }
+        instances.push(new Cz.GeometryInstance({
+            geometry: new Cz.PolylineGeometry({ positions: Cz.Cartesian3.fromDegreesArray(flat), width, arcType: Cz.ArcType.NONE }),
+            attributes: { color: attr }
+        }));
+    }
+    return new Cz.Primitive({ geometryInstances: instances, appearance: new Cz.PolylineColorAppearance({ translucent: true }), asynchronous: true });
+}
+
+// Provinces/states + cities: compact files built by tools/build-geo.mjs
+let regionLines = null, regionLabels = null, regionsLoading = null;
+let cityLabels = null, cityDots = null, citiesLoading = null;
+const camHeight = () => viewer.camera.positionCartographic.height;
+// Glyphs rasterized at 2x and scaled down for crisp edges
+const labelStyle = (size, color) => ({
+    font: `${size * 2}px "Share Tech Mono", monospace`, scale: 0.5, fillColor: color, outlineColor: Cz.Color.BLACK, outlineWidth: 5,
+    style: Cz.LabelStyle.FILL_AND_OUTLINE, disableDepthTestDistance: 2e6
+});
+export async function setRegions(on) {
+    S.regions = !!on; saveSettings();
+    await applyOverlays();
+}
+export async function setCities(on) {
+    S.cities = !!on; saveSettings();
+    await applyOverlays();
+}
+// Regions and cities follow the borders switch
+let regionData = null, cityData = null, overlayHooked = false;
+const REGION_LINES_MAX_H = 6e6;
+async function applyOverlays() {
+    const showR = S.borders && S.regions, showC = S.borders && S.cities;
+    if (showR && !regionLines) await loadRegions();
+    if (showC && !cityData) await loadCities();
+    if (!overlayHooked && (borderLines || regionLines || cityData)) {
+        overlayHooked = true;
+        // Rebuild visible labels when the camera moves
+        viewer.camera.percentageChanged = 0.15;
+        viewer.camera.changed.addEventListener(refreshOverlayLabels);
+        viewer.camera.moveEnd.addEventListener(refreshOverlayLabels);
+    }
+    refreshOverlayLabels();
+}
+function loadRegions() {
+    regionsLoading ??= (async () => {
+        const [lines, labels] = await Promise.all([tryJson('data/admin1-lines.json', 30000), tryJson('data/admin1-labels.json', 30000)]);
+        if (!lines || !labels) { regionsLoading = null; toast(tr('toast.regionsFail')); return; }
+        regionLines = viewer.scene.primitives.add(linePrimitive(lines, Cz.Color.fromCssColorString('#ffd23f').withAlpha(0.6), 1.0));
+        // One label per province name (data has extra points for islands)
+        const seen = new Set();
+        regionData = labels.filter(([name, lon, lat]) => {
+            const k = `${name}|${Math.round(lon / 5)}|${Math.round(lat / 5)}`;
+            if (seen.has(k)) return false;
+            seen.add(k); return true;
+        }).map(([name, lon, lat, rank]) => ({ name, lon, lat, rank, carto: Cz.Cartographic.fromDegrees(lon, lat) }));
+        regionLabels = viewer.scene.primitives.add(new Cz.LabelCollection());
+    })();
+    return regionsLoading;
+}
+// Cities (GeoNames): overview list + 5° detail tiles loaded on demand
+let cityTileSize = 5, cityTileKeys = new Set();
+const cityTiles = new Map(); // key -> rows | 'loading'
+let cityAdmins = [], cityTzs = [];
+const toCity = ([name, lon, lat, pop, cap, gid, cc, adm, elev, tz]) =>
+    ({ name, lon, lat, pop, cap, gid, cc, adm, elev, tz, carto: Cz.Cartographic.fromDegrees(lon, lat) });
+const regionName = cc => { try { return new Intl.DisplayNames([loc()], { type: 'region' }).of(cc); } catch { return cc; } };
+
+// City info panel: base data at once, Wikipedia summary (via Wikidata/GeoNames id) when it arrives
+let cityPick = null;
+async function selectCity(c, fly = true) {
+    clearSelection(false);
+    cityPick = c;
+    if (fly && S.zoom.cities === true) flyTo(c.lon, c.lat, 25000);
+    const tz = cityTzs[c.tz];
+    const f = [[tr('f.country'), (c.cc && regionName(c.cc)) || '—']];
+    if (cityAdmins[c.adm]) f.push([tr('f.province'), cityAdmins[c.adm]]);
+    f.push([tr('f.population'), c.pop ? c.pop.toLocaleString(loc()) : tr('v.unknown')]);
+    if (c.cap) f.push([tr('f.status'), tr(c.cap === 2 ? 'v.capital' : 'v.provCapital')]);
+    if (c.elev != null) f.push([tr('f.elevation'), `${c.elev} m`]);
+    if (tz) {
+        let local = '';
+        try { local = new Date().toLocaleTimeString(loc(), { timeZone: tz, hour: '2-digit', minute: '2-digit' }); } catch { }
+        f.push([tr('f.timezone'), local ? tr('v.nowTime', { tz, t: local }) : tz]);
+    }
+    f.push([tr('f.position'), fmtPos(c.lat, c.lon)]);
+    const info = { layer: 'city', key: String(c.gid), title: c.name, fields: f, image: null, video: null, canCockpit: false, isRadio: false, summary: tr('v.wikiLoading'), link: null };
+    notify('OnSelect', JSON.stringify(info));
+    const wiki = await cityWiki(c.gid);
+    if (cityPick !== c) return;
+    Object.assign(info, wiki ? { summary: wiki.extract, image: wiki.thumb, link: wiki.url } : { summary: null });
+    notify('OnSelect', JSON.stringify(info));
+}
+async function cityWiki(gid) {
+    if (!gid) return null;
+    // GeoNames id → Wikipedia article in the UI language, else English
+    const lw = `https://${S.lang}.wikipedia.org/`;
+    const q = `SELECT ?l ?en WHERE { ?i wdt:P1566 "${gid}" . OPTIONAL { ?l schema:about ?i ; schema:isPartOf <${lw}> } OPTIONAL { ?en schema:about ?i ; schema:isPartOf <https://en.wikipedia.org/> } } LIMIT 1`;
+    const r = await tryJson(`https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(q)}`, 15000);
+    const b = r?.results?.bindings?.[0];
+    const url = b?.l?.value || b?.en?.value;
+    if (!url) return null;
+    const u = new URL(url), title = u.pathname.split('/wiki/')[1];
+    const s = await tryJson(`https://${u.host}/api/rest_v1/page/summary/${title}`, 15000);
+    if (!s?.extract) return null;
+    return { extract: s.extract, thumb: wikiImage(s), url };
+}
+function loadCities() {
+    citiesLoading ??= (async () => {
+        const j = await tryJson('data/cities-top.json', 30000);
+        if (!j?.top) { citiesLoading = null; toast(tr('toast.citiesFail')); return; }
+        cityTileSize = j.tile; cityTileKeys = new Set(j.tiles);
+        cityAdmins = j.admins || []; cityTzs = j.tzs || [];
+        cityData = j.top.map(toCity);
+        cityDots = viewer.scene.primitives.add(new Cz.PointPrimitiveCollection());
+        cityLabels = viewer.scene.primitives.add(new Cz.LabelCollection());
+    })();
+    return citiesLoading;
+}
+// Tiles covering the view; fetch missing ones, return loaded rows
+// Keys "x_y" of T° tiles covering the view rectangle (handles the antimeridian)
+function tilesInView(rect, T, maxSpan = 12) {
+    if (!rect) return [];
+    const w = toDeg(rect.west), e = toDeg(rect.east), s = toDeg(rect.south), n = toDeg(rect.north);
+    const x0 = Math.floor(w / T), x1 = Math.floor((e < w ? e + 360 : e) / T);
+    const y0 = Math.floor(s / T), y1 = Math.floor(n / T);
+    if (x1 - x0 > maxSpan || y1 - y0 > maxSpan) return [];
+    const wrap = 360 / T, keys = [];
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) keys.push(`${((x + wrap / 2) % wrap + wrap) % wrap - wrap / 2}_${y}`);
+    return keys;
+}
+function citiesFromTiles(rect) {
+    const out = [];
+    for (const k of tilesInView(rect, cityTileSize)) {
+        if (!cityTileKeys.has(k)) continue;
+        const t = cityTiles.get(k);
+        if (Array.isArray(t)) { out.push(...t); continue; }
+        if (t) continue;
+        cityTiles.set(k, 'loading');
+        tryJson(`data/cities/${k}.json`, 20000).then(rows => {
+            if (rows) { cityTiles.set(k, rows.map(toCity)); refreshOverlayLabels(); } else cityTiles.delete(k);
+        });
+    }
+    return out;
+}
+// Minimum population shown per camera height
+const cityPopFor = h => h > 8e6 ? 3e6 : h > 3e6 ? 1e6 : h > 1.2e6 ? 3e5 : h > 5e5 ? 1e5 : h > 2e5 ? 3e4 : h > 8e4 ? 1e4 : 0;
+const regionRankFor = h => h > 3e6 ? -1 : h > 1.5e6 ? 4 : h > 6e5 ? 8 : 99;
+function inView(rect, carto) {
+    return !rect || Cz.Rectangle.contains(rect, carto);
+}
+function refreshOverlayLabels() {
+    if (!viewer) return;
+    const h = camHeight(), rect = viewer.camera.computeViewRectangle();
+    const showR = S.borders && S.regions, showC = S.borders && S.cities;
+    refreshBorders(rect, h);
+    if (regionLines) regionLines.show = showR && h < REGION_LINES_MAX_H;
+    if (regionLabels) {
+        regionLabels.removeAll();
+        if (showR) {
+            const max = regionRankFor(h), color = Cz.Color.fromCssColorString('#ffe58a').withAlpha(0.9);
+            let n = 0;
+            for (const r of regionData) {
+                if (r.rank > max || !inView(rect, r.carto)) continue;
+                regionLabels.add({ position: Cz.Cartesian3.fromDegrees(r.lon, r.lat, 150), text: r.name, ...labelStyle(12, color),
+                    horizontalOrigin: Cz.HorizontalOrigin.CENTER, verticalOrigin: Cz.VerticalOrigin.CENTER });
+                if (++n >= 150) break;
+            }
+        }
+    }
+    if (cityLabels) {
+        cityLabels.removeAll(); cityDots.removeAll();
+        if (showC) {
+            const min = cityPopFor(h), white = Cz.Color.WHITE;
+            const list = h < 1.2e6 ? cityData.concat(citiesFromTiles(rect)).sort((a, b) => b.pop - a.pop) : cityData;
+            const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
+            const placed = [];
+            let n = 0;
+            for (const c of list) { // sorted by population: biggest first
+                if ((c.pop < min && !(c.cap === 2 && h < 8e6)) || !inView(rect, c.carto)) continue;
+                const pos = Cz.Cartesian3.fromDegrees(c.lon, c.lat, 120);
+                // Declutter: skip when overlapping a bigger city's label
+                const s = toWin(viewer.scene, pos);
+                if (s) {
+                    const w = 8 + c.name.length * 7;
+                    if (placed.some(p => s.x < p.x + p.w && s.x + w > p.x && Math.abs(s.y - p.y) < 16)) continue;
+                    placed.push({ x: s.x, y: s.y, w });
+                }
+                cityDots.add({ position: pos, pixelSize: c.cap === 2 ? 7 : 5, color: white, outlineColor: Cz.Color.BLACK, outlineWidth: 1, id: { city: c } });
+                cityLabels.add({ position: pos, text: c.name, id: { city: c }, ...labelStyle(c.cap === 2 ? 14 : 12, white), pixelOffset: new Cz.Cartesian2(7, 0),
+                    horizontalOrigin: Cz.HorizontalOrigin.LEFT, verticalOrigin: Cz.VerticalOrigin.CENTER });
+                if (++n >= 250) break;
+            }
+        }
+    }
+}
+
 // space telescopes
 async function tleById(id) {
     const ck = 'wv-tle-cat-' + id;
@@ -430,23 +744,23 @@ async function loadTelescopes() {
         const color = Cz.Color.fromCssColorString(TEL_COLOR);
         const addTel = r => {
             r.pt = coll.telescopes.add({ pixelSize: 8, color, outlineColor: Cz.Color.BLACK, outlineWidth: 1, id: { wv: { layer: 'telescopes', key: r.key } } });
-            r.lbl = telLabels.add({ text: r.label, font: '12px "Share Tech Mono", monospace', fillColor: color, outlineColor: Cz.Color.BLACK, outlineWidth: 2, style: Cz.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cz.Cartesian2(8, -8), horizontalOrigin: Cz.HorizontalOrigin.LEFT });
+            r.lbl = telLabels.add({ text: r.label, font: '24px "Share Tech Mono", monospace', scale: 0.5, fillColor: color, outlineColor: Cz.Color.BLACK, outlineWidth: 4, style: Cz.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cz.Cartesian2(8, -8), horizontalOrigin: Cz.HorizontalOrigin.LEFT });
             store.telescopes.set(r.key, r);
         };
         const tles = await Promise.all(TELESCOPES.map(([id]) => tleById(id).catch(() => null)));
-        TELESCOPES.forEach(([id, name], i) => {
+        TELESCOPES.forEach(([id, name, wikiTitle], i) => {
             const lines = (tles[i] || '').split(/\r?\n/).map(s => s.trimEnd()).filter(Boolean);
             if (lines.length < 3 || !lines[1].startsWith('1 ') || !lines[2].startsWith('2 ')) return;
             let rec;
             try { rec = sat.twoline2satrec(lines[1], lines[2]); } catch { return; }
-            addTel({ key: String(id), label: name, rec, group: 'Ruimtetelescoop', color: TEL_COLOR, lat: 0, lon: 0, alt: 0, vel: 0 });
+            addTel({ key: String(id), label: name, wikiTitle, rec, group: 'grp.telescope', color: TEL_COLOR, lat: 0, lon: 0, alt: 0, vel: 0 });
         });
-        for (const [key, name, offset] of L2_TELESCOPES) addTel({ key, label: name, l2: true, offset, group: 'Ruimtetelescoop (L2)' });
+        for (const [key, name, offset, wikiTitle] of L2_TELESCOPES) addTel({ key, label: name, wikiTitle, l2: true, offset, group: 'grp.telescopeL2' });
         propagateTelescopes();
         drawTelOrbits();
     }
     const n = [...store.telescopes.values()].filter(r => !r.l2).length;
-    report('telescopes', n ? `CelesTrak (SGP4) + ${L2_TELESCOPES.length} op L2 (bij benadering)` : 'bron niet bereikbaar, nieuwe poging…');
+    if (n) report('telescopes', 'st.telescopes', { n: L2_TELESCOPES.length }); else report('telescopes', 'st.sourceDown');
     return n ? 0 : 120000;
 }
 function propagateTelescopes() {
@@ -502,32 +816,33 @@ function addBillboard(layer, r, img, scale) {
 }
 async function loadQuakes() {
     const j = await tryJson('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson');
-    if (!j) { report('quakes', 'bron niet bereikbaar, nieuwe poging…'); return 120000; }
+    if (!j) { report('quakes', 'st.sourceDown'); return 120000; }
     clearLayer('quakes');
     for (const f of j.features || []) {
         const [lon, lat, depth] = f.geometry.coordinates, m = f.properties.mag ?? 0, p = f.properties;
         addPoint('quakes', {
             key: f.id, lat, lon, label: `M${m.toFixed(1)} ${p.place ?? ''}`.trim(),
-            info: { Magnitude: m.toFixed(1), Diepte: `${Math.round(depth)} km`, Tijd: new Date(p.time).toLocaleString('nl-NL'), Locatie: p.place ?? '—', Tsunami: p.tsunami ? 'waarschuwing' : 'nee' }
+            info: [['magnitude', m.toFixed(1)], ['depth', `${Math.round(depth)} km`], ['time', () => new Date(p.time).toLocaleString(loc())],
+                ['location', p.place ?? '—'], ['tsunami', () => tr(p.tsunami ? 'v.warning' : 'v.no')]]
         }, 4 + Math.max(0, m) * 3, m >= 5 ? '#ff3030' : m >= 3 ? '#ff9a2a' : '#ffe14d');
     }
     validateSel('quakes');
-    report('quakes', 'USGS, laatste 24 uur');
+    report('quakes', 'st.quakes');
     return 300000;
 }
 async function loadFires() {
     const j = await tryJson('https://eonet.gsfc.nasa.gov/api/v3/events?category=wildfires&status=open&days=30', 25000);
-    if (!j) { report('fires', 'bron niet bereikbaar, nieuwe poging…'); return 300000; }
+    if (!j) { report('fires', 'st.sourceDown'); return 300000; }
     clearLayer('fires');
     for (const e of j.events || []) {
         const g = e.geometry?.[e.geometry.length - 1];
         if (!g || g.type !== 'Point') continue;
-        const info = { Naam: e.title, Datum: new Date(g.date).toLocaleDateString('nl-NL'), Bron: (e.sources || []).map(s => s.id).join(', ') || '—' };
-        if (g.magnitudeValue) info.Omvang = `${g.magnitudeValue} ${g.magnitudeUnit || ''}`.trim();
+        const info = [['name', e.title], ['date', () => new Date(g.date).toLocaleDateString(loc())], ['source', (e.sources || []).map(s => s.id).join(', ') || '—']];
+        if (g.magnitudeValue) info.push(['extent', `${g.magnitudeValue} ${g.magnitudeUnit || ''}`.trim()]);
         addPoint('fires', { key: e.id, lat: g.coordinates[1], lon: g.coordinates[0], label: e.title, info }, 8, '#ff7a1a');
     }
     validateSel('fires');
-    report('fires', 'NASA EONET, open branden');
+    report('fires', 'st.fires');
     return 1800000;
 }
 async function loadLaunches() {
@@ -536,7 +851,7 @@ async function loadLaunches() {
     try { const c = JSON.parse(localStorage.getItem(ck) || 'null'); if (c && Date.now() - c.t < 3600000) list = c.d; } catch { }
     if (!list) {
         const j = await tryJson('https://ll.thespacedevs.com/2.3.0/launches/upcoming/?limit=40&mode=normal', 25000);
-        if (!j?.results) { report('launches', 'bron niet bereikbaar (limiet?), nieuwe poging…'); return 600000; }
+        if (!j?.results) { report('launches', 'st.sourceDownLimit'); return 600000; }
         list = j.results.map(l => ({
             id: l.id, name: l.name, net: l.net, status: l.status?.name, provider: l.launch_service_provider?.name,
             rocket: l.rocket?.configuration?.full_name, pad: l.pad?.name, loc: l.pad?.location?.name,
@@ -550,37 +865,28 @@ async function loadLaunches() {
         if (!Number.isFinite(l.lat) || !Number.isFinite(l.lon)) continue;
         addBillboard('launches', {
             key: l.id, lat: l.lat, lon: l.lon, label: l.name, net: l.net,
-            info: { Missie: l.name, Tijdstip: new Date(l.net).toLocaleString('nl-NL'), Status: l.status || '—', Aanbieder: l.provider || '—', Raket: l.rocket || '—', Platform: l.pad || '—', Locatie: l.loc || '—', Omschrijving: (l.mission || '—').slice(0, 280) }
+            info: [['mission', l.name], ['launchTime', () => new Date(l.net).toLocaleString(loc())], ['countdown', () => countdown(l.net)], ['status', l.status || '—'],
+                ['provider', l.provider || '—'], ['rocket', l.rocket || '—'], ['pad', l.pad || '—'], ['location', l.loc || '—'], ['description', (l.mission || '—').slice(0, 280)]]
         }, img, 0.8);
     }
     validateSel('launches');
-    report('launches', 'Launch Library 2, komende lanceringen');
+    report('launches', 'st.launches');
     return 3600000;
 }
 async function loadRadio() {
-    if (store.radio.size) { report('radio', 'Radio Browser'); return 0; }
-    let j = null;
-    for (const h of RADIO_HOSTS) {
-        j = await tryJson(`${h}/json/stations/search?has_geo_info=true&hidebroken=true&is_https=true&order=clickcount&reverse=true&limit=750`, 15000);
-        if (j) break;
-    }
-    if (!j) { report('radio', 'bron niet bereikbaar, nieuwe poging…'); return 120000; }
-    for (const s of j) {
-        if (!s.url_resolved?.startsWith('https:') || s.geo_lat == null || s.geo_long == null || store.radio.has(s.stationuuid)) continue;
-        const name = (s.name || '').trim();
-        addPoint('radio', {
-            key: s.stationuuid, lat: s.geo_lat, lon: s.geo_long, label: name, stream: s.url_resolved,
-            info: { Zender: name, Land: s.country || '—', Genre: (s.tags || '').split(',').slice(0, 4).join(', ') || '—', Codec: `${s.codec || '?'} ${s.bitrate ? s.bitrate + ' kbps' : ''}`.trim() }
-        }, 5, '#ff4fd8');
-    }
-    radioOrder = [...store.radio.values()].sort((a, b) => a.lon - b.lon).map(r => r.key);
-    report('radio', 'Radio Browser');
+    if (store.radio.size) { report('radio', () => 'Radio Browser'); return 0; }
+    const j = await radioApi('/json/stations/search?has_geo_info=true&hidebroken=true&is_https=true&order=clickcount&reverse=true&limit=750');
+    if (!j) { report('radio', 'st.sourceDown'); return 120000; }
+    for (const s of j) addRadioStation(s);
+    report('radio', () => 'Radio Browser');
+    runRadioSearch();
     return 0;
 }
 // Public traffic cameras: keyless, CORS-enabled lists; each returns [{id, lat, lon, name, image, video?}]
+// name = region id, translated via 'cam.<name>'
 const CAMERA_SOURCES = [
     {
-        name: 'Londen', owner: 'Transport for London', load: async () => {
+        name: 'london', owner: 'Transport for London', load: async () => {
             const j = await tryJson('https://api.tfl.gov.uk/Place/Type/JamCam', 25000);
             return j?.map(c => {
                 const p = Object.fromEntries((c.additionalProperties || []).map(x => [x.key, x.value]));
@@ -589,7 +895,7 @@ const CAMERA_SOURCES = [
         }
     },
     {
-        name: 'Finland', owner: 'Fintraffic', load: async () => {
+        name: 'finland', owner: 'Fintraffic', load: async () => {
             const j = await tryJson('https://tie.digitraffic.fi/api/weathercam/v1/stations', 25000);
             return j?.features?.map(f => {
                 const preset = f.properties.presets?.find(p => p.inCollection) ?? f.properties.presets?.[0];
@@ -598,7 +904,7 @@ const CAMERA_SOURCES = [
         }
     },
     {
-        name: 'Californië', owner: 'Caltrans', load: async () => {
+        name: 'california', owner: 'Caltrans', load: async () => {
             const districts = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
             const parts = await Promise.all(districts.map(d => tryJson(`https://cwwp2.dot.ca.gov/data/d${+d}/cctv/cctvStatusD${d}.json`, 30000)));
             const out = [];
@@ -611,21 +917,21 @@ const CAMERA_SOURCES = [
         }
     },
     {
-        name: 'Austin', owner: 'City of Austin', load: async () => {
+        name: 'austin', owner: 'City of Austin', load: async () => {
             const j = await tryJson("https://data.austintexas.gov/resource/b4k4-adkb.json?$where=camera_status='TURNED_ON'&$limit=5000", 25000);
             return j?.filter(c => c.location?.coordinates && c.screenshot_address)
                 .map(c => ({ id: c.camera_id, lat: c.location.coordinates[1], lon: c.location.coordinates[0], name: (c.location_name || c.camera_id).trim(), image: c.screenshot_address }));
         }
     },
     {
-        name: 'Calgary', owner: 'City of Calgary', load: async () => {
+        name: 'calgary', owner: 'City of Calgary', load: async () => {
             const j = await tryJson('https://data.calgary.ca/resource/k7p9-kppz.json?$limit=1000', 25000);
             return j?.filter(c => c.point?.coordinates && c.camera_url?.url)
                 .map(c => ({ id: c.camera_url.url, lat: c.point.coordinates[1], lon: c.point.coordinates[0], name: c.camera_location, image: c.camera_url.url }));
         }
     },
     {
-        name: 'Hongkong', owner: 'Transport Department HK', load: async () => {
+        name: 'hongkong', owner: 'Transport Department HK', load: async () => {
             try {
                 const r = await fetch('https://static.data.gov.hk/td/traffic-snapshot-images/code/Traffic_Camera_Locations_En.csv');
                 if (!r.ok) return null;
@@ -644,17 +950,18 @@ async function loadCameras() {
     for (const { s, list } of results) {
         const valid = (list || []).filter(c => c && c.image && Number.isFinite(c.lat) && Number.isFinite(c.lon));
         if (!valid.length) { failed.push(s.name); continue; }
-        ok.push(`${s.name} ${valid.length}`);
+        ok.push([s.name, valid.length]);
         for (const c of valid) {
             const key = `${s.name}:${c.id}`;
             if (store.cameras.has(key)) continue;
             addBillboard('cameras', {
                 key, lat: c.lat, lon: c.lon, label: c.name, image: c.image, video: c.video || null,
-                info: { Camera: c.name, Regio: s.name, Beheerder: s.owner }
+                info: [['camera', c.name], ['region', () => tr(`cam.${s.name}`)], ['operator', s.owner]]
             }, img, 0.6);
         }
     }
-    report('cameras', ok.join(' · ') + (failed.length ? ` · niet bereikbaar: ${failed.join(', ')}` : ''));
+    report('cameras', () => ok.map(([n, c]) => `${tr(`cam.${n}`)} ${c}`).join(' · ')
+        + (failed.length ? ` · ${tr('st.camsDown', { list: failed.map(n => tr(`cam.${n}`)).join(', ') })}` : ''));
     return ok.length ? 0 : 120000;
 }
 
@@ -687,7 +994,7 @@ function select(layer, key, fly) {
     const zoom = S.zoom[layer] === true;
     if (moving) { if (zoom) viewer.trackedEntity = trackEntity; }
     else if (fly && zoom) flyTo(r.lon, r.lat, layer === 'cameras' ? 1500 : layer === 'radio' ? 150000 : 400000);
-    if (layer === 'radio') playRadio(r);
+    if (layer === 'radio' && radioCurrent !== key) radioPlay(key, false);
     pushInfo();
 }
 export function clearSelection(notifyUi = true) {
@@ -695,16 +1002,19 @@ export function clearSelection(notifyUi = true) {
     if (viewer) viewer.trackedEntity = undefined;
     if (trackEntity) viewer.entities.remove(trackEntity);
     if (orbitEntity) viewer.entities.remove(orbitEntity);
-    if (selected?.layer === 'radio') stopRadio();
-    trackEntity = orbitEntity = null; selected = null; trail = [];
+    trackEntity = orbitEntity = null; selected = null; trail = []; cityPick = null;
     if (notifyUi) notify('OnSelect', null);
 }
-function fmtPos(lat, lon) { return `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'Z'} ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'O' : 'W'}`; }
+function fmtPos(lat, lon) {
+    return `${Math.abs(lat).toFixed(4)}°${tr(lat >= 0 ? 'dir.n' : 'dir.s')} ${Math.abs(lon).toFixed(4)}°${tr(lon >= 0 ? 'dir.e' : 'dir.w')}`;
+}
 function countdown(net) {
     const ms = new Date(net).getTime() - Date.now(), a = Math.abs(ms);
     const d = Math.floor(a / 86400000), h = Math.floor(a / 3600000) % 24, m = Math.floor(a / 60000) % 60;
-    return `${ms >= 0 ? 'T-' : 'T+'}${d ? d + 'd ' : ''}${h}u ${m}m`;
+    return `${ms >= 0 ? 'T-' : 'T+'}${d ? d + tr('u.day') + ' ' : ''}${h}${tr('u.hour')} ${m}m`;
 }
+// info rows: [fieldKey, value | () => value]
+const infoRows = (rows, f) => { for (const [k, v] of rows || []) f.push([tr('f.' + k), typeof v === 'function' ? v() : String(v)]); };
 function pushInfo() {
     if (!selected) return;
     const L = selected.layer, r = store[L].get(selected.key);
@@ -712,36 +1022,182 @@ function pushInfo() {
     const f = [];
     if (MOVERS.includes(L)) {
         const [la, lo] = posAt(r, Date.now());
-        for (const [k, v] of Object.entries(r.info)) f.push([k, String(v)]);
-        f.push(['Hoogte', r.ground ? 'aan de grond' : `${Math.round(r.alt).toLocaleString('nl-NL')} m (FL${Math.round(r.alt / FT / 100)})`]);
-        f.push(['Snelheid', `${Math.round(r.gs * 3.6)} km/u`], ['Koers', `${Math.round(r.track || 0)}°`], ['Positie', fmtPos(la, lo)]);
+        infoRows(r.info, f);
+        f.push([tr('f.altitude'), r.ground ? tr('v.onGround') : `${Math.round(r.alt).toLocaleString(loc())} m (FL${Math.round(r.alt / FT / 100)})`]);
+        f.push([tr('f.speed'), `${Math.round(r.gs * 3.6)} ${tr('u.kmh')}`], [tr('f.heading'), `${Math.round(r.track || 0)}°`], [tr('f.position'), fmtPos(la, lo)]);
     } else if (r.l2) {
         const km = Cz.Cartesian3.magnitude(l2Position(r.offset)) / 1000;
-        f.push(['Groep', r.group], ['Locatie', 'Zon-aarde Lagrangepunt L2'], ['Afstand', `± ${Math.round(km / 1e5) / 10} mln km`], ['Positie', 'bij benadering (geen baangegevens)']);
+        f.push([tr('f.group'), tr(r.group)], [tr('f.location'), tr('v.l2')], [tr('f.distance'), tr('v.millionKm', { n: Math.round(km / 1e5) / 10 })], [tr('f.position'), tr('v.approx')]);
     } else if (ORBITERS.includes(L)) {
-        f.push(['Groep', r.group], ['NORAD', r.key], ['Hoogte', `${Math.round(r.alt / 1000).toLocaleString('nl-NL')} km`], ['Snelheid', `${r.vel.toFixed(2)} km/s`]);
-        if (r.rec?.no) f.push(['Omlooptijd', `${(2 * Math.PI / r.rec.no).toFixed(1)} min`]);
-        f.push(['Positie', fmtPos(r.lat, r.lon)]);
+        f.push([tr('f.group'), tr(r.group)], [tr('f.norad'), r.key], [tr('f.altitude'), `${Math.round(r.alt / 1000).toLocaleString(loc())} km`], [tr('f.speed'), `${r.vel.toFixed(2)} km/s`]);
+        if (r.rec?.no) f.push([tr('f.period'), `${(2 * Math.PI / r.rec.no).toFixed(1)} min`]);
+        f.push([tr('f.position'), fmtPos(r.lat, r.lon)]);
     } else {
-        for (const [k, v] of Object.entries(r.info || {})) f.push([k, String(v)]);
-        if (L === 'launches' && r.net) f.splice(2, 0, ['Countdown', countdown(r.net)]);
+        infoRows(r.info, f);
     }
-    const img = r.image ? `${r.image}${r.image.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 30000)}` : null;
-    notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: f, image: img, video: r.video || null, canCockpit: MOVERS.includes(L), isRadio: L === 'radio' }));
+    let img = r.image ? `${r.image}${r.image.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 30000)}` : null;
+    let summary = null, link = null;
+    if (r.wikiTitle) {
+        const w = r.wiki?.lang === S.lang ? r.wiki : null;
+        if (!w) loadWiki(r);
+        img = w?.thumb || null; summary = w ? w.extract : tr('v.wikiLoading'); link = w?.url || null;
+    }
+    notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: f, image: img, video: r.video || null, canCockpit: MOVERS.includes(L), isRadio: L === 'radio', summary, link }));
+}
+// Sharp image (max 1280 px wide) instead of the 330 px summary thumbnail
+function wikiImage(s) {
+    const th = s?.thumbnail?.source, orig = s?.originalimage;
+    if (!th) return null;
+    if (orig?.source && orig.width <= 1280) return orig.source;
+    return /\/\d+px-/.test(th) ? th.replace(/\/\d+px-/, '/1280px-') : th;
+}
+// Photo + description from Wikipedia: article in the UI language (via Wikidata), image/fallback from English
+async function loadWiki(r) {
+    const lang = S.lang;
+    if (r.wikiLoading === lang) return;
+    r.wikiLoading = lang;
+    let title = r.wikiTitle, host = 'en.wikipedia.org';
+    if (lang !== 'en') {
+        const w = await tryJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&sites=enwiki&titles=${encodeURIComponent(r.wikiTitle)}&props=sitelinks&sitefilter=${lang}wiki&format=json&origin=*`, 15000);
+        const local = w && Object.values(w.entities || {})[0]?.sitelinks?.[`${lang}wiki`]?.title;
+        if (local) { title = local; host = `${lang}.wikipedia.org`; }
+    }
+    const path = encodeURIComponent(title.replace(/ /g, '_'));
+    let s = await tryJson(`https://${host}/api/rest_v1/page/summary/${path}`, 15000);
+    // Local article without photo: take the English one
+    if (s && !s.thumbnail && host !== 'en.wikipedia.org') {
+        const en = await tryJson(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(r.wikiTitle.replace(/ /g, '_'))}`, 15000);
+        if (en?.thumbnail) { s.thumbnail = en.thumbnail; s.originalimage = en.originalimage; }
+    }
+    if (r.wikiLoading !== lang) return;
+    r.wikiLoading = null;
+    r.wiki = { lang, extract: s?.extract || null, thumb: wikiImage(s), url: s ? `https://${host}/wiki/${path}` : null };
+    if (selected && store[selected.layer].get(selected.key) === r) pushInfo();
 }
 
-// ---------- radio ----------
-function playRadio(r) {
-    stopRadio();
-    audio = new Audio(r.stream);
-    audio.play().catch(() => toast('Zender kon niet worden afgespeeld'));
+// ---------- radio (Radio Browser) ----------
+// Playback is independent of the info box: it keeps playing until stopped in the radio panel
+const radioMeta = new Map(); // key -> station meta (also stations without coordinates)
+let radioHost = null, radioQuery = { q: '', cc: '', tag: '', inView: false, fav: false };
+let radioList = [], radioCurrent = null, radioVol = 0.8, radioGen = 0, radioCountryRaw = null;
+
+async function radioApi(path) {
+    for (const h of radioHost ? [radioHost, ...RADIO_HOSTS.filter(x => x !== radioHost)] : RADIO_HOSTS) {
+        const j = await tryJson(h + path, 15000);
+        if (j) { radioHost = h; return j; }
+    }
+    return null;
 }
-export function stopRadio() { if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); audio = null; } }
-export function tuneRadio(i) {
-    const key = radioOrder[i];
-    if (!key) return '';
-    select('radio', key, true);
-    return store.radio.get(key)?.label ?? '';
+function addRadioStation(s) {
+    if (!s?.stationuuid || !s.url_resolved?.startsWith('https:')) return null;
+    let m = radioMeta.get(s.stationuuid);
+    if (!m) {
+        m = {
+            key: s.stationuuid, name: (s.name || '').trim() || '—', cc: s.countrycode || '', country: s.country || '',
+            tags: (s.tags || '').split(',').map(x => x.trim()).filter(Boolean).slice(0, 4).join(', '),
+            codec: s.codec || '', bitrate: s.bitrate || 0, votes: s.clickcount || 0,
+            favicon: s.favicon?.startsWith('https:') ? s.favicon : '', stream: s.url_resolved,
+            lat: s.geo_lat, lon: s.geo_long
+        };
+        radioMeta.set(m.key, m);
+    }
+    // Stations with coordinates also go on the globe
+    if (m.lat != null && m.lon != null && !store.radio.has(m.key)) {
+        addPoint('radio', {
+            key: m.key, lat: m.lat, lon: m.lon, label: m.name, stream: m.stream,
+            info: [['station', m.name], ['country', () => (m.cc && regionName(m.cc)) || m.country || '—'], ['genre', m.tags || '—'], ['codec', `${m.codec || '?'} ${m.bitrate ? m.bitrate + ' kbps' : ''}`.trim()]]
+        }, 5, '#ff4fd8');
+    }
+    return m;
+}
+const isFav = key => (S.radioFav || []).some(f => f.key === key);
+const radioPublic = m => ({
+    key: m.key, name: m.name, country: (m.cc && regionName(m.cc)) || m.country || '', tags: m.tags, codec: m.codec,
+    bitrate: m.bitrate, favicon: m.favicon, geo: m.lat != null && m.lon != null, fav: isFav(m.key)
+});
+// Countries with stations, names in the UI language
+export async function radioCountries() {
+    radioCountryRaw ??= await radioApi('/json/countries?hidebroken=true');
+    const list = (radioCountryRaw || []).filter(c => c.iso_3166_1 && c.stationcount >= 3)
+        .map(c => ({ cc: c.iso_3166_1, name: regionName(c.iso_3166_1) || c.name, n: c.stationcount }));
+    list.sort((a, b) => a.name.localeCompare(b.name, loc()));
+    return JSON.stringify(list);
+}
+export function radioSetQuery(json) {
+    try { radioQuery = { ...radioQuery, ...JSON.parse(json) }; } catch { }
+    runRadioSearch();
+}
+async function runRadioSearch() {
+    const my = ++radioGen, q = radioQuery, text = (q.q || '').trim().toLowerCase();
+    let list;
+    if (q.fav) {
+        for (const f of S.radioFav || []) if (!radioMeta.has(f.key)) radioMeta.set(f.key, { ...f });
+        list = (S.radioFav || []).map(f => radioMeta.get(f.key));
+    } else if (!q.inView && (text || q.cc || q.tag)) {
+        // Targeted server search: all matching stations, not just the preloaded top 750
+        const p = new URLSearchParams({ hidebroken: 'true', is_https: 'true', order: 'clickcount', reverse: 'true', limit: '300' });
+        if (text) p.set('name', text);
+        if (q.cc) p.set('countrycode', q.cc);
+        if (q.tag) p.set('tag', q.tag);
+        const j = await radioApi(`/json/stations/search?${p}`);
+        if (my !== radioGen) return;
+        list = (j || []).map(addRadioStation).filter(Boolean);
+    } else {
+        list = [...radioMeta.values()];
+    }
+    // Client-side filters (view, text, country, genre)
+    const rect = q.inView && viewer ? viewer.camera.computeViewRectangle() : null;
+    list = list.filter(m => m
+        && (!q.inView || (m.lat != null && m.lon != null && inView(rect, Cz.Cartographic.fromDegrees(m.lon, m.lat))))
+        && (!text || m.name.toLowerCase().includes(text))
+        && (!q.cc || m.cc === q.cc)
+        && (!q.tag || m.tags.toLowerCase().includes(q.tag)));
+    if (!q.fav) list.sort((a, b) => b.votes - a.votes);
+    radioList = list.slice(0, 300);
+    if (my !== radioGen) return;
+    notify('OnRadioList', JSON.stringify(radioList.map(radioPublic)));
+}
+function radioNow() {
+    const m = radioMeta.get(radioCurrent);
+    notify('OnRadioNow', m ? JSON.stringify({ ...radioPublic(m), playing: !!audio && !audio.paused }) : null);
+}
+export function radioPlay(key, doSelect = true) {
+    const m = radioMeta.get(key);
+    if (!m) return;
+    stopAudio();
+    radioCurrent = key;
+    audio = new Audio(m.stream);
+    audio.volume = radioVol;
+    audio.addEventListener('playing', radioNow);
+    audio.addEventListener('pause', radioNow);
+    audio.addEventListener('error', () => { toast(tr('toast.radioFail')); radioNow(); });
+    audio.play().catch(() => { toast(tr('toast.radioFail')); radioNow(); });
+    radioNow();
+    // Show it on the globe when it has coordinates
+    if (doSelect && store.radio.has(key)) select('radio', key, true);
+}
+function stopAudio() { if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); audio = null; } }
+export function radioStop() { stopAudio(); radioNow(); }
+export function radioToggle() {
+    if (audio && !audio.paused) audio.pause();
+    else if (audio) audio.play().catch(() => toast(tr('toast.radioFail')));
+    else if (radioCurrent) radioPlay(radioCurrent);
+    else if (radioList[0]) radioPlay(radioList[0].key);
+}
+export function radioStep(dir) {
+    if (!radioList.length) return;
+    const i = radioList.findIndex(m => m.key === radioCurrent);
+    radioPlay(radioList[((i < 0 ? -1 : i) + dir + radioList.length) % radioList.length].key);
+}
+export function radioVolume(v) { radioVol = Math.max(0, Math.min(1, v / 100)); if (audio) audio.volume = radioVol; }
+export function radioFav(key) {
+    const m = radioMeta.get(key);
+    if (!m) return;
+    const favs = S.radioFav || [];
+    S.radioFav = isFav(key) ? favs.filter(f => f.key !== key) : [...favs, { ...m }];
+    saveSettings();
+    runRadioSearch();
+    if (radioCurrent === key) radioNow();
 }
 
 // ---------- camera ----------
@@ -764,7 +1220,7 @@ export async function search(q) {
     if (m && Math.abs(+m[1]) <= 90 && Math.abs(+m[2]) <= 180) { flyTo(+m[2], +m[1], 15000); return `${m[1]}, ${m[2]}`; }
     const city = CITIES[q.toLowerCase()];
     if (city) { flyTo(city[1], city[0], 25000); return q; }
-    const j = await tryJson('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q), 12000);
+    const j = await tryJson(`https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=${S.lang}&q=` + encodeURIComponent(q), 12000);
     if (j?.length) {
         const r = j[0], bb = (r.boundingbox || []).map(Number);
         const span = bb.length === 4 ? Math.max(Math.abs(bb[1] - bb[0]), Math.abs(bb[3] - bb[2])) : 0.1;
@@ -839,11 +1295,26 @@ export function setStyle(name, fromEngine = false) {
     if (styleStage) { viewer.scene.postProcessStages.remove(styleStage); styleStage = null; }
     if (name !== 'normal') {
         try { styleStage = viewer.scene.postProcessStages.add(new Cz.PostProcessStage({ fragmentShader: HEAD + SHADERS[name], uniforms: { time: () => (performance.now() / 1000) % 1000 } })); }
-        catch (e) { toast(`Optiek niet beschikbaar: ${e?.message ?? e}`); }
+        catch (e) { toast(tr('toast.opticsFail', { e: e?.message ?? e })); }
     }
     if (fromEngine) notify('OnStyleChanged', name);
 }
 export function setHud(on) { S.hud = !!on; saveSettings(); }
+
+// ---------- language ----------
+export const getLangs = () => JSON.stringify(LANGS);
+export const getStrings = () => JSON.stringify({ lang: S.lang, strings: strings(S.lang) });
+export function setLang(lang) {
+    if (!(lang in LANGS)) return getStrings();
+    S.lang = lang; saveSettings();
+    document.documentElement.lang = lang;
+    relabelCountries();
+    for (const l of LAYERS) if (lastStatus[l]) notify('OnLayerStatus', l, store[l].size, statusText(l));
+    if (selected) pushInfo();
+    else if (cityPick) selectCity(cityPick, false);
+    if (radioMeta.size) { runRadioSearch(); radioNow(); }
+    return getStrings();
+}
 export function setZoom(layer, on) { S.zoom[layer] = !!on; saveSettings(); }
 export function setDetect(on, fromEngine = false) {
     S.detect = !!on; saveSettings();
@@ -851,7 +1322,7 @@ export function setDetect(on, fromEngine = false) {
     if (fromEngine) notify('OnToggle', 'detect', S.detect);
 }
 export function setCockpit(on) {
-    if (on && !(selected && MOVERS.includes(selected.layer))) { toast('Selecteer eerst een vliegtuig'); on = false; }
+    if (on && !(selected && MOVERS.includes(selected.layer))) { toast(tr('toast.selectPlane')); on = false; }
     S.cockpit = on;
     const r = selected ? store[selected.layer].get(selected.key) : null;
     if (r?.bb) r.bb.show = !on;
@@ -879,6 +1350,7 @@ function tick() {
     if (selected && now - lastInfo > 2000) { lastInfo = now; pushInfo(); }
 }
 function onPreRender() {
+    navStep();
     if (!S.cockpit || !selected) return;
     const r = store[selected.layer].get(selected.key);
     if (!r) return;
@@ -892,10 +1364,11 @@ function onPostRender() {
         const c = viewer.camera.positionCartographic;
         notify('OnCamera', toDeg(c.latitude), toDeg(c.longitude), c.height, (toDeg(viewer.camera.heading) + 360) % 360);
     }
-    if (S.detect && now - lastDetect > 100) {
+    // Every frame: boxes stay glued to their targets while the globe moves
+    if (S.detect) {
         lastDetect = now;
         // Never let the overlay break Cesium's render loop
-        try { drawDetect(); } catch (e) { console.warn('detect', e); setDetect(false, true); toast(`Detectie uitgeschakeld: ${e?.message ?? e}`); }
+        try { drawDetect(); } catch (e) { console.warn('detect', e); setDetect(false, true); toast(tr('toast.detectOff', { e: e?.message ?? e })); }
     }
 }
 function drawDetect() {
@@ -914,17 +1387,22 @@ function drawDetect() {
             if (!p || !occ.isPointVisible(p)) continue;
             const s = toWin(viewer.scene, p);
             if (!s || s.x < 0 || s.y < 0 || s.x > w || s.y > h) continue;
-            items.push([Math.hypot(s.x - w / 2, s.y - h / 2), s.x, s.y, r, l]);
+            // Targets labelled last frame keep priority: no flicker/reshuffle while rotating
+            const d = Math.hypot(s.x - w / 2, s.y - h / 2) - (detectShown.has(r) ? 1e6 : 0);
+            items.push([d, s.x, s.y, r, l]);
         }
     }
     items.sort((a, b) => a[0] - b[0]);
-    ctx.lineWidth = 1; ctx.font = '10px "Share Tech Mono", monospace';
+    const shownNow = new Set();
+    ctx.lineWidth = 1; ctx.font = '13px "Share Tech Mono", monospace';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3;
     const b = 11, drawn = [];
     for (const [, x, y, r, l] of items) {
         // Declutter: skip targets overlapping an already boxed one
         if (drawn.length >= 60) break;
-        if (drawn.some(([dx, dy]) => Math.abs(dx - x) < 90 && Math.abs(dy - y) < 26)) continue;
+        if (drawn.some(([dx, dy]) => Math.abs(dx - x) < 120 && Math.abs(dy - y) < 30)) continue;
         drawn.push([x, y]);
+        shownNow.add(r);
         ctx.strokeStyle = ctx.fillStyle = DETECT_COLORS[l];
         ctx.beginPath();
         for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
@@ -933,16 +1411,52 @@ function drawDetect() {
         ctx.stroke();
         ctx.fillText(String(r.label || r.key).slice(0, 18), x + b + 3, y - b + 8);
     }
+    detectShown = shownNow;
 }
+let detectShown = new Set();
+// Arrow keys pan, +/- zoom; applied every frame while held for smooth motion
+const NAV_KEYS = new Set(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', '+', '=', '-', '_']);
+const navHeld = new Set();
+let navLast = 0;
+const isTyping = t => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+function navStep() {
+    const now = performance.now(), dt = Math.min(0.1, (now - (navLast || now)) / 1000);
+    navLast = now;
+    if (!navHeld.size || S.cockpit) return;
+    const cam = viewer.camera, h = camHeight();
+    // Move over the globe relative to the screen (heading-aware), keeping height and view angle
+    const dy = (navHeld.has('arrowup') ? 1 : 0) - (navHeld.has('arrowdown') ? 1 : 0);
+    const dx = (navHeld.has('arrowright') ? 1 : 0) - (navHeld.has('arrowleft') ? 1 : 0);
+    if (dx || dy) {
+        if (viewer.trackedEntity) viewer.trackedEntity = undefined;
+        const c = cam.positionCartographic, hd = cam.heading;
+        const ang = Math.min(0.6, h / R_EARTH) * 0.6 * dt; // ≈ half a view per second
+        const east = dy * Math.sin(hd) + dx * Math.cos(hd), north = dy * Math.cos(hd) - dx * Math.sin(hd);
+        const lat = Math.max(-1.55, Math.min(1.55, c.latitude + north * ang));
+        const lon = c.longitude + east * ang / Math.max(0.05, Math.cos(c.latitude));
+        cam.setView({ destination: Cz.Cartesian3.fromRadians(lon, lat, c.height), orientation: { heading: hd, pitch: cam.pitch, roll: cam.roll } });
+    }
+    const zin = navHeld.has('+') || navHeld.has('='), zout = navHeld.has('-') || navHeld.has('_');
+    if (zin && h > 50) cam.zoomIn(h * 0.7 * dt);
+    if (zout && h < 6e7) cam.zoomOut(h * 0.7 * dt);
+}
+function onKeyUp(e) { navHeld.delete(e.key.toLowerCase()); }
 function onKey(e) {
     const t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (isTyping(t)) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
+    if (NAV_KEYS.has(k)) {
+        if (!navHeld.size) navLast = performance.now();
+        navHeld.add(k);
+        e.preventDefault();
+        return;
+    }
     if (k >= '1' && k <= '7') setStyle(STYLE_KEYS[+k - 1], true);
     else if (k === 'h') { setHud(!S.hud); notify('OnToggle', 'hud', S.hud); }
     else if (k === 'd') setDetect(!S.detect, true);
     else if (k === 'n') setDayNight(!S.daynight, true);
+    else if (k === 'b') setBorders(!S.borders, true);
     else if (k === 'c') setCockpit(!S.cockpit);
     else if (k === 'escape') { if (S.cockpit) setCockpit(false); else clearSelection(); }
     else return;
@@ -950,31 +1464,46 @@ function onKey(e) {
 }
 
 // ---------- voice (Web Speech API) ----------
-const VOICE_LAYERS = [['vlucht', 'flights'], ['vliegtuig', 'flights'], ['flight', 'flights'], ['plane', 'flights'], ['milit', 'military'], ['satelliet', 'satellites'], ['satellite', 'satellites'], ['telescoop', 'telescopes'], ['telescope', 'telescopes'], ['aardbeving', 'quakes'], ['earthquake', 'quakes'], ['bosbrand', 'fires'], ['brand', 'fires'], ['fire', 'fires'], ['lancering', 'launches'], ['launch', 'launches'], ['radio', 'radio'], ['camera', 'cameras']];
-const VOICE_STYLES = [['nacht', 'nvg'], ['night', 'nvg'], ['nvg', 'nvg'], ['ironbow', 'ironbow'], ['thermisch', 'flir'], ['thermal', 'flir'], ['flir', 'flir'], ['crt', 'crt'], ['noir', 'noir'], ['zwart', 'noir'], ['sneeuw', 'snow'], ['snow', 'snow'], ['normaal', 'normal'], ['normal', 'normal']];
+// Keywords in EN/NL/DE/FR/ZH
+const VOICE_LAYERS = [
+    ['milit', 'military'], ['军', 'military'],
+    ['vlucht', 'flights'], ['vliegtuig', 'flights'], ['flight', 'flights'], ['plane', 'flights'], ['flug', 'flights'], ['avion', 'flights'], ['vol ', 'flights'], ['航班', 'flights'], ['飞机', 'flights'],
+    ['telescop', 'telescopes'], ['teleskop', 'telescopes'], ['télescope', 'telescopes'], ['望远镜', 'telescopes'],
+    ['satel', 'satellites'], ['卫星', 'satellites'],
+    ['aardbeving', 'quakes'], ['earthquake', 'quakes'], ['erdbeben', 'quakes'], ['séisme', 'quakes'], ['seisme', 'quakes'], ['地震', 'quakes'],
+    ['bosbrand', 'fires'], ['brand', 'fires'], ['fire', 'fires'], ['feu', 'fires'], ['火', 'fires'],
+    ['lancering', 'launches'], ['launch', 'launches'], ['raketenstart', 'launches'], ['lancement', 'launches'], ['发射', 'launches'],
+    ['radio', 'radio'], ['电台', 'radio'],
+    ['camera', 'cameras'], ['kamera', 'cameras'], ['caméra', 'cameras'], ['摄像', 'cameras']];
+const VOICE_STYLES = [['nacht', 'nvg'], ['night', 'nvg'], ['nuit', 'nvg'], ['夜视', 'nvg'], ['nvg', 'nvg'], ['ironbow', 'ironbow'],
+    ['thermisch', 'flir'], ['thermal', 'flir'], ['thermique', 'flir'], ['热成像', 'flir'], ['flir', 'flir'], ['crt', 'crt'],
+    ['noir', 'noir'], ['zwart', 'noir'], ['schwarz', 'noir'], ['黑白', 'noir'], ['sneeuw', 'snow'], ['snow', 'snow'], ['schnee', 'snow'], ['neige', 'snow'], ['雪', 'snow'],
+    ['normaal', 'normal'], ['normal', 'normal'], ['正常', 'normal']];
+const VOICE_GO = /(?:ga naar|vlieg naar|breng me naar|neem me mee naar|take me to|fly to|go to|geh(?:e)? zu|flieg(?:e)? nach|zeige|aller à|va à|vole vers|montre|去|飞到|前往)\s*(.+)/;
+const VOICE_OFF = /\b(uit|off|verberg|hide|aus|ausblenden|désactive|cache)\b|关闭|隐藏/;
 async function handleVoice(text) {
     const t = text.toLowerCase().trim();
-    let reply = 'niet begrepen';
-    const go = t.match(/(?:ga naar|vlieg naar|breng me naar|neem me mee naar|take me to|fly to|go to)\s+(.+)/);
+    let reply = tr('v.notUnderstood');
+    const go = t.match(VOICE_GO);
     const layer = VOICE_LAYERS.find(([w]) => t.includes(w));
     const style = VOICE_STYLES.find(([w]) => t.includes(w));
-    if (go) { const r = await search(go[1]); reply = r ? `→ ${r}` : 'locatie niet gevonden'; }
-    else if (/(uitzoom|zoom out|wereldbeeld|globe|reset)/.test(t)) { resetGlobe(); reply = '→ globe'; }
-    else if (layer) { const on = !/\b(uit|off|verberg|hide)\b/.test(t); applyLayer(layer[1], on, true); reply = `→ ${layer[1]} ${on ? 'aan' : 'uit'}`; }
-    else if (style) { setStyle(style[1], true); reply = `→ ${style[1]}`; }
+    if (go) { const r = await search(go[1]); reply = r ? `→ ${r}` : tr('v.locNotFound'); }
+    else if (/(uitzoom|zoom out|wereldbeeld|globe|globus|reset|全球|地球)/.test(t)) { resetGlobe(); reply = `→ ${tr('btn.reset')}`; }
+    else if (layer) { const on = !VOICE_OFF.test(t); applyLayer(layer[1], on, true); reply = `→ ${tr('layer.' + layer[1])} ${tr(on ? 'v.on' : 'v.off')}`; }
+    else if (style) { setStyle(style[1], true); reply = `→ ${style[1].toUpperCase()}`; }
     else if (t.includes('hud')) { setHud(!S.hud); notify('OnToggle', 'hud', S.hud); reply = '→ HUD'; }
-    else if (t.includes('detect')) { setDetect(!S.detect, true); reply = '→ detectie'; }
-    else if (t.includes('cockpit')) { setCockpit(true); reply = '→ cockpit'; }
+    else if (/detect|erkennung|détection|检测/.test(t)) { setDetect(!S.detect, true); reply = `→ ${tr('btn.detect')}`; }
+    else if (/cockpit|驾驶/.test(t)) { setCockpit(true); reply = '→ cockpit'; }
     notify('OnVoice', text, reply);
 }
 export function startVoice() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return false;
     const r = new SR();
-    r.lang = (navigator.language || '').startsWith('nl') ? 'nl-NL' : 'en-US';
+    r.lang = { en: 'en-US', nl: 'nl-NL', de: 'de-DE', fr: 'fr-FR', zh: 'zh-CN' }[S.lang] || 'en-US';
     r.interimResults = false; r.maxAlternatives = 1;
     r.onresult = e => handleVoice(e.results[0][0].transcript);
-    r.onerror = e => toast(`Spraak: ${e.error}`);
+    r.onerror = e => toast(tr('toast.voiceErr', { e: e.error }));
     r.onend = () => notify('OnToggle', 'listening', false);
     r.start();
     return true;

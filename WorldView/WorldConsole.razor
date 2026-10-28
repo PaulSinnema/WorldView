@@ -7,12 +7,12 @@
 
 @if (loading)
 {
-    <div class="boot">WORLDVIEW · GLOBE INITIALISEREN…</div>
+    <div class="boot">@(L.Count > 0 ? T("boot.init") : "WORLDVIEW · …")</div>
 }
 else if (error is not null)
 {
     <div class="boot error">
-        <div>WorldView kon niet starten.</div>
+        <div>@(L.Count > 0 ? T("boot.fail") : "WorldView")</div>
         <div>@error</div>
     </div>
 }
@@ -24,10 +24,10 @@ else if (error is not null)
         <div>@DateTime.UtcNow.ToString("HH:mm:ss") UTC</div>
         <div>POS @FormatLat(camLat) @FormatLon(camLon)</div>
         <div>ALT @FormatAlt(camAlt) · HDG @camHeading.ToString("000")°</div>
-        <div>OPTIEK @StyleLabel(style).ToUpperInvariant()@(detect ? " · DETECTIE" : "")@(cockpit ? " · COCKPIT" : "")</div>
+        <div>@T("hud.optics") @StyleLabel(style).ToUpperInvariant()@(detect ? " · " + T("hud.detect") : "")@(cockpit ? " · COCKPIT" : "")</div>
         @if (selection is not null)
         {
-            <div class="hud-target">DOEL @selection.Title</div>
+            <div class="hud-target">@T("hud.target") @selection.Title</div>
         }
     </div>
     <div class="crosshair"></div>
@@ -35,15 +35,23 @@ else if (error is not null)
 
 <div class="topbar">
     <form class="search" @onsubmit="DoSearch">
-        <input @bind="searchText" @bind:event="oninput" placeholder="Zoek plaats of lat, lon…" aria-label="Zoeken" />
-        <button type="submit" title="Zoeken">⌕</button>
+        <input @bind="searchText" @bind:event="oninput" placeholder="@T("search.placeholder")" aria-label="@T("search.title")" />
+        <button type="submit" title="@T("search.title")">⌕</button>
     </form>
-    <button class="mic @(listening ? "on" : "")" title="Spraakbesturing" @onclick="StartVoice">🎙</button>
-    <button title="Paneel" @onclick="() => panelToggled = !panelToggled">☰</button>
+    <button class="mic @(listening ? "on" : "")" title="@T("voice.title")" @onclick="StartVoice">🎙</button>
+    <button title="@T("panel.title")" @onclick="() => panelToggled = !panelToggled">☰</button>
 </div>
 
 <aside class="panel @(panelToggled ? "toggled" : "")">
-    <h3>DATALAGEN</h3>
+    <h3>@T("sec.lang")</h3>
+    <select value="@lang" @onchange="OnLangChange" aria-label="@T("sec.lang")">
+        @foreach (var (langCode, langName) in langs)
+        {
+            <option value="@langCode">@langName</option>
+        }
+    </select>
+
+    <h3>@T("sec.layers")</h3>
     @foreach (var l in LayerDefs)
     {
         var on = layers.GetValueOrDefault(l.Key);
@@ -53,10 +61,10 @@ else if (error is not null)
             <label class="layer">
                 <input type="checkbox" checked="@on" @onchange="e => ToggleLayer(l.Key, e.Value is true)" />
                 <span class="dot" style="background:@l.Color"></span>
-                <span class="name">@l.Label</span>
+                <span class="name">@T("layer." + l.Key)</span>
                 <span class="count">@(on && st.Count > 0 ? st.Count.ToString("N0") : "")</span>
             </label>
-            <button class="zoom @(zoom ? "active" : "")" title="@(zoom ? "Inzoomen bij klikken: aan" : "Inzoomen bij klikken: uit")" @onclick="() => ToggleZoom(l.Key)">⌖</button>
+            <button class="zoom @(zoom ? "active" : "")" title="@T(zoom ? "zoom.on" : "zoom.off")" @onclick="() => ToggleZoom(l.Key)">⌖</button>
         </div>
         @if (on && !string.IsNullOrEmpty(st.Status))
         {
@@ -64,27 +72,35 @@ else if (error is not null)
         }
     }
 
-    <h3>OPTIEK</h3>
+    <h3>@T("sec.optics")</h3>
     <div class="styles">
         @for (var i = 0; i < Styles.Length; i++)
         {
             var s = Styles[i];
             var n = i + 1;
-            <button class="@(style == s.Key ? "active" : "")" @onclick="() => SetStyle(s.Key)"><b>@n</b> @s.Label</button>
+            <button class="@(style == s ? "active" : "")" @onclick="() => SetStyle(s)"><b>@n</b> @StyleLabel(s)</button>
         }
     </div>
 
-    <h3>WEERGAVE</h3>
+    <h3>@T("sec.display")</h3>
     <div class="toggles">
         <button class="@(hud ? "active" : "")" @onclick="ToggleHud">H · HUD</button>
-        <button class="@(detect ? "active" : "")" @onclick="ToggleDetect">D · Detectie</button>
-        <button class="@(dayNight ? "active" : "")" @onclick="ToggleDayNight">N · Dag/nacht</button>
+        <button class="@(detect ? "active" : "")" @onclick="ToggleDetect">D · @T("btn.detect")</button>
+        <button class="@(dayNight ? "active" : "")" @onclick="ToggleDayNight">N · @T("btn.daynight")</button>
+        <button class="@(borders ? "active" : "")" @onclick="ToggleBorders">B · @T("btn.borders")</button>
     </div>
+    @if (borders)
+    {
+        <div class="toggles" style="margin-top:4px">
+            <button class="@(regions ? "active" : "")" @onclick="ToggleRegions">@T("btn.regions")</button>
+            <button class="@(cities ? "active" : "")" @onclick="ToggleCities">@T("btn.cities")</button>
+        </div>
+    }
     @if (dayNight)
     {
         <label class="slider">
-            <span>Nacht</span>
-            <input type="range" min="0" max="100" value="@nightLight" @oninput="SetNightLight" aria-label="Helderheid nachtzijde" />
+            <span>@T("night")</span>
+            <input type="range" min="0" max="100" value="@nightLight" @oninput="SetNightLight" aria-label="@T("night.aria")" />
             <span>@nightLight%</span>
         </label>
     }
@@ -93,39 +109,39 @@ else if (error is not null)
         <div class="hint">GPU: @gpu</div>
     }
 
-    <h3>KAART</h3>
+    <h3>@T("sec.map")</h3>
     <select value="@basemap" @onchange="OnBasemapChange">
-        <option value="esri">Esri satelliet</option>
-        <option value="dark">Donker (CARTO)</option>
-        <option value="osm">OpenStreetMap</option>
-        <option value="google">Google 3D (ion-token)</option>
+        <option value="esri">@T("map.esri")</option>
+        <option value="dark">@T("map.dark")</option>
+        <option value="osm">@T("map.osm")</option>
+        <option value="google">@T("map.google")</option>
     </select>
     <div class="actions">
-        <button @onclick="ResetGlobe">⌂ Reset globe</button>
-        <button @onclick="Share">🔗 Deel link</button>
+        <button @onclick="ResetGlobe">⌂ @T("btn.reset")</button>
+        <button @onclick="Share">🔗 @T("btn.share")</button>
     </div>
 
     <h3>POWER UP</h3>
     <div class="powerup">
-        <input type="password" @bind="ionToken" @bind:event="oninput" placeholder="Cesium ion-token" aria-label="Cesium ion-token" />
-        <button @onclick="SaveToken">Opslaan</button>
+        <input type="password" @bind="ionToken" @bind:event="oninput" placeholder="@T("ion.placeholder")" aria-label="@T("ion.placeholder")" />
+        <button @onclick="SaveToken">@T("btn.save")</button>
     </div>
-    <div class="hint">Optioneel. Gratis token via cesium.com/ion schakelt Google 3D-steden en wereldterrein in. Wordt alleen in deze browser bewaard.</div>
-    <div class="hint">Vluchtdata: OpenSky Network · militair: adsb.lol (ODbL)</div>
-    <div class="keys">1–7 optiek · H HUD · D detectie · N dag/nacht · C cockpit · Esc loslaten</div>
+    <div class="hint">@T("hint.ion")</div>
+    <div class="hint">@T("hint.sources")</div>
+    <div class="keys">@T("hint.keys")</div>
 </aside>
 
 @if (selection is not null)
 {
     <section class="info">
-        <header><span>@selection.Title</span><button class="x" title="Sluiten" @onclick="ClearSelection">✕</button></header>
+        <header><span>@selection.Title</span><button class="x" title="@T("info.close")" @onclick="ClearSelection">✕</button></header>
         @if (!string.IsNullOrEmpty(selection.Video))
         {
-            <video class="media" src="@selection.Video" autoplay muted loop playsinline title="Klik om te vergroten" @onclick="ToggleEnlarge"></video>
+            <video class="media" src="@selection.Video" autoplay muted loop playsinline title="@T("info.enlarge")" @onclick="ToggleEnlarge"></video>
         }
         else if (!string.IsNullOrEmpty(selection.Image))
         {
-            <img class="media" src="@selection.Image" alt="Camerabeeld" title="Klik om te vergroten" @onclick="ToggleEnlarge" />
+            <img class="media" src="@selection.Image" alt="@selection.Title" title="@T("info.enlarge")" @onclick="ToggleEnlarge" />
         }
         <table>
             @foreach (var f in selection.Fields)
@@ -134,19 +150,27 @@ else if (error is not null)
                 <tr><th>@f[0]</th><td>@f[1]</td></tr>
             }
         </table>
+        @if (!string.IsNullOrEmpty(selection.Summary))
+        {
+            <p class="summary">@selection.Summary</p>
+        }
+        @if (!string.IsNullOrEmpty(selection.Link))
+        {
+            <a class="wiki" href="@selection.Link" target="_blank" rel="noopener">@T("info.wiki")</a>
+        }
         <div class="info-actions">
             @if (HasMedia)
             {
-                <button @onclick="ToggleEnlarge">⤢ Vergroot</button>
+                <button @onclick="ToggleEnlarge">⤢ @T("btn.enlarge")</button>
             }
             @if (selection.CanCockpit)
             {
                 <button class="@(cockpit ? "active" : "")" @onclick="ToggleCockpit">C · Cockpit</button>
-                <button @onclick="LoadContacts">Contacten 250 km</button>
+                <button @onclick="LoadContacts">@T("btn.contacts")</button>
             }
             @if (selection.IsRadio)
             {
-                <button @onclick="ClearSelection">■ Stop radio</button>
+                <button @onclick='() => RadioCall("radioStop")'>■ @T("btn.stopRadio")</button>
             }
         </div>
         @if (contacts is { Count: > 0 })
@@ -163,26 +187,98 @@ else if (error is not null)
 
 @if (enlarged && selection is not null && HasMedia)
 {
-    <div class="lightbox" title="Klik om te verkleinen" @onclick="ToggleEnlarge">
-        @if (!string.IsNullOrEmpty(selection.Video))
-        {
-            <video src="@selection.Video" autoplay muted loop playsinline></video>
-        }
-        else
-        {
-            <img src="@selection.Image" alt="Camerabeeld" />
-        }
-        <div class="lb-cap">@selection.Title · klik om te verkleinen</div>
+    @* Zoom/pan handled in index.html (wheel, drag, pinch, double-click) *@
+    <div class="lightbox" @onclick="ToggleEnlarge">
+        <div class="lb-stage">
+            @if (!string.IsNullOrEmpty(selection.Video))
+            {
+                <video class="lb-media" src="@selection.Video" autoplay muted loop playsinline @onclick:stopPropagation="true"></video>
+            }
+            else
+            {
+                <img class="lb-media" src="@selection.Image" alt="@selection.Title" draggable="false" @onclick:stopPropagation="true" />
+            }
+        </div>
+        <div class="lb-bar" @onclick:stopPropagation="true">
+            <button data-zoom="out" title="−">−</button>
+            <button data-zoom="reset" title="1:1">1:1</button>
+            <button data-zoom="in" title="+">+</button>
+            <span class="lb-cap">@selection.Title · @T("info.zoomHint")</span>
+            <button title="@T("info.close")" @onclick="ToggleEnlarge">✕</button>
+        </div>
     </div>
 }
 
-@if (layers.GetValueOrDefault("radio") && RadioCount > 0)
+@if (layers.GetValueOrDefault("radio"))
 {
-    <div class="tuner">
-        <span>📻 AFSTEMMEN</span>
-        <input type="range" min="0" max="@(RadioCount - 1)" value="@radioIndex" @onchange="Tune" aria-label="Radio afstemmen" />
-        <span class="station">@radioStation</span>
-    </div>
+    <section class="radio @(radioCollapsed ? "collapsed" : "")">
+        <div class="radio-head">
+            <button class="radio-toggle" title="@T("radio.collapse")" @onclick="() => radioCollapsed = !radioCollapsed">📻 @(radioCollapsed ? "▴" : "▾")</button>
+            <span class="radio-now @(radioNow?.Playing == true ? "on" : "")">
+                @if (radioNow is not null)
+                {
+                    <b>@radioNow.Name</b>
+                    <span>@string.Join(" · ", new[] { radioNow.Country, radioNow.Tags }.Where(s => !string.IsNullOrEmpty(s)))</span>
+                }
+                else
+                {
+                    <b>@T("radio.title")</b>
+                }
+            </span>
+            <button title="@T("radio.prev")" @onclick='() => RadioCall("radioStep", -1)'>⏮</button>
+            <button title="@T("radio.playPause")" @onclick='() => RadioCall("radioToggle")'>@(radioNow?.Playing == true ? "⏸" : "▶")</button>
+            <button title="@T("radio.next")" @onclick='() => RadioCall("radioStep", 1)'>⏭</button>
+            <button title="@T("radio.stop")" @onclick='() => RadioCall("radioStop")'>■</button>
+            @if (radioNow is not null)
+            {
+                <button class="star @(radioNow.Fav ? "on" : "")" title="@T("radio.fav")" @onclick='() => RadioCall("radioFav", radioNow.Key)'>★</button>
+            }
+            <input class="radio-vol" type="range" min="0" max="100" value="@radioVolume" @oninput="SetRadioVolume" title="@T("radio.volume")" aria-label="@T("radio.volume")" />
+        </div>
+        @if (!radioCollapsed)
+        {
+            <div class="radio-filters">
+                <input type="search" value="@radioText" @oninput="OnRadioText" placeholder="@T("radio.search")" aria-label="@T("radio.search")" />
+                <select value="@radioCountry" @onchange="OnRadioCountry" aria-label="@T("radio.allCountries")">
+                    <option value="">@T("radio.allCountries")</option>
+                    @foreach (var c in radioCountries)
+                    {
+                        <option value="@c.Cc">@c.Name (@c.N)</option>
+                    }
+                </select>
+                <select value="@radioGenre" @onchange="OnRadioGenre" aria-label="@T("radio.allGenres")">
+                    <option value="">@T("radio.allGenres")</option>
+                    @foreach (var (key, tag) in Genres)
+                    {
+                        <option value="@tag">@T("genre." + key)</option>
+                    }
+                </select>
+                <button class="@(radioInView ? "active" : "")" @onclick="ToggleRadioInView">@T("radio.inView")</button>
+                <button class="@(radioFavOnly ? "active" : "")" @onclick="ToggleRadioFav">★ @T("radio.favorites")</button>
+            </div>
+            <div class="radio-count">@(radioList.Count > 0 ? T("radio.count", "n", radioList.Count.ToString("N0")) : T("radio.none"))</div>
+            <ul class="radio-list">
+                @foreach (var s in radioList)
+                {
+                    <li class="@(s.Key == radioNow?.Key ? "current" : "")" @onclick='() => RadioCall("radioPlay", s.Key)'>
+                        @if (!string.IsNullOrEmpty(s.Favicon))
+                        {
+                            <img src="@s.Favicon" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'" />
+                        }
+                        else
+                        {
+                            <span class="noicon">📻</span>
+                        }
+                        <span class="rs-main">
+                            <b>@s.Name</b>
+                            <span>@string.Join(" · ", new[] { s.Country, s.Tags, s.Geo ? "" : T("radio.noGeo") }.Where(x => !string.IsNullOrEmpty(x)))</span>
+                        </span>
+                        <button class="star @(s.Fav ? "on" : "")" title="@T("radio.fav")" @onclick='() => RadioCall("radioFav", s.Key)' @onclick:stopPropagation="true">★</button>
+                    </li>
+                }
+            </ul>
+        }
+    </section>
 }
 
 @if (toast is not null)
@@ -194,40 +290,44 @@ else if (error is not null)
     private static readonly string AppVersion = GetVersion();
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
-    private sealed record LayerDef(string Key, string Label, string Color);
+    private sealed record LayerDef(string Key, string Color);
     private static readonly LayerDef[] LayerDefs =
     [
-        new("flights", "Vluchten", "#3fd0ff"),
-        new("military", "Militaire vluchten", "#ffb020"),
-        new("satellites", "Satellieten", "#ffffff"),
-        new("telescopes", "Ruimtetelescopen", "#00e5ff"),
-        new("quakes", "Aardbevingen", "#ff5050"),
-        new("fires", "Bosbranden", "#ff7a1a"),
-        new("launches", "Lanceringen", "#c080ff"),
-        new("radio", "Radio", "#ff4fd8"),
-        new("cameras", "Verkeerscamera's", "#ff3b3b")
+        new("flights", "#3fd0ff"),
+        new("military", "#ffb020"),
+        new("satellites", "#ffffff"),
+        new("telescopes", "#00e5ff"),
+        new("quakes", "#ff5050"),
+        new("fires", "#ff7a1a"),
+        new("launches", "#c080ff"),
+        new("radio", "#ff4fd8"),
+        new("cameras", "#ff3b3b")
     ];
-    private static readonly (string Key, string Label)[] Styles =
-    [
-        ("normal", "Normaal"), ("crt", "CRT"), ("nvg", "NVG"), ("flir", "FLIR"), ("ironbow", "Ironbow"), ("noir", "Noir"), ("snow", "Sneeuw")
-    ];
+    private static readonly string[] Styles = ["normal", "crt", "nvg", "flir", "ironbow", "noir", "snow"];
 
     private DotNetObjectReference<WorldConsole>? selfRef;
     private IJSObjectReference? module;
     private readonly Dictionary<string, bool> layers = new();
     private readonly Dictionary<string, (int Count, string Status)> layerStatus = new();
-    private string style = "normal", basemap = "esri", ionToken = "", searchText = "", radioStation = "";
+    private string style = "normal", basemap = "esri", ionToken = "", searchText = "";
     private string gpu = "";
     private int nightLight = 60;
+    private bool borders, regions = true, cities = true;
     private readonly Dictionary<string, bool> zoomOn = new();
     private bool hud = true, dayNight = true, detect, cockpit, panelToggled, listening, loading = true;
     private string? error, toast;
     private double camLat, camLon, camAlt, camHeading;
     private SelectionInfo? selection;
     private List<ContactInfo>? contacts;
-    private int radioIndex, toastId;
+    private int toastId;
 
-    private int RadioCount => layerStatus.GetValueOrDefault("radio").Count;
+    // Translations come from wwwroot/js/i18n.js (single source for UI and engine)
+    private Dictionary<string, string> L = new();
+    private Dictionary<string, string> langs = new();
+    private string lang = "en";
+    private string T(string key) => L.TryGetValue(key, out var v) ? v : key;
+    private string T(string key, string name, string value) => T(key).Replace("{" + name + "}", value);
+
     private bool enlarged;
     private bool HasMedia => !string.IsNullOrEmpty(selection?.Video) || !string.IsNullOrEmpty(selection?.Image);
 
@@ -253,7 +353,9 @@ else if (error is not null)
             selfRef = DotNetObjectReference.Create(this);
             // Version query busts the browser/CDN cache for the engine script
             module = await JS.InvokeAsync<IJSObjectReference>("import", $"./js/worldview.js?v={AppVersion}");
+            langs = JsonSerializer.Deserialize<Dictionary<string, string>>(await module.InvokeAsync<string>("getLangs"), JsonOpts) ?? new();
             var json = await module.InvokeAsync<string>("init", "globe", selfRef);
+            ApplyStrings(await module.InvokeAsync<string>("getStrings"));
             var st = JsonSerializer.Deserialize<InitState>(json, JsonOpts);
             if (st is not null)
             {
@@ -265,6 +367,9 @@ else if (error is not null)
                 detect = st.Detect;
                 dayNight = st.DayNight;
                 nightLight = st.NightLight;
+                borders = st.Borders;
+                regions = st.Regions;
+                cities = st.Cities;
                 foreach (var (k, v) in st.Zoom) zoomOn[k] = v;
                 gpu = st.Gpu;
             }
@@ -272,15 +377,33 @@ else if (error is not null)
         catch (Exception ex)
         {
             error = ex.Message;
+            try { if (module is not null) ApplyStrings(await module.InvokeAsync<string>("getStrings")); } catch { }
         }
         loading = false;
         StateHasChanged();
+        if (layers.GetValueOrDefault("radio")) await LoadRadioCountries();
+    }
+
+    private void ApplyStrings(string json)
+    {
+        var s = JsonSerializer.Deserialize<StringsInfo>(json, JsonOpts);
+        if (s is null) return;
+        lang = s.Lang;
+        L = s.Strings;
+    }
+
+    private async Task OnLangChange(ChangeEventArgs e)
+    {
+        if (module is null || e.Value?.ToString() is not { } langCode) return;
+        ApplyStrings(await module.InvokeAsync<string>("setLang", langCode));
+        if (radioCountries.Count > 0) await LoadRadioCountries();
     }
 
     private async Task ToggleLayer(string key, bool on)
     {
         layers[key] = on;
         if (module is not null) await module.InvokeVoidAsync("setLayer", key, on);
+        if (key == "radio" && on && radioCountries.Count == 0) await LoadRadioCountries();
     }
 
     private async Task SetStyle(string key)
@@ -314,6 +437,24 @@ else if (error is not null)
         if (module is not null) await module.InvokeVoidAsync("setNightLight", v);
     }
 
+    private async Task ToggleBorders()
+    {
+        borders = !borders;
+        if (module is not null) await module.InvokeVoidAsync("setBorders", borders, false);
+    }
+
+    private async Task ToggleRegions()
+    {
+        regions = !regions;
+        if (module is not null) await module.InvokeVoidAsync("setRegions", regions);
+    }
+
+    private async Task ToggleCities()
+    {
+        cities = !cities;
+        if (module is not null) await module.InvokeVoidAsync("setCities", cities);
+    }
+
     private async Task ToggleZoom(string key)
     {
         var on = !zoomOn.GetValueOrDefault(key);
@@ -343,7 +484,7 @@ else if (error is not null)
     {
         if (module is null || string.IsNullOrWhiteSpace(searchText)) return;
         var result = await module.InvokeAsync<string?>("search", searchText);
-        _ = ShowToastAsync(result is null ? $"Niet gevonden: {searchText}" : $"→ {result}");
+        _ = ShowToastAsync(result is null ? T("toast.notFound", "q", searchText) : $"→ {result}");
     }
 
     private async Task ResetGlobe()
@@ -355,7 +496,7 @@ else if (error is not null)
     {
         if (module is null) return;
         await module.InvokeAsync<string>("shareLink");
-        _ = ShowToastAsync("Link met camera, lagen en optiek gekopieerd");
+        _ = ShowToastAsync(T("toast.shared"));
     }
 
     private async Task SaveToken()
@@ -367,7 +508,7 @@ else if (error is not null)
     {
         if (module is null) return;
         listening = await module.InvokeAsync<bool>("startVoice");
-        if (!listening) _ = ShowToastAsync("Spraakherkenning wordt niet ondersteund in deze browser");
+        if (!listening) _ = ShowToastAsync(T("toast.noVoice"));
     }
 
     private async Task ClearSelection()
@@ -380,7 +521,7 @@ else if (error is not null)
         if (module is null) return;
         var json = await module.InvokeAsync<string>("getContacts");
         contacts = JsonSerializer.Deserialize<List<ContactInfo>>(json, JsonOpts) ?? [];
-        if (contacts.Count == 0) _ = ShowToastAsync("Geen vliegtuigen binnen 250 km");
+        if (contacts.Count == 0) _ = ShowToastAsync(T("toast.noContacts"));
     }
 
     private async Task SelectContact(ContactInfo c)
@@ -389,11 +530,72 @@ else if (error is not null)
         if (module is not null) await module.InvokeVoidAsync("selectItem", c.Layer, c.Key);
     }
 
-    private async Task Tune(ChangeEventArgs e)
+    // ---------- radio panel ----------
+    private static readonly (string Key, string Tag)[] Genres =
+    [
+        ("news", "news"), ("talk", "talk"), ("pop", "pop"), ("rock", "rock"), ("classical", "classical"), ("jazz", "jazz"),
+        ("dance", "dance"), ("electronic", "electronic"), ("hiphop", "hip hop"), ("country", "country"), ("oldies", "oldies"),
+        ("sports", "sports"), ("chillout", "chillout")
+    ];
+    private List<RadioStation> radioList = new();
+    private List<RadioCountry> radioCountries = new();
+    private RadioStation? radioNow;
+    private string radioText = "", radioCountry = "", radioGenre = "";
+    private bool radioInView, radioFavOnly, radioCollapsed = true; // starts collapsed
+    private int radioVolume = 80;
+    private CancellationTokenSource? radioTextCts;
+
+    private async Task RadioCall(string fn, params object[] args)
     {
-        if (module is null || !int.TryParse(e.Value?.ToString(), out var i)) return;
-        radioIndex = i;
-        radioStation = await module.InvokeAsync<string>("tuneRadio", i);
+        if (module is not null) await module.InvokeVoidAsync(fn, args);
+    }
+
+    private async Task LoadRadioCountries()
+    {
+        if (module is null) return;
+        radioCountries = JsonSerializer.Deserialize<List<RadioCountry>>(await module.InvokeAsync<string>("radioCountries"), JsonOpts) ?? new();
+        StateHasChanged();
+    }
+
+    private Task SendRadioQuery() => RadioCall("radioSetQuery", JsonSerializer.Serialize(new
+    {
+        q = radioText, cc = radioCountry, tag = radioGenre, inView = radioInView, fav = radioFavOnly
+    }));
+
+    // Debounced: search after typing pauses
+    private async Task OnRadioText(ChangeEventArgs e)
+    {
+        radioText = e.Value?.ToString() ?? "";
+        radioTextCts?.Cancel();
+        var cts = radioTextCts = new CancellationTokenSource();
+        try { await Task.Delay(400, cts.Token); } catch (TaskCanceledException) { return; }
+        await SendRadioQuery();
+    }
+
+    private Task OnRadioCountry(ChangeEventArgs e) { radioCountry = e.Value?.ToString() ?? ""; return SendRadioQuery(); }
+    private Task OnRadioGenre(ChangeEventArgs e) { radioGenre = e.Value?.ToString() ?? ""; return SendRadioQuery(); }
+    private Task ToggleRadioInView() { radioInView = !radioInView; return SendRadioQuery(); }
+    private Task ToggleRadioFav() { radioFavOnly = !radioFavOnly; return SendRadioQuery(); }
+
+    private async Task SetRadioVolume(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var v)) return;
+        radioVolume = v;
+        await RadioCall("radioVolume", v);
+    }
+
+    [JSInvokable]
+    public void OnRadioList(string json)
+    {
+        radioList = JsonSerializer.Deserialize<List<RadioStation>>(json, JsonOpts) ?? new();
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnRadioNow(string? json)
+    {
+        radioNow = string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<RadioStation>(json, JsonOpts);
+        StateHasChanged();
     }
 
     private async Task ShowToastAsync(string message)
@@ -430,7 +632,6 @@ else if (error is not null)
         var prevKey = selection?.Key;
         selection = string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<SelectionInfo>(json, JsonOpts);
         if (selection?.Key != prevKey) { contacts = null; enlarged = false; }
-        if (selection?.IsRadio == true) radioStation = selection.Title;
         StateHasChanged();
     }
 
@@ -438,6 +639,7 @@ else if (error is not null)
     public void OnLayerChanged(string layer, bool on)
     {
         layers[layer] = on;
+        if (layer == "radio" && on && radioCountries.Count == 0) _ = LoadRadioCountries();
         StateHasChanged();
     }
 
@@ -456,6 +658,7 @@ else if (error is not null)
             case "hud": hud = on; break;
             case "detect": detect = on; break;
             case "daynight": dayNight = on; break;
+            case "borders": borders = on; break;
             case "cockpit": cockpit = on; break;
             case "listening": listening = on; break;
         }
@@ -468,10 +671,17 @@ else if (error is not null)
     [JSInvokable]
     public void OnVoice(string heard, string reply) => _ = ShowToastAsync($"🎙 \"{heard}\" {reply}");
 
-    private static string FormatLat(double v) => $"{Math.Abs(v):0.0000}°{(v >= 0 ? "N" : "Z")}";
-    private static string FormatLon(double v) => $"{Math.Abs(v):0.0000}°{(v >= 0 ? "O" : "W")}";
+    private string FormatLat(double v) => $"{Math.Abs(v):0.0000}°{T(v >= 0 ? "dir.n" : "dir.s")}";
+    private string FormatLon(double v) => $"{Math.Abs(v):0.0000}°{T(v >= 0 ? "dir.e" : "dir.w")}";
     private static string FormatAlt(double m) => m >= 10000 ? $"{m / 1000:N0} km" : $"{m:N0} m";
-    private static string StyleLabel(string key) => Styles.FirstOrDefault(s => s.Key == key).Label ?? key;
+    // Translated names only for "normal" and "snow"; the sensor names are universal
+    private string StyleLabel(string key) => key switch
+    {
+        "normal" or "snow" => T("style." + key),
+        "ironbow" => "Ironbow",
+        "noir" => "Noir",
+        _ => key.ToUpperInvariant()
+    };
 
     public async ValueTask DisposeAsync()
     {
@@ -481,6 +691,12 @@ else if (error is not null)
             catch (JSDisconnectedException) { }
         }
         selfRef?.Dispose();
+    }
+
+    private sealed class StringsInfo
+    {
+        public string Lang { get; set; } = "en";
+        public Dictionary<string, string> Strings { get; set; } = new();
     }
 
     private sealed class InitState
@@ -493,6 +709,9 @@ else if (error is not null)
         public bool Detect { get; set; }
         public bool DayNight { get; set; } = true;
         public int NightLight { get; set; } = 60;
+        public bool Borders { get; set; }
+        public bool Regions { get; set; } = true;
+        public bool Cities { get; set; } = true;
         public Dictionary<string, bool> Zoom { get; set; } = new();
         public string Gpu { get; set; } = "";
     }
@@ -507,6 +726,29 @@ else if (error is not null)
         public string? Video { get; set; }
         public bool CanCockpit { get; set; }
         public bool IsRadio { get; set; }
+        public string? Summary { get; set; }
+        public string? Link { get; set; }
+    }
+
+    private sealed class RadioStation
+    {
+        public string Key { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Country { get; set; } = "";
+        public string Tags { get; set; } = "";
+        public string Codec { get; set; } = "";
+        public int Bitrate { get; set; }
+        public string Favicon { get; set; } = "";
+        public bool Geo { get; set; }
+        public bool Fav { get; set; }
+        public bool Playing { get; set; }
+    }
+
+    private sealed class RadioCountry
+    {
+        public string Cc { get; set; } = "";
+        public string Name { get; set; } = "";
+        public int N { get; set; }
     }
 
     private sealed class ContactInfo

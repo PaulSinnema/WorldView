@@ -1,7 +1,7 @@
 ﻿FROM node:24-alpine
 WORKDIR /app
-COPY package.json ./
-RUN npm install --omit=dev
-COPY core.js nas.js ./
+COPY core.js server.js ./
+# Volume inherits this ownership on first start, so the node user can write
+RUN mkdir -p /data && chown node:node /data
 USER node
-CMD ["node", "nas.js"]
+CMD ["node", "server.js"]

@@ -1,0 +1,48 @@
+﻿name: Update geo data
+
+# Monthly refresh of borders, provinces and cities; redeploys when anything changed
+on:
+  schedule:
+    - cron: '17 3 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build borders, provinces and cities
+        run: |
+          node tools/build-geo.mjs
+          node --max-old-space-size=6000 tools/build-borders.mjs
+
+      - name: Commit when changed
+        id: commit
+        run: |
+          git add WorldView/wwwroot/data
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Update geo data ($(date -u +%Y-%m))"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Pushes by GITHUB_TOKEN don't trigger other workflows: start the deploy explicitly
+      - name: Redeploy
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref "${{ github.ref_name }}"

@@ -1,0 +1,14 @@
+﻿# Serves the snapshots with automatic HTTPS (Let's Encrypt), compression and CORS
+{$DOMAIN} {
+	root * /srv
+	encode zstd gzip
+	header {
+		Access-Control-Allow-Origin *
+		Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+		Cache-Control "public, max-age=15"
+		-Server
+	}
+	@options method OPTIONS
+	respond @options 204
+	file_server
+}

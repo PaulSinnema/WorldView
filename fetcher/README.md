@@ -1,58 +1,62 @@
-﻿# WorldView fetcher
+﻿# WorldView flight server (netcup VPS)
 
-One fetcher, one snapshot, served from the CDN. The data sources get a constant load (1 request per minute), however many people use WorldView.
+One fetcher, one snapshot, served by Caddy. The sources get a constant load, however many people use WorldView.
 
 ```
-OpenSky / adsb.lol  ←  fetcher (Worker or NAS)  →  R2: flights.json + military.json  →  data.sinnema.ch (CDN)  →  WorldView
+OpenSky / adsb.lol  ←  fetcher (Docker)  →  /data: flights.json, flights/x_y.json (10° tiles), military.json
+                                          →  Caddy (HTTPS)  →  https://flights.sinnema.ch  →  WorldView
 ```
 
-## 1. Cloudflare (one-off)
+## 1. Order the VPS
 
-1. **Move the domain to Cloudflare**: Add a domain → `sinnema.ch` → Free plan. Check that the MX/SPF/DKIM/DMARC records and the website records have been copied over. Turn DNSSEC off at your registrar first, then switch the nameservers.
-2. **Create the R2 bucket**: R2 → Create bucket → `worldview-data`.
-3. **Custom domain**: bucket → Settings → Custom Domains → `data.sinnema.ch`.
-4. **CORS**: bucket → Settings → CORS policy → paste the contents of `r2-cors.json`.
-5. **Cache rule** (needed, because `.json` is not cached by default): Caching → Cache Rules → Create:
-   - When: Hostname equals `data.sinnema.ch`
-   - Then: Eligible for cache, Edge TTL = *Use cache-control header if present*.
+netcup → VPS 250 G11s (or bigger) → location **Amsterdam** or Nuremberg → image **Debian 12** (or Ubuntu 24.04).
+After delivery you get the server's **IPv4 (and IPv6) address** and root access by email.
 
-## 2. OpenSky account (free, recommended)
+## 2. DNS at mijn.host
+
+sinnema.ch uses the nameservers of mijn.host, so add the record there:
+
+1. Log in at mijn.host → **Domains** → `sinnema.ch` → **DNS**.
+2. Add a record:
+   - Type **A**, name **flights**, value **<IPv4 of the VPS>**, TTL 3600
+   - If you got an IPv6 address: type **AAAA**, name **flights**, value **<IPv6 of the VPS>**
+3. Save. Leave your existing records (website, mail) alone.
+
+Check (after a few minutes up to an hour): `nslookup flights.sinnema.ch` returns the IP of the VPS.
+
+## 3. OpenSky account (free)
 
 opensky-network.org → Account → API Client → create one. You get a `client_id` and a `client_secret`.
-Without an account you only get 400 credits a day, which is one global snapshot every ~15 min (then set `OPENSKY_INTERVAL_S = "900"`).
+(Without one you get 400 credits/day: set `OPENSKY_INTERVAL_S=900`.)
 
-## 3a. Deploy the Worker (default)
+## 4. Install on the VPS
 
-```
-cd C:\Projects\WorldView\fetcher
-npm install
-npx wrangler login
-npx wrangler secret put OPENSKY_CLIENT_ID
-npx wrangler secret put OPENSKY_CLIENT_SECRET
-npx wrangler deploy
-```
-
-Check: open the Worker URL (`https://worldview-fetcher.<subdomain>.workers.dev`). It shows the age of the snapshots.
-Also check `https://data.sinnema.ch/flights.json`.
-
-## 3b. NAS fallback (if OpenSky/adsb.lol block the Worker)
-
-Remove the cron trigger from the Worker first (otherwise both of them write).
-R2 → Manage API tokens → create a token with *Object Read & Write* on `worldview-data`.
-
-Synology Container Manager → Project → create one from this folder, or:
+Log in with `ssh root@<IPv4>` and run:
 
 ```
-docker build -t worldview-fetcher .
-docker run -d --restart unless-stopped --name worldview-fetcher \
-  -e R2_ACCOUNT_ID=... -e R2_ACCESS_KEY_ID=... -e R2_SECRET_ACCESS_KEY=... \
-  -e OPENSKY_CLIENT_ID=... -e OPENSKY_CLIENT_SECRET=... \
-  worldview-fetcher
+apt update && apt -y upgrade
+apt -y install curl git ufw
+curl -fsSL https://get.docker.com | sh      # Docker + compose plugin (official script)
+ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw --force enable
+
+mkdir -p /opt && cd /opt
+git clone https://github.com/<your-account>/WorldView.git
+cd WorldView/fetcher
+cp .env.example .env
+nano .env            # fill in OPENSKY_CLIENT_ID and OPENSKY_CLIENT_SECRET
+docker compose up -d --build
 ```
 
-Outgoing traffic only; no port needs to be opened.
+Without GitHub: copy the `fetcher` folder with WinSCP to `/opt/WorldView/fetcher`.
 
-## Snapshot format
+## 5. Check
 
-- `flights.json`: `{ t, src, ac: [[icao, call, lat, lon, altM, gsMs, track, ground, country, squawk, tPos], …] }`
-- `military.json`: `{ t, src, ac: [[hex, call, lat, lon, altM, gsMs, track, ground, reg, type, squawk, tPos], …] }`
+- `docker compose logs -f fetcher` → every minute `military: …` and every 2 min `flights: …`
+- In your browser: `https://flights.sinnema.ch/flights-index.json`
+- Caddy requests the HTTPS certificate on first start. This only works when the DNS record from step 2 is active.
+
+## Maintenance
+
+- Updates: `cd /opt/WorldView && git pull && cd fetcher && docker compose up -d --build`
+- Docker restarts everything automatically after a reboot.
+- Traffic: VPS 250 includes unlimited traffic. Users only fetch the 10° tiles they are looking at (≈10–40 KB, gzip); zoomed out, the world file (≈360 KB) once a minute.
