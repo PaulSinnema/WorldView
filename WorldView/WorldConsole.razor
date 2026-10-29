@@ -95,10 +95,13 @@ else if (error is not null)
         <div class="toggles" style="margin-top:4px">
             <button class="@(regions ? "active" : "")" @onclick="ToggleRegions">@T("btn.regions")</button>
             <button class="@(cities ? "active" : "")" @onclick="ToggleCities">@T("btn.cities")</button>
+            <button class="@(coast ? "active" : "")" @onclick="ToggleCoast">@T("btn.coast")</button>
+            <button class="@(eez ? "active" : "")" @onclick="ToggleEez" title="@T("hint.eez")">@T("btn.eez")</button>
         </div>
     }
     <div class="toggles" style="margin-top:4px">
         <button class="@(timezones ? "active" : "")" @onclick="ToggleTimezones">Z · @T("btn.timezones")</button>
+        <button class="@(nature ? "active" : "")" @onclick="ToggleNature" title="@T("hint.nature")">@T("btn.nature")</button>
     </div>
     @if (timezones && tzZones.Count > 0)
     {
@@ -397,7 +400,7 @@ else if (error is not null)
     private string style = "normal", basemap = "esri", ionToken = "", searchText = "";
     private string gpu = "";
     private int nightLight = 60;
-    private bool borders, regions = true, cities = true, timezones, envClick = true;
+    private bool borders, regions = true, cities = true, coast, eez, nature, timezones, envClick = true;
     private string envOverlay = "";
     private static readonly string[] EnvLayers = ["lstDay", "lstNight", "sst", "sstAnom", "no2", "so2", "nh3", "aod", "rain", "ndvi", "snow"];
     private string envLegend = "";
@@ -477,6 +480,9 @@ else if (error is not null)
                 regions = st.Regions;
                 cities = st.Cities;
                 timezones = st.Timezones;
+                coast = st.Coast;
+                eez = st.Eez;
+                nature = st.Nature;
                 envOverlay = st.EnvOverlay;
                 envLegend = await module.InvokeAsync<string>("getEnvLegend");
                 envClick = st.EnvClick;
@@ -565,6 +571,24 @@ else if (error is not null)
     {
         cities = !cities;
         if (module is not null) await module.InvokeVoidAsync("setCities", cities);
+    }
+
+    private async Task ToggleCoast()
+    {
+        coast = !coast;
+        if (module is not null) await module.InvokeVoidAsync("setCoast", coast);
+    }
+
+    private async Task ToggleEez()
+    {
+        eez = !eez;
+        if (module is not null) await module.InvokeVoidAsync("setEez", eez);
+    }
+
+    private async Task ToggleNature()
+    {
+        nature = !nature;
+        if (module is not null) await module.InvokeVoidAsync("setNature", nature);
     }
 
     private async Task ToggleTimezones()
@@ -902,6 +926,9 @@ else if (error is not null)
         public bool Regions { get; set; } = true;
         public bool Cities { get; set; } = true;
         public bool Timezones { get; set; }
+        public bool Coast { get; set; }
+        public bool Eez { get; set; }
+        public bool Nature { get; set; }
         public string EnvOverlay { get; set; } = "";
         public bool EnvClick { get; set; } = true;
         public Dictionary<string, bool> Zoom { get; set; } = new();

@@ -76,6 +76,9 @@ function loadSettings() {
     if (typeof S.regions !== 'boolean') S.regions = true;
     if (typeof S.cities !== 'boolean') S.cities = true;
     if (typeof S.timezones !== 'boolean') S.timezones = false;
+    if (typeof S.coast !== 'boolean') S.coast = false;
+    if (typeof S.eez !== 'boolean') S.eez = false;
+    if (typeof S.nature !== 'boolean') S.nature = false;
     if (typeof S.envOverlay !== 'string' || (S.envOverlay && S.envOverlay !== 'nh3' && !ENV_LAYERS[S.envOverlay])) S.envOverlay = '';
     if (typeof S.envClick !== 'boolean') S.envClick = true;
     S.lang = pickLang(S.lang);
@@ -372,9 +375,10 @@ export async function init(containerId, ref) {
     setStyle(S.style);
     if (S.borders) setBorders(true);
     if (S.timezones) setTimezones(true);
+    if (S.nature) applyNature();
     for (const l of LAYERS) if (S.layers[l]) startLayer(l);
 
-    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, timezones: S.timezones, envOverlay: S.envOverlay, envClick: S.envClick, zoom: S.zoom, gpu: gpuName });
+    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, coast: S.coast, eez: S.eez, nature: S.nature, timezones: S.timezones, envOverlay: S.envOverlay, envClick: S.envClick, zoom: S.zoom, gpu: gpuName });
 }
 
 // Warn when the browser renders in software (hardware acceleration off or no GPU)
@@ -854,10 +858,239 @@ export async function setCities(on) {
     S.cities = !!on; saveSettings();
     await applyOverlays();
 }
+// Coastlines and maritime boundaries (tools/build-sea.mjs), also under the borders switch
+let coastLines = null, eezLines = null, seaLoading = {};
+const EEZ_STYLE = { agreed: ['#3fd0ff', 0.75, 1.5], limit: ['#3fd0ff', 0.35, 1.0], disputed: ['#ff9f40', 0.85, 1.5] };
+export async function setCoast(on) { S.coast = !!on; saveSettings(); await applySea(); }
+export async function setEez(on) { S.eez = !!on; saveSettings(); await applySea(); }
+async function applySea() {
+    const showCoast = S.borders && S.coast, showEez = S.borders && S.eez;
+    if (showCoast && !coastLines) await (seaLoading.coast ??= (async () => {
+        const d = await tryJson('data/coastline.json', 30000);
+        if (d) coastLines = viewer.scene.primitives.add(linePrimitive(d, Cz.Color.fromCssColorString('#bfe8ff').withAlpha(0.55), 1.0));
+        else seaLoading.coast = null;
+    })());
+    if (showEez && !eezLines) await (seaLoading.eez ??= (async () => {
+        const d = await tryJson('data/eez.json', 30000);
+        if (!d) { seaLoading.eez = null; return; }
+        eezLines = Object.entries(EEZ_STYLE).map(([k, [c, a, w]]) =>
+            viewer.scene.primitives.add(linePrimitive({ s: d.s, l: d[k] || [] }, Cz.Color.fromCssColorString(c).withAlpha(a), w)));
+    })());
+    if (showCoast && !coastTileKeys) {
+        const idx = await tryJson('data/coast-index.json', 15000);
+        coastTileKeys = new Set(idx?.tiles || []); coastTileSize = idx?.tile || 5;
+    }
+    if (eezLines) for (const p of eezLines) p.show = showEez;
+    refreshCoast();
+}
+// Detailed OSM coastline (tools/build-coast.mjs): 5° tiles when zoomed in, else the coarse Natural Earth line
+const DETAIL_COAST_H = 1.5e6;
+const COAST_MIN_H = 5e4; // hide coastlines below 50 km
+let coastTileKeys = null, coastTileSize = 5;
+const coastTiles = new Map(); // key -> primitive | 'loading'
+function refreshCoast() {
+    if (!viewer) return;
+    const h = camHeight(), show = S.borders && S.coast && h >= COAST_MIN_H;
+    const detail = show && h < DETAIL_COAST_H && coastTileKeys?.size > 0;
+    const visible = new Set(detail ? tilesInView(viewer.camera.computeViewRectangle(), coastTileSize, 8) : []);
+    // Coarse line stays until every visible detail tile is loaded
+    const pending = [...visible].some(k => coastTileKeys.has(k) && !(coastTiles.get(k) instanceof Cz.Primitive));
+    if (coastLines) coastLines.show = show && (!detail || visible.size === 0 || pending);
+    for (const k of visible) {
+        if (!coastTileKeys.has(k) || coastTiles.has(k)) continue;
+        coastTiles.set(k, 'loading');
+        tryJson(`data/coast/${k}.json`, 20000).then(d => {
+            if (!d) { coastTiles.delete(k); return; }
+            coastTiles.set(k, viewer.scene.primitives.add(linePrimitive(d, Cz.Color.fromCssColorString('#bfe8ff').withAlpha(0.6), 1.0)));
+            refreshCoast();
+        });
+    }
+    for (const [k, p] of coastTiles) if (p !== 'loading') p.show = visible.has(k);
+}
+// Nature names: seas, rivers, lakes, peaks, landscapes (tools/build-nature.mjs) + OpenStreetMap detail when zoomed in
+let natureData = null, natureLabels = null, natureLoading = null, natureHooked = false;
+const natureShown = new Map(); // feature -> label
+// kind: [font size, colour, italic]
+const NATURE_STYLE = { o: [13, '#8fd3ff', true], r: [11, '#7cc4ff', true], l: [11, '#7cc4ff', true], p: [11, '#f0dcb4', false], m: [12, '#e8d5a8', false] };
+const OSM_NATURE_H = 8e4;
+const zoomOf = h => Math.log2(3e7 / Math.max(h, 1));
+export async function setNature(on) { S.nature = !!on; saveSettings(); await applyNature(); }
+async function applyNature() {
+    if (S.nature && !natureData) await (natureLoading ??= (async () => {
+        const d = await tryJson('data/nature.json', 30000);
+        if (!d) { natureLoading = null; toast(tr('toast.natureFail')); return; }
+        natureData = d.map(([k, lon, lat, z, name, n, ele]) => ({ k, lon, lat, z, name, n: n || null, ele, carto: Cz.Cartographic.fromDegrees(lon, lat) }));
+        natureLabels = new Cz.LabelCollection(); // drawn by drawLabels()
+    })());
+    if (!natureHooked && natureLabels) {
+        natureHooked = true;
+        viewer.camera.changed.addEventListener(refreshNature);
+        viewer.camera.moveEnd.addEventListener(refreshNature);
+    }
+    refreshNature();
+}
+function natureText(f) {
+    const n = f.n?.[S.lang] || f.name;
+    return f.k === 'p' ? `▲ ${n}${f.ele ? ` ${f.ele} m` : ''}` : f.k === 'm' ? n.toUpperCase() : n;
+}
+function refreshNature() {
+    if (!viewer || !natureLabels) return;
+    const h = camHeight(), rect = viewer.camera.computeViewRectangle(), want = new Map();
+    if (S.nature) {
+        const z = zoomOf(h) + 1;
+        const list = h < OSM_NATURE_H ? natureData.concat(osmNatureInView(rect, h)) : natureData;
+        const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
+        const placed = [];
+        for (const f of list) { // most important first
+            if (f.z > z || !inView(rect, f.carto)) continue;
+            const text = natureText(f), size = NATURE_STYLE[f.k][0];
+            const s = toWin(viewer.scene, Cz.Cartesian3.fromDegrees(f.lon, f.lat, 100));
+            if (s) {
+                const w = text.length * size * 0.62 + 6, x = s.x - w / 2;
+                // Declutter, and one label per name nearby (rivers in pieces)
+                if (placed.some(p => (x < p.x + p.w && x + w > p.x && Math.abs(s.y - p.y) < size + 6) || (p.t === text && Math.hypot(p.cx - s.x, p.y - s.y) < 300))) continue;
+                placed.push({ x, y: s.y, w, cx: s.x, t: text });
+            }
+            want.set(f, text);
+            if (want.size >= 200) break;
+        }
+    }
+    for (const [f, lb] of natureShown) if (want.get(f) !== lb.text) { natureLabels.remove(lb); natureShown.delete(f); }
+    for (const [f, text] of want) {
+        if (natureShown.has(f)) continue;
+        const [size, color, italic] = NATURE_STYLE[f.k], st = labelStyle(size, Cz.Color.fromCssColorString(color));
+        if (italic) st.font = 'italic ' + st.font;
+        natureShown.set(f, natureLabels.add({ position: Cz.Cartesian3.fromDegrees(f.lon, f.lat, 100), text, ...st,
+            horizontalOrigin: Cz.HorizontalOrigin.CENTER, verticalOrigin: Cz.VerticalOrigin.CENTER }));
+    }
+}
+// OpenStreetMap names from OpenFreeMap vector tiles (OpenMapTiles schema): rivers, canals, lakes, bays, peaks
+const OMT_TILEJSON = 'https://tiles.openfreemap.org/planet';
+const osmNatureTiles = new Map(); // "z/x/y" -> rows | 'loading' | 'failed'
+let omtTemplate = null, osmNatureRefreshQueued = false;
+function osmNatureInView(rect, h) {
+    if (!rect) return [];
+    const w = toDeg(rect.west), e = toDeg(rect.east);
+    if (e < w) return []; // antimeridian: skip
+    // Most detailed zoom (canals appear from z12) that needs at most 48 tiles
+    let z = 13, n, x0, x1, y0, y1;
+    do {
+        n = 2 ** --z;
+        const tx = lon => Math.max(0, Math.min(n - 1, Math.floor((lon + 180) / 360 * n)));
+        const ty = lat => { const r = toRad(Math.max(-85, Math.min(85, lat))); return Math.max(0, Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n))); };
+        x0 = tx(w); x1 = tx(e); y0 = ty(toDeg(rect.north)); y1 = ty(toDeg(rect.south));
+    } while ((x1 - x0 + 1) * (y1 - y0 + 1) > 48 && z > 9);
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 48) return [];
+    const out = [];
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+        const k = `${z}/${x}/${y}`, t = osmNatureTiles.get(k);
+        if (Array.isArray(t)) out.push(...t);
+        else if (!t) loadOsmNatureTile(k, z, x, y);
+    }
+    return out;
+}
+const OSM_KIND_ORDER = { o: 0, l: 1, r: 2, p: 3 };
+const SEA_CLASSES = new Set(['ocean', 'sea', 'bay', 'strait', 'gulf', 'sound', 'channel', 'fjord', 'lagoon']);
+async function loadOsmNatureTile(k, z, x, y) {
+    osmNatureTiles.set(k, 'loading');
+    try {
+        omtTemplate ??= (await tryJson(OMT_TILEJSON, 15000))?.tiles?.[0];
+        if (!omtTemplate) throw new Error('tilejson');
+        const r = await fetch(omtTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y), { signal: AbortSignal.timeout(20000) });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const layers = decodeMvt(await r.arrayBuffer()), n = 2 ** z, seen = new Set(), rows = [];
+        for (const [ln, kindOf] of [['water_name', t => SEA_CLASSES.has(t.class) ? 'o' : 'l'], ['waterway', () => 'r'], ['mountain_peak', () => 'p']]) {
+            const L = layers[ln];
+            if (!L) continue;
+            for (const f of L.feats) {
+                const t = {};
+                for (let i = 0; i < f.tags.length; i += 2) t[L.keys[f.tags[i]]] = L.values[f.tags[i + 1]];
+                if (!t.name || !f.pt) continue;
+                const kind = kindOf(t);
+                if (seen.has(kind + t.name)) continue; // one per name per tile
+                seen.add(kind + t.name);
+                const X = x + f.pt[0] / L.extent, Y = y + f.pt[1] / L.extent;
+                const lon = X / n * 360 - 180, lat = toDeg(Math.atan(Math.sinh(Math.PI * (1 - 2 * Y / n))));
+                const names = {};
+                for (const l of Object.keys(LANGS)) if (t['name:' + l]) names[l] = t['name:' + l];
+                rows.push({ k: kind, lon, lat, z: 0, name: t.name, n: names, ele: kind === 'p' && t.ele ? Math.round(t.ele) : null, carto: Cz.Cartographic.fromDegrees(lon, lat) });
+            }
+        }
+        rows.sort((a, b) => OSM_KIND_ORDER[a.k] - OSM_KIND_ORDER[b.k]);
+        osmNatureTiles.set(k, rows);
+        // Many tiles arrive together: one refresh per frame
+        if (!osmNatureRefreshQueued) { osmNatureRefreshQueued = true; requestAnimationFrame(() => { osmNatureRefreshQueued = false; refreshNature(); }); }
+    } catch {
+        osmNatureTiles.set(k, 'failed');
+        setTimeout(() => osmNatureTiles.delete(k), 30000); // retry later
+    }
+}
+// Minimal Mapbox Vector Tile decoder: layer keys/values, feature tags and a label point (middle vertex of the first part)
+function decodeMvt(buf) {
+    const b = new Uint8Array(buf), dv = new DataView(buf), td = new TextDecoder();
+    let p = 0;
+    const varint = () => { let v = 0, s = 0, c; do { c = b[p++]; v += (c & 0x7f) * 2 ** s; s += 7; } while (c & 0x80); return v; };
+    const skip = w => { if (w === 0) varint(); else if (w === 1) p += 8; else if (w === 2) p += varint(); else if (w === 5) p += 4; };
+    const str = () => { const l = varint(), s = td.decode(b.subarray(p, p + l)); p += l; return s; };
+    const zz = v => (v >>> 1) ^ -(v & 1);
+    const layers = {};
+    while (p < b.length) {
+        const t = varint();
+        if (t !== 0x1a) { skip(t & 7); continue; } // field 3 = layer
+        const end = varint() + p, L = { name: '', keys: [], values: [], feats: [], extent: 4096 };
+        while (p < end) {
+            const t2 = varint(), f = t2 >> 3;
+            if (t2 === 0x0a) L.name = str();
+            else if (t2 === 0x1a) L.keys.push(str());
+            else if (t2 === 0x22) {
+                const ve = varint() + p;
+                let v = null;
+                while (p < ve) {
+                    const t3 = varint(), f3 = t3 >> 3;
+                    if (f3 === 1) v = str();
+                    else if (f3 === 2) { v = dv.getFloat32(p, true); p += 4; }
+                    else if (f3 === 3) { v = dv.getFloat64(p, true); p += 8; }
+                    else if (f3 === 4 || f3 === 5) v = varint();
+                    else if (f3 === 6) v = zz(varint());
+                    else if (f3 === 7) v = !!varint();
+                    else skip(t3 & 7);
+                }
+                L.values.push(v);
+            }
+            else if (t2 === 0x12) {
+                const fe = varint() + p, F = { tags: [], pt: null };
+                let geom = null;
+                while (p < fe) {
+                    const t3 = varint(), f3 = t3 >> 3;
+                    if (f3 === 2 || f3 === 4) { const pe = varint() + p, arr = []; while (p < pe) arr.push(varint()); if (f3 === 2) F.tags = arr; else geom = arr; }
+                    else skip(t3 & 7);
+                }
+                if (geom) {
+                    // First part's vertices (MoveTo + LineTo), then its middle vertex
+                    const pts = [];
+                    let x = 0, y = 0;
+                    for (let i = 0; i < geom.length;) {
+                        const cmd = geom[i] & 7, cnt = geom[i++] >> 3;
+                        if (cmd === 7) break;
+                        if (cmd === 1 && pts.length) break;
+                        for (let j = 0; j < cnt; j++) { x += zz(geom[i++]); y += zz(geom[i++]); pts.push([x, y]); }
+                    }
+                    F.pt = pts[pts.length >> 1] || null;
+                }
+                L.feats.push(F);
+            }
+            else if (t2 === 0x28) L.extent = varint();
+            else skip(t2 & 7);
+        }
+        layers[L.name] = L;
+    }
+    return layers;
+}
 // Regions and cities follow the borders switch
 let regionData = null, cityData = null, overlayHooked = false;
 const REGION_LINES_MAX_H = 6e6;
 async function applyOverlays() {
+    applySea();
     const showR = S.borders && S.regions, showC = S.borders && S.cities;
     if (showR && !regionLines) await loadRegions();
     if (showC && !cityData) await loadCities();
@@ -1138,6 +1371,7 @@ function refreshOverlayLabels() {
     const h = camHeight(), rect = viewer.camera.computeViewRectangle();
     const showR = S.borders && S.regions, showC = S.borders && S.cities;
     refreshBorders(rect, h);
+    refreshCoast();
     if (regionLines) regionLines.show = showR && h < REGION_LINES_MAX_H;
     if (regionLabels) {
         const want = new Set();
@@ -1823,6 +2057,7 @@ export function setLang(lang) {
     S.lang = lang; saveSettings();
     document.documentElement.lang = lang;
     relabelCountries();
+    refreshNature();
     for (const l of LAYERS) if (lastStatus[l]) notify('OnLayerStatus', l, store[l].size, statusText(l));
     if (selected) pushInfo();
     else if (cityPick) cityPick.spot ? selectSpot(cityPick.lat, cityPick.lon) : cityPick.LABEL_X != null ? selectCountry(cityPick) : cityPick.rank != null && cityPick.pop == null ? selectRegion(cityPick) : selectCity(cityPick, false);
@@ -1907,8 +2142,8 @@ function drawLabels() {
     const cam = viewer.camera.positionWC, occ = new Cz.EllipsoidalOccluder(Cz.Ellipsoid.WGS84, cam);
     const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
     const hits = [];
-    // Draw order: countries, provinces, time zones, cities, telescopes (later = on top)
-    for (const set of [countryLabels, regionLabels, tzLabels, cityLabels, telLabels]) {
+    // Draw order: countries, nature, provinces, time zones, cities, telescopes (later = on top)
+    for (const set of [countryLabels, natureLabels, regionLabels, tzLabels, cityLabels, telLabels]) {
         if (!set || set.show === false) continue;
         for (let i = 0; i < set.length; i++) {
             const l = set.get(i), p = l.position;

@@ -2,6 +2,26 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.76] - 2026-10-29
+
+### Added
+- **Nature names** toggle: seas, rivers, lakes, mountain peaks (with height) and landscapes from Natural Earth (`tools/build-nature.mjs`, also in the monthly geo update), more names as you zoom in; below 80 km also canals, smaller rivers, lakes, bays and peaks from OpenStreetMap (OpenFreeMap vector tiles, decoded in the browser).
+
+## [1.0.75] - 2026-10-29
+
+### Changed
+- Coastlines are hidden below 50 km camera height.
+
+## [1.0.74] - 2026-10-29
+
+### Changed
+- Detailed coastlines from OpenStreetMap (≈ 80 m, 5° tiles loaded when zoomed in below 1,500 km; `tools/build-coast.mjs`, also in the monthly geo update); the Natural Earth line remains for the overview.
+
+## [1.0.73] - 2026-10-29
+
+### Added
+- **Coastlines** (Natural Earth 10m) and **Sea borders** (Marine Regions EEZ boundaries: agreed in blue, 200 nautical mile limits faint blue, disputed in orange) as options under Borders; built by `tools/build-sea.mjs`, also in the monthly geo update.
+
 ## [1.0.72] - 2026-10-29
 
 ### Changed

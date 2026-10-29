@@ -1,6 +1,6 @@
 ﻿name: Update geo data
 
-# Monthly refresh of borders, provinces and cities; redeploys when anything changed
+# Monthly refresh of borders, provinces, cities, time zones, coastlines and sea borders; redeploys when anything changed
 on:
   schedule:
     - cron: '17 3 1 * *'
@@ -24,6 +24,9 @@ jobs:
         run: |
           node tools/build-geo.mjs
           node tools/build-tz.mjs
+          node tools/build-sea.mjs
+          node tools/build-nature.mjs
+          node --max-old-space-size=6000 tools/build-coast.mjs
           node --max-old-space-size=6000 tools/build-borders.mjs
 
       - name: Commit when changed
