@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.48] - 2026-10-29
+
+### Added
+- Cameras: New South Wales (Transport for NSW, 250) and New Zealand (NZTA, ~250), via the fetcher (1.4.1).
+
 ## [1.0.47] - 2026-10-29
 
 ### Added

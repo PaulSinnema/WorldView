@@ -9,7 +9,7 @@ import { loadOvRoutes, fetchOv } from './ov.js';
 import { fetchCameras } from './cameras.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.4.0';
+const VERSION = '1.4.1';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;

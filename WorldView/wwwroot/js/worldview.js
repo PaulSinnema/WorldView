@@ -1050,6 +1050,8 @@ const CAMERA_SOURCES = [
     // Lists without CORS, relayed by the fetcher (cameras-extra.json)
     { name: 'iceland', owner: 'Vegagerðin', load: async () => (await extraCams())?.iceland },
     { name: 'bc', owner: 'DriveBC', load: async () => (await extraCams())?.bc },
+    { name: 'nsw', owner: 'Transport for NSW', load: async () => (await extraCams())?.nsw },
+    { name: 'nz', owner: 'NZ Transport Agency', load: async () => (await extraCams())?.nz },
     {
         name: 'hongkong', owner: 'Transport Department HK', load: async () => {
             try {

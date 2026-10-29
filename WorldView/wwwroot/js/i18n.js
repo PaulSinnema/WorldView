@@ -170,6 +170,8 @@ const S = {
     'cam.hongkong': ['Hong Kong', 'Hongkong', 'Hongkong', 'Hong Kong', '香港'],
     'cam.iceland': ['Iceland', 'IJsland', 'Island', 'Islande', '冰岛'],
     'cam.bc': ['British Columbia', 'Brits-Columbia', 'British Columbia', 'Colombie-Britannique', '不列颠哥伦比亚'],
+    'cam.nsw': ['New South Wales', 'Nieuw-Zuid-Wales', 'New South Wales', 'Nouvelle-Galles du Sud', '新南威尔士'],
+    'cam.nz': ['New Zealand', 'Nieuw-Zeeland', 'Neuseeland', 'Nouvelle-Zélande', '新西兰'],
 
     // info fields
     'f.rollingStock': ['Rolling stock', 'Materieel', 'Fahrzeug', 'Matériel', '车型'],
