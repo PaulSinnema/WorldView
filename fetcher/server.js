@@ -15,7 +15,7 @@ import { fetchTempAnomaly } from './era5.js';
 import { fetchCoral } from './coral.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.11.0';
+const VERSION = '1.11.1';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -220,7 +220,8 @@ for (const [k, what] of [['OPENSKY_CLIENT_ID', 'civil flights'], ['NS_API_KEY', 
     ['ADS_API_KEY', 'ozone, CO2, methane (Copernicus ADS)'], ['CDS_API_KEY', 'temperature anomaly (Copernicus CDS)']]) {
     if (!env[k] && !(k === 'OPENAQ_API_KEY' && env.OPENAQ_KEY)) log(`no ${k} in .env: ${what} disabled`);
 }
-await put('status.json', { version: VERSION, started: new Date().toISOString() });
+// keys: which optional data sources are configured (the app greys out layers that need a missing key)
+await put('status.json', { version: VERSION, started: new Date().toISOString(), keys: { ads: !!env.ADS_API_KEY, cds: !!env.CDS_API_KEY } });
 startNsApi(env.NS_API_KEY);
 // First load of the databases (the slow loop skips them while they're fresh)
 const dbFirst = refreshDb().catch(() => { });

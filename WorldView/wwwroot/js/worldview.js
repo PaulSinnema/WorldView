@@ -440,6 +440,12 @@ export function setEnvOverlay(name) {
     return envLegend();
 }
 export const getEnvLegend = () => envLegend();
+// Layers that need a Copernicus key on the fetcher (status.json keys); unknown or missing key → listed as unavailable
+const ENV_KEY = { ozoneCams: 'ads', co2: 'ads', ch4: 'ads', tempAnom: 'cds' };
+export async function getEnvMissing() {
+    const s = await tryJson(`${FEED_URL}/status.json?b=${Math.floor(Date.now() / 60000)}`, 10000);
+    return Object.entries(ENV_KEY).filter(([, k]) => !s?.keys?.[k]).map(([layer]) => layer);
+}
 export function setEnvClick(on) { S.envClick = !!on; saveSettings(); }
 // City lights, only visible on the night side
 function addNightLayer() {

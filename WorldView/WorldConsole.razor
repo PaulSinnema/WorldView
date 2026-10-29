@@ -137,7 +137,8 @@ else if (error is not null)
         <option value="">@T("env.none")</option>
         @foreach (var e in EnvLayers)
         {
-            <option value="@e">@T("env." + e)</option>
+            var missing = envMissing.Contains(e);
+            <option value="@e" disabled="@missing">@T("env." + e)@(missing ? " " + T("env.needsKey") : "")</option>
         }
     </select>
     @if (!string.IsNullOrEmpty(envLegend))
@@ -434,6 +435,7 @@ else if (error is not null)
     private string envOverlay = "";
     private static readonly string[] EnvLayers = ["tempAnom", "lstDay", "lstNight", "sst", "sstAnom", "coral", "seaIce", "no2", "so2", "nh3", "co2", "ch4", "power", "ozoneCams", "ozone", "aod", "rain", "ndvi", "snow"];
     private string envLegend = "";
+    private HashSet<string> envMissing = [];
     private string? knmiImg;
     // KNMI/TEMIS ozone analysis for today (GOME-2 METOP-C); hourly cache key
     private static string KnmiUrl(string view, bool small) =>
@@ -534,6 +536,11 @@ else if (error is not null)
         StateHasChanged();
         if (timezones) await LoadTzZones();
         if (layers.GetValueOrDefault("radio")) await LoadRadioCountries();
+        try
+        {
+            if (module is not null) { envMissing = [.. await module.InvokeAsync<string[]>("getEnvMissing")]; StateHasChanged(); }
+        }
+        catch { /* fetcher unreachable: keep all options */ }
     }
 
     private void ApplyStrings(string json)

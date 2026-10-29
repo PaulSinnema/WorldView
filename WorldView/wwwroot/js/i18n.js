@@ -271,6 +271,7 @@ const S = {
     'env.rain': ['Precipitation', 'Neerslag', 'Niederschlag', 'Précipitations', '降水'],
     'env.ndvi': ['Vegetation (NDVI)', 'Vegetatie (NDVI)', 'Vegetation (NDVI)', 'Végétation (NDVI)', '植被 (NDVI)'],
     'env.tempAnom': ['Temperature anomaly (vs 1991–2020, ERA5)', 'Temperatuurafwijking (t.o.v. 1991–2020, ERA5)', 'Temperaturabweichung (ggü. 1991–2020, ERA5)', 'Anomalie de température (vs 1991–2020, ERA5)', '气温距平（相对 1991–2020，ERA5）'],
+    'env.needsKey': ['(key needed)', '(sleutel nodig)', '(Schlüssel nötig)', '(clé requise)', '（需要密钥）'],
     'env.anomUnit': ['°C vs normal', '°C t.o.v. normaal', '°C ggü. normal', '°C vs normale', '相对常年 °C'],
     'env.power': ['Electricity CO₂ per kWh (Europe, now)', 'Stroom: CO₂ per kWh (Europa, nu)', 'Strom: CO₂ pro kWh (Europa, jetzt)', 'Électricité : CO₂ par kWh (Europe, maintenant)', '电力每千瓦时 CO₂（欧洲，当前）'],
     'env.ciUnit': ['g CO₂/kWh (estimate)', 'g CO₂/kWh (schatting)', 'g CO₂/kWh (Schätzung)', 'g CO₂/kWh (estimation)', 'g CO₂/kWh（估算）'],

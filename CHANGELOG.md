@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.94] - 2026-10-30
+
+### Changed
+- Environment layers that need a Copernicus key on the fetcher (ozone CAMS, CO₂, methane, temperature anomaly) are greyed out with "(key needed)" while the key is missing (fetcher 1.11.1 reports configured keys in `status.json`).
+
 ## [1.0.93] - 2026-10-30
 
 ### Fixed
