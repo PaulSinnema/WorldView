@@ -15,7 +15,7 @@ import { fetchTempAnomaly } from './era5.js';
 import { fetchCoral } from './coral.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.11.1';
+const VERSION = '1.11.2';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -150,7 +150,11 @@ function every(name, ms, fn) {
     const now = Date.now();
     if (busy[name] || now < (due[name] || 0)) return;
     due[name] = now + ms; busy[name] = true; // also on failure: respect rate limits
-    Promise.resolve().then(fn).catch(e => log(`${name}: ${e.message}`)).finally(() => { busy[name] = false; });
+    // Network errors ("fetch failed") carry the real reason in e.cause
+    Promise.resolve().then(fn).catch(e => {
+        log(`${name}: ${e.message}${e.cause ? ` (${e.cause.code || e.cause.message})` : ''}`);
+        if (ms > 30 * 60000) due[name] = Date.now() + 30 * 60000; // slow feeds: retry in 30 min
+    }).finally(() => { busy[name] = false; });
 }
 
 async function updateFlights() {

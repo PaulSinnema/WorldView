@@ -181,8 +181,9 @@ function setImagery(name) {
 const ENV_LAYERS = {
     lstDay: ['MODIS_Terra_L3_Land_Surface_Temp_8Day_Day', 7], lstNight: ['MODIS_Terra_L3_Land_Surface_Temp_8Day_Night', 7],
     sst: ['GHRSST_L4_MUR_Sea_Surface_Temperature', 7], sstAnom: ['GHRSST_L4_MUR_Sea_Surface_Temperature_Anomalies', 7],
-    // Sea ice: only polar areas; GIBS serves stray wrong tiles (other products) for empty open-ocean tiles
-    seaIce: ['GHRSST_L4_MUR_Sea_Ice_Concentration', 7, 0, null, 0, [[-180, 40, 180, 90], [-180, -90, 180, -45]]],
+    // Sea ice: GIBS's web-mercator pyramid serves stray wrong tiles (other products) for this layer → geographic pyramid (e[6]),
+    // polar areas only (e[5])
+    seaIce: ['GHRSST_L4_MUR_Sea_Ice_Concentration', 6, 0, null, 0, [[-180, 40, 180, 90], [-180, -90, 180, -45]], '1km'],
     // TROPOMI: the latest day is still incomplete, so show the day before yesterday (3rd value = days back)
     no2: ['TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column', 6, 2, '#ffee8c', 0.15],
     // SO2: MERRA-2 monthly model field (gap-free); 4th value = palette colour made transparent (clean air)
@@ -390,9 +391,13 @@ function addEnvLayer() {
     const time = e[2] ? new Date(Date.now() - e[2] * 86400000).toISOString().slice(0, 10) : 'default';
     // Optional areas (e[5]): only request tiles there (one imagery layer per area)
     for (const r of e[5] || [null]) {
+        // EPSG:4326 pyramid: 512 px tiles, level 0 = 2×1 tiles of 288° (grid extends past the date line and the south pole)
+        const geo = e[6] ? {
+            url: `https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/${e[0]}/default/${time}/${e[6]}/{z}/{y}/{x}.png`, tileWidth: 512, tileHeight: 512,
+            tilingScheme: new Cz.GeographicTilingScheme({ rectangle: Cz.Rectangle.fromDegrees(-180, -198, 396, 90), numberOfLevelZeroTilesX: 2, numberOfLevelZeroTilesY: 1 })
+        } : { url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${e[0]}/default/${time}/GoogleMapsCompatible_Level${e[1]}/{z}/{y}/{x}.png` };
         envLayer = envAdd(new Cz.UrlTemplateImageryProvider({
-            url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${e[0]}/default/${time}/GoogleMapsCompatible_Level${e[1]}/{z}/{y}/{x}.png`,
-            maximumLevel: e[1], credit: 'NASA GIBS', ...(r ? { rectangle: Cz.Rectangle.fromDegrees(...r) } : {})
+            ...geo, maximumLevel: e[1], credit: 'NASA GIBS', ...(r ? { rectangle: Cz.Rectangle.fromDegrees(...r) } : {})
         }));
         envLayer.alpha = 0.75;
         // Lowest (clean) values transparent, so only real concentrations show
