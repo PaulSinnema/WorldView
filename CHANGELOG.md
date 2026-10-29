@@ -2,6 +2,27 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.36] - 2026-10-29
+
+### Added
+- Aircraft registration and type for civil flights (fetcher joins the weekly tar1090-db/Mictronics aircraft database; type names via `types.json`).
+- Info box: photo of the actual aircraft from Planespotters.net (with photographer credit and link), else the Wikipedia image of the model.
+- Info box: Wikipedia description of the aircraft model, in the UI language when available.
+
+## [1.0.35] - 2026-10-29
+
+### Fixed
+- Detection labels spread over the whole view via a screen grid: after zooming out, newly visible flights get labels too.
+- Flight labels no longer blink on data refresh (positions stay dead-reckoned instead of jumping back).
+
+## [1.0.34] - 2026-10-29
+
+### Fixed
+- City and province names no longer blink when the view refreshes (labels are updated instead of rebuilt).
+
+### Changed
+- Flight backend live at `flights.sinnema.ch`; Caddy now starts after the fetcher (`docker-compose.yml`).
+
 ## [1.0.33] - 2026-10-28
 
 ### Added

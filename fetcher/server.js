@@ -2,6 +2,7 @@
 import { mkdir, writeFile, rename, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openskyToken, fetchOpensky, fetchMilitary } from './core.js';
+import { loadAircraftDb, loadTypes, lookup } from './aircraftdb.js';
 
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
@@ -44,11 +45,23 @@ async function getToken() {
     return token;
 }
 
+// Weekly refresh of the aircraft database + type names (types.json for the browser)
+let lastDb = 0;
+async function refreshDb() {
+    if (Date.now() - lastDb < 7 * 86400000) return;
+    lastDb = Date.now();
+    try { log(`aircraft db: ${await loadAircraftDb()}`); } catch (e) { lastDb -= 6 * 86400000; log(`aircraft db: ${e.message}`); }
+    try { await put('types.json', await loadTypes()); log('types: ok'); } catch (e) { log(`types: ${e.message}`); }
+}
+
 async function run() {
+    await refreshDb();
     if (Date.now() - lastOpensky >= interval) {
         lastOpensky = Date.now(); // also on failure: respect credit budget
         try {
             const s = await fetchOpensky(await getToken());
+            // civil row + [reg, type] from the aircraft database
+            for (const a of s.ac) a.push(...lookup(a[0]));
             await writeFlights(s);
             log(`flights: ${s.ac.length}`);
         } catch (e) { token = null; log(`flights: ${e.message}`); }

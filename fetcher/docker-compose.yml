@@ -9,6 +9,9 @@
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # Fetcher first, so the shared volume gets its node ownership
+    depends_on:
+      - fetcher
     env_file: .env
     ports:
       - "80:80"

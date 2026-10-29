@@ -139,6 +139,12 @@ else if (error is not null)
         {
             <video class="media" src="@selection.Video" autoplay muted loop playsinline title="@T("info.enlarge")" @onclick="ToggleEnlarge"></video>
         }
+        else if (!string.IsNullOrEmpty(selection.Photo))
+        {
+            @* Planespotters terms: photo links to its page, photographer credited *@
+            <a href="@selection.PhotoLink" target="_blank"><img src="@selection.Photo" alt="@selection.Title" /></a>
+            <a class="credit" href="@selection.PhotoLink" target="_blank">© @selection.PhotoBy · Planespotters.net</a>
+        }
         else if (!string.IsNullOrEmpty(selection.Image))
         {
             <img class="media" src="@selection.Image" alt="@selection.Title" title="@T("info.enlarge")" @onclick="ToggleEnlarge" />
@@ -728,6 +734,9 @@ else if (error is not null)
         public bool IsRadio { get; set; }
         public string? Summary { get; set; }
         public string? Link { get; set; }
+        public string? Photo { get; set; }
+        public string? PhotoLink { get; set; }
+        public string? PhotoBy { get; set; }
     }
 
     private sealed class RadioStation

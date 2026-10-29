@@ -314,21 +314,70 @@ function viewCenter() {
     return { lat: toDeg(c.latitude), lon: toDeg(c.longitude) };
 }
 // flights: one shared snapshot served via CDN (see fetcher/)
-// civil: [icao, call, lat, lon, altM, gsMs, track, ground, country, squawk, tPos]
+// civil: [icao, call, lat, lon, altM, gsMs, track, ground, country, squawk, tPos, reg, type]
 function fromFeedCivil(a, t) {
+    const type = a[12] || '';
     return {
         key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: false, t: (a[10] || t) * 1000,
-        label: a[1] || a[0],
-        info: [['callsign', a[1] || '—'], ['country', a[8] || '—'], ['icao', a[0]], ['squawk', a[9] || '—']]
+        label: a[1] || a[11] || a[0], type,
+        info: [['callsign', a[1] || '—'], ['registration', a[11] || '—'], ['type', () => typeText(type)], ['country', a[8] || '—'], ['icao', a[0]], ['squawk', a[9] || '—']]
     };
 }
 // military: [hex, call, lat, lon, altM, gsMs, track, ground, reg, type, squawk, tPos]
 function fromFeedMil(a, t) {
+    const type = a[9] || '';
     return {
         key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: true, t: (a[11] || t) * 1000,
-        label: a[1] || a[8] || a[0],
-        info: [['callsign', a[1] || '—'], ['registration', a[8] || '—'], ['type', a[9] || '—'], ['icao', a[0]], ['squawk', a[10] || '—']]
+        label: a[1] || a[8] || a[0], type,
+        info: [['callsign', a[1] || '—'], ['registration', a[8] || '—'], ['type', () => typeText(type)], ['icao', a[0]], ['squawk', a[10] || '—']]
     };
+}
+
+// Aircraft type names (types.json from the fetcher): B738 -> "BOEING 737-800"
+let typeNames = null, typesLoading = null;
+function loadTypeNames() {
+    typesLoading ??= tryJson(`${FEED_URL}/types.json`, 20000).then(j => { typeNames = j || {}; if (selected) pushInfo(); });
+    return typesLoading;
+}
+// "BOEING 737-800" -> "Boeing 737-800" (short acronyms like ATR stay upper case)
+const prettyModel = n => n.replace(/\b[A-Z]{4,}\b/g, w => w[0] + w.slice(1).toLowerCase());
+function typeText(code) {
+    if (!code) return '—';
+    if (!typeNames) { loadTypeNames(); return code; }
+    const n = typeNames[code];
+    return n ? `${prettyModel(n)} (${code})` : code;
+}
+// Model article on Wikipedia per type code (shared by all aircraft of that type)
+const modelWiki = new Map();
+function aircraftWiki(r) {
+    if (!r.type) return null;
+    if (!typeNames) { loadTypeNames(); return { wikiTitle: null }; }
+    const name = typeNames[r.type];
+    if (!name) return null;
+    let m = modelWiki.get(r.type);
+    if (!m) {
+        m = { wikiTitle: null };
+        modelWiki.set(r.type, m);
+        const q = encodeURIComponent(`${prettyModel(name)} aircraft`);
+        tryJson(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${q}&srlimit=1&format=json&origin=*`, 15000).then(j => {
+            m.wikiTitle = j?.query?.search?.[0]?.title || '';
+            if (selected) pushInfo();
+        });
+    }
+    return m;
+}
+// Photo of the actual aircraft (Planespotters.net: credit + link to the photo page required)
+const photos = new Map(); // hex -> {src, link, by} | null | 'loading'
+function aircraftPhoto(hex) {
+    const p = photos.get(hex);
+    if (p !== undefined) return p === 'loading' ? null : p;
+    photos.set(hex, 'loading');
+    tryJson(`https://api.planespotters.net/pub/photos/hex/${encodeURIComponent(hex)}`, 15000).then(j => {
+        const f = j?.photos?.[0], src = f?.thumbnail_large?.src || f?.thumbnail?.src;
+        photos.set(hex, src ? { src, link: f.link, by: f.photographer } : null);
+        if (selected?.key === hex) pushInfo();
+    });
+    return null;
 }
 // 30 s bucket keeps the CDN cache key shared by all users
 const getFeed = name => tryJson(`${FEED_URL}/${name}.json?b=${Math.floor(Date.now() / 30000)}`, 20000);
@@ -366,7 +415,9 @@ function merge(layer, list, kind, color) {
         } else Object.assign(r, f);
         r.t = Math.min(f.t || now, now); r.seen = now;
         r.bb.rotation = -toRad(r.track || 0);
-        r.bb.position = Cz.Cartesian3.fromDegrees(r.lon, r.lat, r.alt);
+        // Dead-reckoned position, same as tick(): no jump back on refresh
+        const [la, lo, al] = posAt(r, now);
+        r.bb.position = Cz.Cartesian3.fromDegrees(lo, la, al);
     }
     for (const [k, r] of m) if (now - r.seen > 120000) { col.remove(r.bb); m.delete(k); }
     validateSel(layer);
@@ -678,22 +729,25 @@ function refreshOverlayLabels() {
     refreshBorders(rect, h);
     if (regionLines) regionLines.show = showR && h < REGION_LINES_MAX_H;
     if (regionLabels) {
-        regionLabels.removeAll();
+        const want = new Set();
         if (showR) {
-            const max = regionRankFor(h), color = Cz.Color.fromCssColorString('#ffe58a').withAlpha(0.9);
-            let n = 0;
+            const max = regionRankFor(h);
             for (const r of regionData) {
                 if (r.rank > max || !inView(rect, r.carto)) continue;
-                regionLabels.add({ position: Cz.Cartesian3.fromDegrees(r.lon, r.lat, 150), text: r.name, ...labelStyle(12, color),
-                    horizontalOrigin: Cz.HorizontalOrigin.CENTER, verticalOrigin: Cz.VerticalOrigin.CENTER });
-                if (++n >= 150) break;
+                want.add(r);
+                if (want.size >= 150) break;
             }
         }
+        // Diff instead of rebuild: unchanged labels stay on screen (no blink)
+        for (const [r, lb] of regionShown) if (!want.has(r)) { regionLabels.remove(lb); regionShown.delete(r); }
+        for (const r of want) if (!regionShown.has(r)) regionShown.set(r, regionLabels.add({
+            position: Cz.Cartesian3.fromDegrees(r.lon, r.lat, 150), text: r.name, ...labelStyle(12, REGION_COLOR),
+            horizontalOrigin: Cz.HorizontalOrigin.CENTER, verticalOrigin: Cz.VerticalOrigin.CENTER }));
     }
     if (cityLabels) {
-        cityLabels.removeAll(); cityDots.removeAll();
+        const want = new Set();
         if (showC) {
-            const min = cityPopFor(h), white = Cz.Color.WHITE;
+            const min = cityPopFor(h);
             const list = h < 1.2e6 ? cityData.concat(citiesFromTiles(rect)).sort((a, b) => b.pop - a.pop) : cityData;
             const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
             const placed = [];
@@ -708,14 +762,25 @@ function refreshOverlayLabels() {
                     if (placed.some(p => s.x < p.x + p.w && s.x + w > p.x && Math.abs(s.y - p.y) < 16)) continue;
                     placed.push({ x: s.x, y: s.y, w });
                 }
-                cityDots.add({ position: pos, pixelSize: c.cap === 2 ? 7 : 5, color: white, outlineColor: Cz.Color.BLACK, outlineWidth: 1, id: { city: c } });
-                cityLabels.add({ position: pos, text: c.name, id: { city: c }, ...labelStyle(c.cap === 2 ? 14 : 12, white), pixelOffset: new Cz.Cartesian2(7, 0),
-                    horizontalOrigin: Cz.HorizontalOrigin.LEFT, verticalOrigin: Cz.VerticalOrigin.CENTER });
+                want.add(c);
                 if (++n >= 250) break;
             }
         }
+        for (const [c, o] of cityShown) if (!want.has(c)) { cityLabels.remove(o.label); cityDots.remove(o.dot); cityShown.delete(c); }
+        for (const c of want) {
+            if (cityShown.has(c)) continue;
+            const pos = Cz.Cartesian3.fromDegrees(c.lon, c.lat, 120), white = Cz.Color.WHITE;
+            cityShown.set(c, {
+                dot: cityDots.add({ position: pos, pixelSize: c.cap === 2 ? 7 : 5, color: white, outlineColor: Cz.Color.BLACK, outlineWidth: 1, id: { city: c } }),
+                label: cityLabels.add({ position: pos, text: c.name, id: { city: c }, ...labelStyle(c.cap === 2 ? 14 : 12, white), pixelOffset: new Cz.Cartesian2(7, 0),
+                    horizontalOrigin: Cz.HorizontalOrigin.LEFT, verticalOrigin: Cz.VerticalOrigin.CENTER })
+            });
+        }
     }
 }
+// Labels currently on screen (object -> primitive), for diff updates
+const regionShown = new Map(), cityShown = new Map();
+const REGION_COLOR = Cz.Color.fromCssColorString('#ffe58a').withAlpha(0.9);
 
 // space telescopes
 async function tleById(id) {
@@ -1036,13 +1101,18 @@ function pushInfo() {
         infoRows(r.info, f);
     }
     let img = r.image ? `${r.image}${r.image.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 30000)}` : null;
-    let summary = null, link = null;
-    if (r.wikiTitle) {
-        const w = r.wiki?.lang === S.lang ? r.wiki : null;
-        if (!w) loadWiki(r);
+    let summary = null, link = null, photo = null;
+    // Wikipedia: own article (telescopes) or the aircraft model article
+    const ws = r.wikiTitle ? r : MOVERS.includes(L) ? aircraftWiki(r) : null;
+    if (ws?.wikiTitle === null) summary = tr('v.wikiLoading');
+    else if (ws?.wikiTitle) {
+        const w = ws.wiki?.lang === S.lang ? ws.wiki : null;
+        if (!w) loadWiki(ws);
         img = w?.thumb || null; summary = w ? w.extract : tr('v.wikiLoading'); link = w?.url || null;
     }
-    notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: f, image: img, video: r.video || null, canCockpit: MOVERS.includes(L), isRadio: L === 'radio', summary, link }));
+    if (MOVERS.includes(L)) photo = aircraftPhoto(r.key);
+    notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: f, image: photo ? null : img, video: r.video || null,
+        canCockpit: MOVERS.includes(L), isRadio: L === 'radio', summary, link, photo: photo?.src || null, photoLink: photo?.link || null, photoBy: photo?.by || null }));
 }
 // Sharp image (max 1280 px wide) instead of the 330 px summary thumbnail
 function wikiImage(s) {
@@ -1072,7 +1142,7 @@ async function loadWiki(r) {
     if (r.wikiLoading !== lang) return;
     r.wikiLoading = null;
     r.wiki = { lang, extract: s?.extract || null, thumb: wikiImage(s), url: s ? `https://${host}/wiki/${path}` : null };
-    if (selected && store[selected.layer].get(selected.key) === r) pushInfo();
+    if (selected) pushInfo(); // r may be shared (aircraft model)
 }
 
 // ---------- radio (Radio Browser) ----------
@@ -1379,7 +1449,8 @@ function drawDetect() {
     ctx.clearRect(0, 0, w, h);
     const occ = new Cz.EllipsoidalOccluder(Cz.Ellipsoid.WGS84, viewer.camera.positionWC);
     const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
-    const items = [];
+    // One candidate per screen cell: spreads labels over the whole view (also after zooming out)
+    const cells = new Map();
     for (const l of LAYERS) {
         if (!S.layers[l]) continue;
         for (const r of store[l].values()) {
@@ -1387,19 +1458,21 @@ function drawDetect() {
             if (!p || !occ.isPointVisible(p)) continue;
             const s = toWin(viewer.scene, p);
             if (!s || s.x < 0 || s.y < 0 || s.x > w || s.y > h) continue;
-            // Targets labelled last frame keep priority: no flicker/reshuffle while rotating
-            const d = Math.hypot(s.x - w / 2, s.y - h / 2) - (detectShown.has(r) ? 1e6 : 0);
-            items.push([d, s.x, s.y, r, l]);
+            const cx = Math.floor(s.x / DETECT_CW), cy = Math.floor(s.y / DETECT_CH), k = cx * 1000 + cy;
+            // Labelled last frame wins its cell (no flicker); else closest to the cell centre
+            const d = detectShown.has(r) ? -1 : Math.hypot(s.x - (cx + 0.5) * DETECT_CW, s.y - (cy + 0.5) * DETECT_CH);
+            const cur = cells.get(k);
+            if (!cur || d < cur[0]) cells.set(k, [d, s.x, s.y, r, l]);
         }
     }
-    items.sort((a, b) => a[0] - b[0]);
+    const items = [...cells.values()].sort((a, b) => a[0] - b[0]);
     const shownNow = new Set();
     ctx.lineWidth = 1; ctx.font = '13px "Share Tech Mono", monospace';
     ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3;
     const b = 11, drawn = [];
     for (const [, x, y, r, l] of items) {
         // Declutter: skip targets overlapping an already boxed one
-        if (drawn.length >= 60) break;
+        if (drawn.length >= 250) break;
         if (drawn.some(([dx, dy]) => Math.abs(dx - x) < 120 && Math.abs(dy - y) < 30)) continue;
         drawn.push([x, y]);
         shownNow.add(r);
@@ -1414,6 +1487,7 @@ function drawDetect() {
     detectShown = shownNow;
 }
 let detectShown = new Set();
+const DETECT_CW = 150, DETECT_CH = 40; // label grid cell (px)
 // Arrow keys pan, +/- zoom; applied every frame while held for smooth motion
 const NAV_KEYS = new Set(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', '+', '=', '-', '_']);
 const navHeld = new Set();

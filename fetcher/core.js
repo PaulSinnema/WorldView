@@ -12,7 +12,7 @@ export async function openskyToken(clientId, clientSecret) {
     return (await r.json()).access_token;
 }
 
-// civil row: [icao, call, lat, lon, altM, gsMs, track, ground, country, squawk, tPos]
+// civil row: [icao, call, lat, lon, altM, gsMs, track, ground, country, squawk, tPos] (+ reg, type in server.js)
 export async function fetchOpensky(token) {
     const headers = { 'User-Agent': UA, Accept: 'application/json' };
     if (token) headers.Authorization = `Bearer ${token}`;
