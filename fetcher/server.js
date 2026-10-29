@@ -3,12 +3,17 @@ import { mkdir, writeFile, rename, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openskyToken, fetchOpensky, fetchMilitary } from './core.js';
 import { loadAircraftDb, loadTypes, lookup } from './aircraftdb.js';
+import { fetchNs, fetchFinland, fetchAmtrak } from './trains.js';
+import { startNsApi } from './nsapi.js';
 
+// Raise on every fetcher change (logged at start, served as /status.json)
+const VERSION = '1.2.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
 const interval = Number(env.OPENSKY_INTERVAL_S || 120) * 1000;
 let lastOpensky = 0, token = null, tokenAt = 0;
+let lastNs = [], lastNsAt = 0;
 
 const log = m => console.log(new Date().toISOString(), m);
 
@@ -71,8 +76,21 @@ async function run() {
         await put('military.json', m);
         log(`military: ${m.ac.length}`);
     } catch (e) { log(`military: ${e.message}`); }
+    // Trains: each source on its own, a failing one doesn't block the other
+    const [ns, fi, us] = await Promise.allSettled([fetchNs(env.NS_API_KEY), fetchFinland(), fetchAmtrak()]);
+    for (const [n, p] of [['ns', ns], ['finland', fi], ['amtrak', us]]) if (p.status === 'rejected') log(`${n}: ${p.reason?.message}`);
+    // NS sometimes returns a partial list: keep the previous one then
+    let nsList = ns.value || [];
+    if (nsList.length < lastNs.length * 0.6 && Date.now() - lastNsAt < 5 * 60000) nsList = lastNs;
+    else if (nsList.length) { lastNs = nsList; lastNsAt = Date.now(); }
+    const tr = [...nsList, ...(fi.value || []), ...(us.value || [])];
+    try { await put('trains.json', { t: Math.round(Date.now() / 1000), src: 'NS · Digitraffic (CC BY 4.0) · Amtraker', tr }); log(`trains: ${tr.length}`); }
+    catch (e) { log(`trains: ${e.message}`); }
 }
 
 await mkdir(DATA, { recursive: true });
+log(`WorldView fetcher v${VERSION}`);
+await put('status.json', { version: VERSION, started: new Date().toISOString() });
+startNsApi(env.NS_API_KEY);
 run();
 setInterval(run, 60000);

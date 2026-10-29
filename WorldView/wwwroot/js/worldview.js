@@ -1,7 +1,7 @@
 ﻿// WorldView globe engine: CesiumJS + keyless public feeds
 const Cz = window.Cesium;
 const SETTINGS_KEY = 'wv-settings';
-const LAYERS = ['flights', 'military', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras'];
+const LAYERS = ['flights', 'military', 'trains', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras'];
 const ORBITERS = ['satellites', 'telescopes'];
 const TEL_COLOR = '#00e5ff';
 // Earth-orbiting space telescopes (NORAD id, name)
@@ -13,11 +13,13 @@ const TELESCOPES = [[20580, 'Hubble', 'Hubble Space Telescope'], [25867, 'Chandr
 const L2_TELESCOPES = [['jwst', 'James Webb (JWST)', 3e8, 'James Webb Space Telescope'], ['euclid', 'Euclid', -3e8, 'Euclid (spacecraft)']];
 const L2_DIST = 1.5e9;
 const STYLE_KEYS = ['normal', 'crt', 'nvg', 'flir', 'ironbow', 'noir', 'snow'];
-const BILLBOARD_LAYERS = ['flights', 'military', 'launches', 'cameras'];
-const MOVERS = ['flights', 'military'];
+const BILLBOARD_LAYERS = ['flights', 'military', 'trains', 'launches', 'cameras'];
+const MOVERS = ['flights', 'military', 'trains'];
+const PLANES = ['flights', 'military'];
+const TRAIN_COLOR = '#9dff3a';
 const FT = 0.3048, R_EARTH = 6371000;
 const FEED_URL = 'https://flights.sinnema.ch'; // netcup VPS, see fetcher/README.md
-const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff' };
+const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff' };
 // Translations (same cache-busting version as this module)
 const { LANGS, LOCALES, pickLang, t, strings } = await import(`./i18n.js${new URL(import.meta.url).search}`);
 const tr = (key, params) => t(S.lang, key, params);
@@ -38,7 +40,7 @@ const CITIES = {
 let viewer = null, dotnet = null, sat = null;
 const S = { layers: {}, style: 'normal', basemap: 'esri', ionToken: '', hud: true, detect: false, daynight: true, nightLight: 60, borders: false, regions: true, cities: true, zoom: {}, cockpit: false };
 // Per layer: zoom/follow on click
-const ZOOM_DEFAULT = { cities: false, flights: false, military: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false };
+const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false };
 const NIGHT_URL = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png';
 let nightLayer = null;
 // Night brightness 0..100 → city-lights blend 0.8..0.05 (60 ≈ 0.35)
@@ -98,6 +100,10 @@ function makeIcon(kind, color) {
     g.fillStyle = color; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineWidth = 1.5; g.beginPath();
     if (kind === 'plane') {
         const p = [[0, -14], [3, -4], [13, 2], [13, 5], [3, 2], [2, 10], [6, 13], [6, 15], [0, 13], [-6, 15], [-6, 13], [-2, 10], [-3, 2], [-13, 5], [-13, 2], [-3, -4]];
+        p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
+    } else if (kind === 'train') {
+        // Top view of a locomotive, nose up
+        const p = [[0, -14], [6, -8], [6, 14], [-6, 14], [-6, -8]];
         p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
     } else if (kind === 'rocket') {
         g.moveTo(0, -14); g.lineTo(5, -4); g.lineTo(5, 8); g.lineTo(9, 14); g.lineTo(-9, 14); g.lineTo(-5, 8); g.lineTo(-5, -4); g.closePath();
@@ -262,7 +268,7 @@ function checkGpu() {
 export const getGpu = () => gpuName;
 
 // ---------- layers ----------
-const LOADERS = { flights: loadFlights, military: loadMilitary, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras };
+const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras };
 
 export function setLayer(name, on) { applyLayer(name, on, false); }
 function applyLayer(name, on, fromEngine) {
@@ -366,6 +372,20 @@ function aircraftWiki(r) {
     }
     return m;
 }
+// NS train composition + image via the fetcher (/ns/train/{nr}, key stays on the VPS)
+const nsDetails = new Map(); // nr -> data | null | 'loading'
+function nsTrain(key) {
+    const nr = key.startsWith('ns-') ? key.slice(3) : '';
+    if (!/^\d+$/.test(nr)) return null;
+    const d = nsDetails.get(nr);
+    if (d !== undefined) return d === 'loading' ? null : d;
+    nsDetails.set(nr, 'loading');
+    tryJson(`${FEED_URL}/ns/train/${nr}`, 15000).then(j => {
+        nsDetails.set(nr, j && !j.error ? j : null);
+        if (selected?.key === key) pushInfo();
+    });
+    return null;
+}
 // Photo of the actual aircraft (Planespotters.net: credit + link to the photo page required)
 const photos = new Map(); // hex -> {src, link, by} | null | 'loading'
 function aircraftPhoto(hex) {
@@ -402,6 +422,18 @@ async function loadMilitary() {
     if (!j?.ac) { report('military', 'st.feedDown'); return 30000; }
     merge('military', j.ac.map(a => fromFeedMil(a, j.t)), 'plane', '#ffb020');
     report('military', 'st.age', { src: j.src, s: age(j.t) });
+    return 30000;
+}
+// trains: [id, label, lat, lon, speedMs, heading, country, operator, tPos] (NS, Digitraffic, Amtraker via fetcher)
+async function loadTrains() {
+    const j = await getFeed('trains');
+    if (!j?.tr) { report('trains', 'st.feedDown'); return 30000; }
+    merge('trains', j.tr.map(a => ({
+        key: a[0], lat: a[2], lon: a[3], alt: 0, gs: a[4], track: a[5], ground: false, t: (a[8] || j.t) * 1000, label: a[1],
+        // Optional (Amtraker): [9] route, [10] from, [11] to
+        info: [['train', a[1]], ['operator', a[7]], ['country', a[6]], ['route', a[9]], ['from', a[10]], ['to', a[11]]].filter(([, v]) => v)
+    })), 'train', TRAIN_COLOR);
+    report('trains', 'st.age', { src: j.src, s: age(j.t) });
     return 30000;
 }
 function merge(layer, list, kind, color) {
@@ -1088,7 +1120,7 @@ function pushInfo() {
     if (MOVERS.includes(L)) {
         const [la, lo] = posAt(r, Date.now());
         infoRows(r.info, f);
-        f.push([tr('f.altitude'), r.ground ? tr('v.onGround') : `${Math.round(r.alt).toLocaleString(loc())} m (FL${Math.round(r.alt / FT / 100)})`]);
+        if (PLANES.includes(L)) f.push([tr('f.altitude'), r.ground ? tr('v.onGround') : `${Math.round(r.alt).toLocaleString(loc())} m (FL${Math.round(r.alt / FT / 100)})`]);
         f.push([tr('f.speed'), `${Math.round(r.gs * 3.6)} ${tr('u.kmh')}`], [tr('f.heading'), `${Math.round(r.track || 0)}°`], [tr('f.position'), fmtPos(la, lo)]);
     } else if (r.l2) {
         const km = Cz.Cartesian3.magnitude(l2Position(r.offset)) / 1000;
@@ -1103,14 +1135,27 @@ function pushInfo() {
     let img = r.image ? `${r.image}${r.image.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 30000)}` : null;
     let summary = null, link = null, photo = null;
     // Wikipedia: own article (telescopes) or the aircraft model article
-    const ws = r.wikiTitle ? r : MOVERS.includes(L) ? aircraftWiki(r) : null;
+    const ws = r.wikiTitle ? r : PLANES.includes(L) ? aircraftWiki(r) : null;
     if (ws?.wikiTitle === null) summary = tr('v.wikiLoading');
     else if (ws?.wikiTitle) {
         const w = ws.wiki?.lang === S.lang ? ws.wiki : null;
         if (!w) loadWiki(ws);
         img = w?.thumb || null; summary = w ? w.extract : tr('v.wikiLoading'); link = w?.url || null;
     }
-    if (MOVERS.includes(L)) photo = aircraftPhoto(r.key);
+    if (PLANES.includes(L)) photo = aircraftPhoto(r.key);
+    if (L === 'trains') {
+        const d = nsTrain(r.key);
+        if (d) {
+            if (d.operator) f.push([tr('f.operator'), d.operator]);
+            if (d.type) f.push([tr('f.rollingStock'), d.type]);
+            if (d.parts?.length) f.push([tr('f.units'), d.parts.join(', ')]);
+            if (d.cars || d.meters) f.push([tr('f.length'), [d.cars ? tr('v.cars', { n: d.cars }) : '', d.meters ? `${d.meters} m` : ''].filter(Boolean).join(' · ')]);
+            if (d.seats1 || d.seats2) f.push([tr('f.seats'), tr('v.seats', { a: d.seats1 || 0, b: d.seats2 || 0 })]);
+            if (d.bikes) f.push([tr('f.bikes'), String(d.bikes)]);
+            if (d.facilities?.length) f.push([tr('f.facilities'), d.facilities.map(x => { const k = 'fac.' + x.toLowerCase(), s = tr(k); return s === k ? x.toLowerCase() : s; }).join(', ')]);
+            img = d.img || img;
+        }
+    }
     notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: f, image: photo ? null : img, video: r.video || null,
         canCockpit: MOVERS.includes(L), isRadio: L === 'radio', summary, link, photo: photo?.src || null, photoLink: photo?.link || null, photoBy: photo?.by || null }));
 }
@@ -1411,9 +1456,9 @@ function tick() {
     if (S.layers.satellites && now % 1000 < 250) propagateSats();
     if (selected && now - lastTrail > 1000) {
         lastTrail = now;
-        // No trail for aircraft on the ground (taxiing gives odd tracks)
-        const onGround = MOVERS.includes(selected.layer) && store[selected.layer].get(selected.key)?.ground;
-        if (onGround) trail = [];
+        // No trail for trains, nor for aircraft on the ground (taxiing gives odd tracks)
+        const noTrail = selected.layer === 'trains' || (MOVERS.includes(selected.layer) && store[selected.layer].get(selected.key)?.ground);
+        if (noTrail) trail = [];
         else {
             const p = currentCartesian();
             if (p) { trail.push(p); if (trail.length > 600) trail.shift(); }
@@ -1478,7 +1523,7 @@ function drawDetect() {
     for (const [, x, y, r, l] of items) {
         // Declutter: skip targets overlapping an already boxed one
         if (drawn.length >= 250) break;
-        if (drawn.some(([dx, dy]) => Math.abs(dx - x) < 120 && Math.abs(dy - y) < 30)) continue;
+        if (drawn.some(([dx, dy]) => Math.abs(dx - x) < 180 && Math.abs(dy - y) < 30)) continue;
         drawn.push([x, y]);
         shownNow.add(r);
         ctx.strokeStyle = ctx.fillStyle = DETECT_COLORS[l];
@@ -1487,12 +1532,14 @@ function drawDetect() {
             ctx.moveTo(x + dx * b, y + dy * (b - 5)); ctx.lineTo(x + dx * b, y + dy * b); ctx.lineTo(x + dx * (b - 5), y + dy * b);
         }
         ctx.stroke();
-        ctx.fillText(String(r.label || r.key).slice(0, 18), x + b + 3, y - b + 8);
+        // Moving targets: speed next to the name
+        const name = String(r.label || r.key).slice(0, 18);
+        ctx.fillText(MOVERS.includes(l) ? `${name} ${Math.round((r.gs || 0) * 3.6)} ${tr('u.kmh')}` : name, x + b + 3, y - b + 8);
     }
     detectShown = shownNow;
 }
 let detectShown = new Set();
-const DETECT_CW = 150, DETECT_CH = 40; // label grid cell (px)
+const DETECT_CW = 200, DETECT_CH = 40; // label grid cell (px)
 // Arrow keys pan, +/- zoom; applied every frame while held for smooth motion
 const NAV_KEYS = new Set(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', '+', '=', '-', '_']);
 const navHeld = new Set();
@@ -1553,6 +1600,7 @@ const VOICE_LAYERS = [
     ['bosbrand', 'fires'], ['brand', 'fires'], ['fire', 'fires'], ['feu', 'fires'], ['火', 'fires'],
     ['lancering', 'launches'], ['launch', 'launches'], ['raketenstart', 'launches'], ['lancement', 'launches'], ['发射', 'launches'],
     ['radio', 'radio'], ['电台', 'radio'],
+    ['trein', 'trains'], ['train', 'trains'], ['zug', 'trains'], ['züge', 'trains'], ['火车', 'trains'],
     ['camera', 'cameras'], ['kamera', 'cameras'], ['caméra', 'cameras'], ['摄像', 'cameras']];
 const VOICE_STYLES = [['nacht', 'nvg'], ['night', 'nvg'], ['nuit', 'nvg'], ['夜视', 'nvg'], ['nvg', 'nvg'], ['ironbow', 'ironbow'],
     ['thermisch', 'flir'], ['thermal', 'flir'], ['thermique', 'flir'], ['热成像', 'flir'], ['flir', 'flir'], ['crt', 'crt'],

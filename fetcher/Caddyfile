@@ -10,5 +10,11 @@
 	}
 	@options method OPTIONS
 	respond @options 204
-	file_server
+	# On-demand NS train details (key stays on the server)
+	handle /ns/* {
+		reverse_proxy fetcher:8080
+	}
+	handle {
+		file_server
+	}
 }

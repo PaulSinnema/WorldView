@@ -2,6 +2,38 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.43] - 2026-10-29
+
+### Added
+- Trains in the US and Canada: Amtrak, Brightline and VIA Rail via the Amtraker API (fetcher 1.2.0), with route, origin and destination in the info box.
+
+## [1.0.42] - 2026-10-29
+
+### Changed
+- Detection: speed (km/h) next to the name of aircraft and trains; wider label spacing.
+
+## [1.0.41] - 2026-10-29
+
+### Changed
+- No trail for selected trains.
+
+## [1.0.40] - 2026-10-29
+
+### Changed
+- NS train details (fetcher 1.1.2): operator, carriages and length in metres, seats per class, bike spaces and facilities; fixed seat count.
+
+## [1.0.39] - 2026-10-29
+
+### Added
+- Fetcher version (`VERSION` in `fetcher/server.js`, now 1.1.1): logged at start and served as `/status.json`.
+- Fetcher 1.1.1: keeps the previous NS train list when NS returns a partial one.
+- NS trains: image and composition (rolling stock, units, seats, length) in the info box, via the fetcher endpoint `/ns/train/{nr}` (NS Virtual Train API, cached 5 min).
+
+## [1.0.38] - 2026-10-29
+
+### Added
+- **Trains** layer: live positions in the Netherlands (NS Virtual Train API, key on the VPS) and Finland (Digitraffic), via the fetcher (`trains.json`), with dead reckoning, info box, Detection labels and voice keywords.
+
 ## [1.0.37] - 2026-10-29
 
 ### Fixed
