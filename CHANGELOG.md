@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.37] - 2026-10-29
+
+### Fixed
+- No trail for a selected aircraft while it is on the ground (taxiing).
+
 ## [1.0.36] - 2026-10-29
 
 ### Added

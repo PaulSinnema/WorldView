@@ -1411,8 +1411,13 @@ function tick() {
     if (S.layers.satellites && now % 1000 < 250) propagateSats();
     if (selected && now - lastTrail > 1000) {
         lastTrail = now;
-        const p = currentCartesian();
-        if (p) { trail.push(p); if (trail.length > 600) trail.shift(); }
+        // No trail for aircraft on the ground (taxiing gives odd tracks)
+        const onGround = MOVERS.includes(selected.layer) && store[selected.layer].get(selected.key)?.ground;
+        if (onGround) trail = [];
+        else {
+            const p = currentCartesian();
+            if (p) { trail.push(p); if (trail.length > 600) trail.shift(); }
+        }
     }
     if (S.layers.telescopes && now % 1000 < 250) propagateTelescopes();
     if (S.layers.telescopes && now - lastTelOrbit > 30000) { lastTelOrbit = now; drawTelOrbits(); }
