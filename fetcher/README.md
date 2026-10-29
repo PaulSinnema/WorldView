@@ -51,7 +51,7 @@ Without GitHub: copy the `fetcher` folder with WinSCP to `/opt/WorldView/fetcher
 
 ## 5. Check
 
-- `docker compose logs -f fetcher` → every minute `military: …` and every 2 min `flights: …`
+- `docker compose logs -f fetcher` → `military: …` every 20 s, `finland: …` / `ov: …` 15 s, `ns: …` 30 s, `amtrak: …` 60 s, `flights: …` 90 s
 - In your browser: `https://flights.sinnema.ch/flights-index.json`
 - Caddy requests the HTTPS certificate on first start. This only works when the DNS record from step 2 is active.
 

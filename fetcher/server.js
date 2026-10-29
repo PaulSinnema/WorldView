@@ -11,12 +11,12 @@ import { fetchSensorCommunity, fetchOpenAq } from './air.js';
 import { fetchNh3 } from './nh3.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.6.1';
+const VERSION = '1.7.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
-const interval = Number(env.OPENSKY_INTERVAL_S || 120) * 1000;
-let lastOpensky = 0, token = null, tokenAt = 0;
+const interval = Number(env.OPENSKY_INTERVAL_S || 90) * 1000;
+let token = null, tokenAt = 0;
 let lastNs = [], lastNsAt = 0;
 
 const log = m => console.log(new Date().toISOString(), m);
@@ -111,47 +111,75 @@ function refreshNh3() {
         .finally(() => { nh3Busy = false; });
 }
 
-async function run() {
-    await refreshDb();
-    await refreshOvRoutes();
-    await refreshCameras();
-    await refreshAir();
-    refreshNh3();
-    if (Date.now() - lastOpensky >= interval) {
-        lastOpensky = Date.now(); // also on failure: respect credit budget
-        try {
-            const s = await fetchOpensky(await getToken());
-            // civil row + [reg, type] from the aircraft database
-            for (const a of s.ac) a.push(...lookup(a[0]));
-            await writeFlights(s);
-            log(`flights: ${s.ac.length}`);
-        } catch (e) { token = null; log(`flights: ${e.message}`); }
-    }
+// Each feed on its own schedule; a slow one never delays the others
+const due = {}, busy = {};
+function every(name, ms, fn) {
+    const now = Date.now();
+    if (busy[name] || now < (due[name] || 0)) return;
+    due[name] = now + ms; busy[name] = true; // also on failure: respect rate limits
+    Promise.resolve().then(fn).catch(e => log(`${name}: ${e.message}`)).finally(() => { busy[name] = false; });
+}
+
+async function updateFlights() {
+    await dbFirst; // registrations/types need the aircraft database
     try {
-        const m = await fetchMilitary();
-        await put('military.json', m);
-        log(`military: ${m.ac.length}`);
-    } catch (e) { log(`military: ${e.message}`); }
-    // Trains: each source on its own, a failing one doesn't block the other
-    const [ns, fi, us] = await Promise.allSettled([fetchNs(env.NS_API_KEY), fetchFinland(), fetchAmtrak()]);
-    for (const [n, p] of [['ns', ns], ['finland', fi], ['amtrak', us]]) if (p.status === 'rejected') log(`${n}: ${p.reason?.message}`);
-    // NS sometimes returns a partial list: keep the previous one then
-    let nsList = ns.value || [];
-    if (nsList.length < lastNs.length * 0.6 && Date.now() - lastNsAt < 5 * 60000) nsList = lastNs;
-    else if (nsList.length) { lastNs = nsList; lastNsAt = Date.now(); }
-    const tr = [...nsList, ...(fi.value || []), ...(us.value || [])];
-    try { await put('trains.json', { t: Math.round(Date.now() / 1000), src: 'NS · Digitraffic (CC BY 4.0) · Amtraker', tr }); log(`trains: ${tr.length}`); }
-    catch (e) { log(`trains: ${e.message}`); }
+        const s = await fetchOpensky(await getToken());
+        // civil row + [reg, type] from the aircraft database
+        for (const a of s.ac) a.push(...lookup(a[0]));
+        await writeFlights(s);
+        log(`flights: ${s.ac.length}`);
+    } catch (e) { token = null; throw e; }
+}
+async function updateMilitary() {
+    const m = await fetchMilitary();
+    await put('military.json', m);
+    log(`military: ${m.ac.length}`);
+}
+
+// Trains: each source on its own interval; trains.json combines the latest of each (dropped after 5 min without data)
+const trainParts = { ns: { rows: [], at: 0 }, finland: { rows: [], at: 0 }, amtrak: { rows: [], at: 0 } };
+async function writeTrains() {
+    const fresh = Object.values(trainParts).filter(p => Date.now() - p.at < 5 * 60000);
+    const tr = fresh.flatMap(p => p.rows);
+    await put('trains.json', { t: Math.round(Date.now() / 1000), src: 'NS · Digitraffic (CC BY 4.0) · Amtraker', tr });
+    return tr.length;
+}
+async function updateTrains(name, fetchFn) {
     try {
-        const ov = await fetchOv();
-        await put('ov.json', { t: Math.round(Date.now() / 1000), src: 'OVapi (NDOV)', ov });
-        log(`ov: ${ov.length}`);
-    } catch (e) { log(`ov: ${e.message}`); }
+        let rows = await fetchFn() || [];
+        // NS sometimes returns a partial list: keep the previous one then
+        if (name === 'ns') {
+            if (rows.length < lastNs.length * 0.6 && Date.now() - lastNsAt < 5 * 60000) rows = lastNs;
+            else if (rows.length) { lastNs = rows; lastNsAt = Date.now(); }
+        }
+        trainParts[name] = { rows, at: Date.now() };
+        log(`${name}: ${rows.length}, trains: ${await writeTrains()}`);
+    } catch (e) { await writeTrains(); throw e; }
+}
+
+async function updateOv() {
+    await ovRoutesFirst; // line numbers/operators
+    const ov = await fetchOv();
+    await put('ov.json', { t: Math.round(Date.now() / 1000), src: 'OVapi (NDOV)', ov });
+    log(`ov: ${ov.length}`);
+}
+
+function tick() {
+    every('slow', 60000, async () => { await refreshDb(); await refreshOvRoutes(); await refreshCameras(); await refreshAir(); refreshNh3(); });
+    every('flights', interval, updateFlights);
+    every('military', 20000, updateMilitary);
+    every('ns', 30000, () => updateTrains('ns', () => fetchNs(env.NS_API_KEY)));
+    every('finland', 15000, () => updateTrains('finland', fetchFinland));
+    every('amtrak', 60000, () => updateTrains('amtrak', fetchAmtrak));
+    every('ov', 15000, updateOv);
 }
 
 await mkdir(DATA, { recursive: true });
 log(`WorldView fetcher v${VERSION}`);
 await put('status.json', { version: VERSION, started: new Date().toISOString() });
 startNsApi(env.NS_API_KEY);
-run();
-setInterval(run, 60000);
+// First load of the databases (the slow loop skips them while they're fresh)
+const dbFirst = refreshDb().catch(() => { });
+const ovRoutesFirst = refreshOvRoutes().catch(() => { });
+tick();
+setInterval(tick, 5000);

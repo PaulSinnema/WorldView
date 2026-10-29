@@ -567,7 +567,7 @@ async function loadMilitary() {
     if (!j?.ac) { report('military', 'st.feedDown'); return 30000; }
     merge('military', j.ac.map(a => fromFeedMil(a, j.t)), 'plane', '#ffb020');
     report('military', 'st.age', { src: j.src, s: age(j.t) });
-    return 30000;
+    return 20000;
 }
 // trains: [id, label, lat, lon, speedMs, heading, country, operator, tPos] (NS, Digitraffic, Amtraker via fetcher)
 async function loadTrains() {
@@ -579,7 +579,7 @@ async function loadTrains() {
         info: [['train', a[1]], ['operator', a[7]], ['country', a[6]], ['route', a[9]], ['from', a[10]], ['to', a[11]]].filter(([, v]) => v)
     })), 'train', TRAIN_COLOR);
     report('trains', 'st.age', { src: j.src, s: age(j.t) });
-    return 30000;
+    return 15000;
 }
 // Dutch public transport: [id, line, lat, lon, speedMs, heading, operator, mode, tPos, vehicle] (OVapi via fetcher)
 async function loadOv() {
@@ -597,7 +597,7 @@ async function loadOv() {
         };
     }), 'bus', OV_COLOR);
     report('ov', 'st.age', { src: j.src, s: age(j.t) });
-    return 30000;
+    return 15000;
 }
 function merge(layer, list, kind, color) {
     const m = store[layer], col = coll[layer], now = Date.now(), img = icon(kind, color);

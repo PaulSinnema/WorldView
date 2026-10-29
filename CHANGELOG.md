@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.79] - 2026-10-29
+
+### Changed
+- Faster updates. Fetcher 1.7.0: every feed on its own schedule — military 20 s, trains Finland 15 s, NS 30 s, Amtrak 60 s, bus/tram/metro 15 s, flights 90 s (`OPENSKY_INTERVAL_S`, default now 90). Browser polls military every 20 s, trains and bus/tram/metro every 15 s.
+
 ## [1.0.78] - 2026-10-29
 
 ### Changed
