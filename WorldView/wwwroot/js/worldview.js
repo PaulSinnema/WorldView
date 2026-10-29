@@ -1837,6 +1837,25 @@ function currentCartesian() {
     return r.pos;
 }
 export function selectItem(layer, key) { select(layer, key, true); }
+// "Zoom to": centre the selected object (or picked city/country/province/spot) in view, same camera height and direction
+export function zoomToSelection() {
+    let target = currentCartesian();
+    if (!target && cityPick) {
+        const p = cityPick, lat = p.lat ?? p.LABEL_Y, lon = p.lon ?? p.LABEL_X;
+        if (lat != null && lon != null) target = Cz.Cartesian3.fromDegrees(lon, lat, 0);
+    }
+    if (!target || S.cockpit) return false;
+    const cam = viewer.camera, h = camHeight(), alt = Cz.Cartographic.fromCartesian(target).height;
+    // Look down at least 15°, distance so the camera height stays the same
+    const pitch = Math.min(cam.pitch, toRad(-15)), above = h - alt;
+    if (above <= 100) { // object above the camera (satellites): straight over it, same height
+        const g = Cz.Cartographic.fromCartesian(target);
+        cam.flyTo({ destination: Cz.Cartesian3.fromRadians(g.longitude, g.latitude, h), orientation: { heading: cam.heading, pitch: toRad(-90), roll: 0 }, duration: 1.5 });
+        return true;
+    }
+    cam.flyToBoundingSphere(new Cz.BoundingSphere(target, 0), { offset: new Cz.HeadingPitchRange(cam.heading, pitch, above / Math.sin(-pitch)), duration: 1.5 });
+    return true;
+}
 function select(layer, key, fly) {
     const r = store[layer]?.get(key);
     if (!r) return;

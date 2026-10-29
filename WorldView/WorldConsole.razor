@@ -233,6 +233,7 @@ else if (error is not null)
             <a class="wiki" href="@selection.Link" target="_blank" rel="noopener">@T("info.wiki")</a>
         }
         <div class="info-actions">
+            <button @onclick="ZoomToSelection" title="@T("hint.zoomTo")">◎ @T("btn.zoomTo")</button>
             @if (HasMedia)
             {
                 <button @onclick="ToggleEnlarge">⤢ @T("btn.enlarge")</button>
@@ -729,6 +730,11 @@ else if (error is not null)
         if (module is null) return;
         listening = await module.InvokeAsync<bool>("startVoice");
         if (!listening) _ = ShowToastAsync(T("toast.noVoice"));
+    }
+
+    private async Task ZoomToSelection()
+    {
+        if (module is not null) await module.InvokeAsync<bool>("zoomToSelection");
     }
 
     private async Task ClearSelection()

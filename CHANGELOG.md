@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.82] - 2026-10-29
+
+### Added
+- **Zoom to** button in the info box: centres the selected object, city, country, province or spot in view without changing the camera height or direction.
+
 ## [1.0.81] - 2026-10-29
 
 ### Fixed
