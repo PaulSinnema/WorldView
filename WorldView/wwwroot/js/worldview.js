@@ -274,7 +274,18 @@ async function addGridLayer(gen, [file, rgbaFn, credit]) {
     const h = d.step / 2, rect = Cz.Rectangle.fromDegrees(d.w - h, d.s - h, d.w + (d.nx - 1) * d.step + h, d.s + (d.ny - 1) * d.step + h);
     const provider = await Cz.SingleTileImageryProvider.fromUrl(big.toDataURL(), { rectangle: rect, credit });
     if (gen !== envGen) return;
-    envLayer = viewer.imageryLayers.addImageryProvider(provider);
+    envLayer = envAdd(provider);
+}
+// Environment imagery is tagged, so switching always removes every earlier overlay (also late async ones)
+function envAdd(provider) {
+    const l = viewer.imageryLayers.addImageryProvider(provider);
+    l._wvEnv = true;
+    return l;
+}
+function clearEnvLayers() {
+    const L = viewer.imageryLayers;
+    for (let i = L.length - 1; i >= 0; i--) if (L.get(i)._wvEnv) L.remove(L.get(i));
+    envLayer = null;
 }
 // Own legend: colour bar as data URL
 function gridLegendUrl(rgba, max, ticks, unit, min = 0) {
@@ -295,12 +306,15 @@ const o3LegendUrl = () => gridLegendUrl(o3Rgba, 500, [150, 220, 300, 380, 450, 5
 const OWN_ENV = ['coral', 'power'];
 // NOAA Coral Reef Watch bleaching alert (7-day max), ERDDAP WMS; colours as ERDDAP draws levels 0–4 (checked against the data)
 const CRW_LEVELS = [['#0000ff', 'crw.watch'], ['#00ff00', 'crw.warning'], ['#ff9900', 'crw.alert1'], ['#800000', 'crw.alert2']];
-function addCoralLayer() {
-    envLayer = viewer.imageryLayers.addImageryProvider(new Cz.WebMapServiceImageryProvider({
-        url: 'https://coastwatch.pfeg.noaa.gov/erddap/wms/NOAA_DHW/request', layers: 'dhw_5km:CRW_BAA_7D_MAX',
-        parameters: { version: '1.1.1', format: 'image/png', transparent: true, styles: '' },
-        tilingScheme: new Cz.GeographicTilingScheme(), maximumLevel: 7, credit: 'NOAA Coral Reef Watch'
-    }));
+// Global image prepared by the fetcher (coral.png, from the ERDDAP WMS)
+async function addCoralLayer(gen) {
+    let provider;
+    try {
+        provider = await Cz.SingleTileImageryProvider.fromUrl(`${FEED_URL}/coral.png?b=${Math.floor(Date.now() / 3600000)}`,
+            { rectangle: Cz.Rectangle.fromDegrees(-180, -90, 180, 90), credit: 'NOAA Coral Reef Watch' });
+    } catch { if (gen === envGen) toast(tr('err.noData')); return; }
+    if (gen !== envGen) return;
+    envLayer = envAdd(provider);
     envLayer.alpha = 0.8;
     // Level 0 (no stress, purple) transparent
     envLayer.colorToAlpha = Cz.Color.fromCssColorString('#800080'); envLayer.colorToAlphaThreshold = 0.05;
@@ -361,19 +375,19 @@ async function addPowerLayer(gen) {
     }
     const provider = await Cz.SingleTileImageryProvider.fromUrl(cv.toDataURL(), { rectangle: Cz.Rectangle.fromDegrees(W0, S0, E0, N0), credit: 'Energy-Charts (Fraunhofer ISE)' });
     if (gen !== envGen) return;
-    envLayer = viewer.imageryLayers.addImageryProvider(provider);
+    envLayer = envAdd(provider);
 }
 const powerLegendUrl = () => gridLegendUrl(ciRgba, 800, [0, 200, 400, 600, 800], tr('env.ciUnit'));
 function addEnvLayer() {
-    envLayer = null;
+    clearEnvLayers();
     const gen = ++envGen;
-    if (S.envOverlay === 'coral') { addCoralLayer(); return; }
+    if (S.envOverlay === 'coral') { addCoralLayer(gen); return; }
     if (S.envOverlay === 'power') { addPowerLayer(gen); return; }
     if (GRID_LAYERS[S.envOverlay]) { addGridLayer(gen, GRID_LAYERS[S.envOverlay]); return; }
     const e = ENV_LAYERS[S.envOverlay];
     if (!e) return;
     const time = e[2] ? new Date(Date.now() - e[2] * 86400000).toISOString().slice(0, 10) : 'default';
-    envLayer = viewer.imageryLayers.addImageryProvider(new Cz.UrlTemplateImageryProvider({
+    envLayer = envAdd(new Cz.UrlTemplateImageryProvider({
         url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${e[0]}/default/${time}/GoogleMapsCompatible_Level${e[1]}/{z}/{y}/{x}.png`,
         maximumLevel: e[1], credit: 'NASA GIBS'
     }));
@@ -421,7 +435,7 @@ const envLegend = async () => S.envOverlay === 'coral' ? coralLegendUrl() : S.en
     : S.envOverlay === 'nh3' ? nh3LegendUrl() : S.envOverlay === 'ozoneCams' ? o3LegendUrl() : S.envOverlay === 'tempAnom' ? anomLegendUrl() : ENV_PALETTE[S.envOverlay] ? `https://gibs.earthdata.nasa.gov/legends/${ENV_PALETTE[S.envOverlay]}_H.png` : '';
 export function setEnvOverlay(name) {
     S.envOverlay = ENV_LAYERS[name] || GRID_LAYERS[name] || OWN_ENV.includes(name) ? name : ''; saveSettings();
-    if (envLayer) viewer.imageryLayers.remove(envLayer);
+    clearEnvLayers();
     addEnvLayer();
     return envLegend();
 }

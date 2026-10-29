@@ -12,9 +12,10 @@ import { fetchNh3 } from './nh3.js';
 import { fetchOzone, fetchCo2, fetchCh4 } from './ozone.js';
 import { fetchPower } from './power.js';
 import { fetchTempAnomaly } from './era5.js';
+import { fetchCoral } from './coral.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.10.1';
+const VERSION = '1.11.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -204,6 +205,11 @@ function tick() {
     every('finland', 15000, () => updateTrains('finland', fetchFinland));
     every('amtrak', 60000, () => updateTrains('amtrak', fetchAmtrak));
     every('ov', 15000, updateOv);
+    every('coral', 6 * 3600000, async () => {
+        const png = await fetchCoral(), file = join(DATA, 'coral.png');
+        await writeFile(`${file}.tmp`, png); await rename(`${file}.tmp`, file);
+        log(`coral: ${Math.round(png.length / 1024)} KB`);
+    });
     every('power', 30 * 60000, async () => { const d = await fetchPower(); await put('power.json', d); log(`power: ${Object.keys(d.c).length} countries`); });
 }
 

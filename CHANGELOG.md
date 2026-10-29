@@ -2,6 +2,12 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.93] - 2026-10-30
+
+### Fixed
+- Coral bleaching showed nothing: the browser could not use NOAA's map service directly. Fetcher 1.11.0 (`coral.js`) now downloads one global image every 6 h and serves it as `coral.png`.
+- Environment overlays: switching layers now removes every earlier overlay (tagged imagery layers), so no leftover patches of a previous layer (seen with Sea ice).
+
 ## [1.0.92] - 2026-10-29
 
 ### Added
