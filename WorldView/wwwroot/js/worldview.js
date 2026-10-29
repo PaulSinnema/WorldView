@@ -121,7 +121,8 @@ const icon = (kind, color) => icons[kind + color] ??= makeIcon(kind, color);
 
 // ---------- basemap ----------
 function imagery(name) {
-    if (name === 'dark') return new Cz.UrlTemplateImageryProvider({ url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', subdomains: 'abcd', maximumLevel: 19, credit: '© OpenStreetMap contributors © CARTO' });
+    // CARTO now shows "API key required" tiles: Esri Dark Gray Canvas (keyless)
+    if (name === 'dark') return new Cz.UrlTemplateImageryProvider({ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', maximumLevel: 16, credit: 'Esri, HERE, Garmin, © OpenStreetMap contributors' });
     if (name === 'osm') return new Cz.UrlTemplateImageryProvider({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maximumLevel: 19, credit: '© OpenStreetMap contributors' });
     return new Cz.UrlTemplateImageryProvider({ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', maximumLevel: 19, credit: 'Esri, Maxar, Earthstar Geographics' });
 }

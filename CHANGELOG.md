@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.46] - 2026-10-29
+
+### Fixed
+- Dark map: CARTO now requires an API key; replaced by the keyless Esri Dark Gray Canvas.
+
 ## [1.0.45] - 2026-10-29
 
 ### Added

@@ -68,7 +68,7 @@ const S = {
 
     // map
     'map.esri': ['Esri satellite', 'Esri satelliet', 'Esri Satellit', 'Esri satellite', 'Esri 卫星图'],
-    'map.dark': ['Dark (CARTO)', 'Donker (CARTO)', 'Dunkel (CARTO)', 'Sombre (CARTO)', '暗色 (CARTO)'],
+    'map.dark': ['Dark (Esri)', 'Donker (Esri)', 'Dunkel (Esri)', 'Sombre (Esri)', '暗色 (Esri)'],
     'map.osm': ['OpenStreetMap', 'OpenStreetMap', 'OpenStreetMap', 'OpenStreetMap', 'OpenStreetMap'],
     'map.google': ['Google 3D (ion token)', 'Google 3D (ion-token)', 'Google 3D (ion-Token)', 'Google 3D (jeton ion)', 'Google 3D（ion 令牌）'],
     'btn.reset': ['Reset globe', 'Reset globe', 'Globus zurücksetzen', 'Réinitialiser', '重置地球'],
