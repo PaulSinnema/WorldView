@@ -2460,14 +2460,24 @@ const NAV_KEYS = new Set(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', '+'
 const navHeld = new Set();
 let navLast = 0;
 const isTyping = t => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+// Smooth start/stop: velocities ease towards the keys' target (time constant NAV_EASE seconds)
+const NAV_EASE = 0.3;
+const navVel = { x: 0, y: 0, z: 0 };
 function navStep() {
     const now = performance.now(), dt = Math.min(0.1, (now - (navLast || now)) / 1000);
     navLast = now;
-    if (!navHeld.size || S.cockpit) return;
+    if (S.cockpit) { navVel.x = navVel.y = navVel.z = 0; return; }
+    const tx = (navHeld.has('arrowright') ? 1 : 0) - (navHeld.has('arrowleft') ? 1 : 0);
+    const ty = (navHeld.has('arrowup') ? 1 : 0) - (navHeld.has('arrowdown') ? 1 : 0);
+    const tz = (navHeld.has('+') || navHeld.has('=') ? 1 : 0) - (navHeld.has('-') || navHeld.has('_') ? 1 : 0);
+    const k = 1 - Math.exp(-dt / NAV_EASE);
+    navVel.x += (tx - navVel.x) * k; navVel.y += (ty - navVel.y) * k; navVel.z += (tz - navVel.z) * k;
+    // Come to rest once nearly stopped
+    for (const a of ['x', 'y', 'z']) if (Math.abs(navVel[a]) < 0.01 && !(a === 'x' ? tx : a === 'y' ? ty : tz)) navVel[a] = 0;
+    if (!navVel.x && !navVel.y && !navVel.z) return;
     const cam = viewer.camera, h = camHeight();
     // Move over the globe relative to the screen (heading-aware), keeping height and view angle
-    const dy = (navHeld.has('arrowup') ? 1 : 0) - (navHeld.has('arrowdown') ? 1 : 0);
-    const dx = (navHeld.has('arrowright') ? 1 : 0) - (navHeld.has('arrowleft') ? 1 : 0);
+    const dx = navVel.x, dy = navVel.y;
     if (dx || dy) {
         if (viewer.trackedEntity) viewer.trackedEntity = undefined;
         const c = cam.positionCartographic, hd = cam.heading;
@@ -2477,9 +2487,8 @@ function navStep() {
         const lon = c.longitude + east * ang / Math.max(0.05, Math.cos(c.latitude));
         cam.setView({ destination: Cz.Cartesian3.fromRadians(lon, lat, c.height), orientation: { heading: hd, pitch: cam.pitch, roll: cam.roll } });
     }
-    const zin = navHeld.has('+') || navHeld.has('='), zout = navHeld.has('-') || navHeld.has('_');
-    if (zin && h > 50) cam.zoomIn(h * 0.7 * dt);
-    if (zout && h < 6e7) cam.zoomOut(h * 0.7 * dt);
+    if (navVel.z > 0 && h > 50) cam.zoomIn(h * 0.7 * navVel.z * dt);
+    if (navVel.z < 0 && h < 6e7) cam.zoomOut(h * 0.7 * -navVel.z * dt);
 }
 function onKeyUp(e) { navHeld.delete(e.key.toLowerCase()); }
 function onKey(e) {

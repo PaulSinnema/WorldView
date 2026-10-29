@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.90] - 2026-10-29
+
+### Changed
+- Keyboard navigation (arrows, +/−) speeds up and slows down smoothly (easing ≈ 0.3 s) instead of starting and stopping abruptly.
+
 ## [1.0.89] - 2026-10-29
 
 ### Changed
