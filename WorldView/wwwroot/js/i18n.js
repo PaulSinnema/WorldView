@@ -168,6 +168,8 @@ const S = {
     'cam.austin': ['Austin', 'Austin', 'Austin', 'Austin', '奥斯汀'],
     'cam.calgary': ['Calgary', 'Calgary', 'Calgary', 'Calgary', '卡尔加里'],
     'cam.hongkong': ['Hong Kong', 'Hongkong', 'Hongkong', 'Hong Kong', '香港'],
+    'cam.iceland': ['Iceland', 'IJsland', 'Island', 'Islande', '冰岛'],
+    'cam.bc': ['British Columbia', 'Brits-Columbia', 'British Columbia', 'Colombie-Britannique', '不列颠哥伦比亚'],
 
     // info fields
     'f.rollingStock': ['Rolling stock', 'Materieel', 'Fahrzeug', 'Matériel', '车型'],

@@ -6,9 +6,10 @@ import { loadAircraftDb, loadTypes, lookup } from './aircraftdb.js';
 import { fetchNs, fetchFinland, fetchAmtrak } from './trains.js';
 import { startNsApi } from './nsapi.js';
 import { loadOvRoutes, fetchOv } from './ov.js';
+import { fetchCameras } from './cameras.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -68,9 +69,22 @@ async function refreshOvRoutes() {
     try { log(`ov routes: ${await loadOvRoutes()}`); } catch (e) { lastOvRoutes -= 23 * 3600000; log(`ov routes: ${e.message}`); }
 }
 
+// Hourly: camera lists that browsers can't fetch themselves (no CORS)
+let lastCams = 0;
+async function refreshCameras() {
+    if (Date.now() - lastCams < 3600000) return;
+    lastCams = Date.now();
+    try {
+        const c = await fetchCameras();
+        if (Object.keys(c).length) await put('cameras-extra.json', c);
+        log(`cameras: ${Object.entries(c).map(([k, v]) => `${k} ${v.length}`).join(', ')}`);
+    } catch (e) { log(`cameras: ${e.message}`); }
+}
+
 async function run() {
     await refreshDb();
     await refreshOvRoutes();
+    await refreshCameras();
     if (Date.now() - lastOpensky >= interval) {
         lastOpensky = Date.now(); // also on failure: respect credit budget
         try {

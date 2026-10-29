@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.47] - 2026-10-29
+
+### Added
+- Cameras: Iceland (Vegagerðin, ~500) and British Columbia (DriveBC, ~1,000), relayed hourly by the fetcher (1.4.0, `cameras-extra.json`) because these lists have no browser CORS.
+
 ## [1.0.46] - 2026-10-29
 
 ### Fixed

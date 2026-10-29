@@ -1047,6 +1047,9 @@ const CAMERA_SOURCES = [
                 .map(c => ({ id: c.camera_url.url, lat: c.point.coordinates[1], lon: c.point.coordinates[0], name: c.camera_location, image: c.camera_url.url }));
         }
     },
+    // Lists without CORS, relayed by the fetcher (cameras-extra.json)
+    { name: 'iceland', owner: 'Vegagerðin', load: async () => (await extraCams())?.iceland },
+    { name: 'bc', owner: 'DriveBC', load: async () => (await extraCams())?.bc },
     {
         name: 'hongkong', owner: 'Transport Department HK', load: async () => {
             try {
@@ -1059,6 +1062,8 @@ const CAMERA_SOURCES = [
         }
     }
 ];
+let extraCamsP = null;
+const extraCams = () => (extraCamsP ??= tryJson(`${FEED_URL}/cameras-extra.json`, 20000));
 async function loadCameras() {
     if (store.cameras.size) return 0;
     const img = icon('camera', '#ff3b3b');
