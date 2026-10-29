@@ -289,16 +289,20 @@ function clearEnvLayers() {
     for (let i = L.length - 1; i >= 0; i--) if (L.get(i)._wvEnv) L.remove(L.get(i));
     envLayer = null;
 }
-// Own legend: colour bar as data URL
+// Own legend: colour bar as data URL; shown at ~half size in the panel, so large type
 function gridLegendUrl(rgba, max, ticks, unit, min = 0) {
-    const c = document.createElement('canvas'); c.width = 420; c.height = 46;
+    const c = document.createElement('canvas'); c.width = 420; c.height = 84;
     const g = c.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-    for (let x = 0; x < 400; x++) { const [r, gg, b, a] = rgba(min + x / 400 * (max - min)); g.fillStyle = `rgba(${r},${gg},${b},${a / 255})`; g.fillRect(10 + x, 6, 1, 16); }
-    g.strokeStyle = '#999'; g.strokeRect(10, 6, 400, 16);
-    g.fillStyle = '#222'; g.font = '11px sans-serif'; g.textAlign = 'center';
-    for (const t of ticks) { const [v, lab] = Array.isArray(t) ? t : [t, t]; g.fillText(String(lab), 10 + (v - min) / (max - min) * 400, 36); }
-    g.textAlign = 'right'; g.fillText(unit, 410, 45);
+    for (let x = 0; x < 400; x++) { const [r, gg, b, a] = rgba(min + x / 400 * (max - min)); g.fillStyle = `rgba(${r},${gg},${b},${a / 255})`; g.fillRect(10 + x, 6, 1, 22); }
+    g.strokeStyle = '#999'; g.strokeRect(10, 6, 400, 22);
+    g.fillStyle = '#111'; g.font = 'bold 19px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'top';
+    ticks.forEach((t, i) => {
+        const [v, lab] = Array.isArray(t) ? t : [t, t], x = 10 + (v - min) / (max - min) * 400;
+        g.textAlign = i === 0 ? 'left' : i === ticks.length - 1 ? 'right' : 'center'; // keep edge labels inside
+        g.fillText(String(lab), i === 0 ? Math.max(4, x) : i === ticks.length - 1 ? Math.min(416, x) : x, 34);
+    });
+    g.font = '18px sans-serif'; g.textAlign = 'center'; g.fillText(unit, 210, 60);
     return c.toDataURL();
 }
 const nh3LegendUrl = () => gridLegendUrl(nh3Rgba, 45, [0, 5, 10, 20, 30, 45], 'NH₃ µg/m³');
@@ -321,16 +325,17 @@ async function addCoralLayer(gen) {
     // Level 0 (no stress, purple) transparent
     envLayer.colorToAlpha = Cz.Color.fromCssColorString('#800080'); envLayer.colorToAlphaThreshold = 0.05;
 }
+// Shown at ~half size in the panel: one row per level (swatch + large label)
 function coralLegendUrl() {
-    const c = document.createElement('canvas'); c.width = 420; c.height = 46;
+    const c = document.createElement('canvas'); c.width = 420; c.height = 8 + CRW_LEVELS.length * 38;
     const g = c.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-    g.font = '11px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'top';
+    g.textBaseline = 'middle'; g.font = 'bold 24px sans-serif';
     CRW_LEVELS.forEach(([col, key], i) => {
-        g.fillStyle = col; g.fillRect(10 + i * 100, 6, 100, 16);
-        g.fillStyle = '#222'; g.fillText(tr(key), 60 + i * 100, 27);
+        const y = 6 + i * 38;
+        g.fillStyle = col; g.fillRect(10, y, 56, 30);
+        g.fillStyle = '#111'; g.fillText(tr(key), 80, y + 16);
     });
-    g.strokeStyle = '#999'; g.strokeRect(10, 6, 400, 16);
     return c.toDataURL();
 }
 // Electricity CO2 intensity per European country (fetcher power.json from Energy-Charts; estimate from the generation mix)
@@ -410,26 +415,57 @@ const ENV_PALETTE = {
     sstAnom: 'GHRSST_Sea_Surface_Temperature_Anomalies', seaIce: 'GHRSST_Sea_Ice_Concentration', no2: 'OMI_Nitrogen_Dioxide_Tropo_Column', so2: 'MERRA2_SO2_Column_Mass_Density_Monthly', ozone: 'OMPS_Ozone_Total_Column',
     aod: 'MODIS_VIIRS_AOD', rain: 'GPM_Precipitation_Rate', ndvi: 'MODIS_NDVI', snow: 'SMAP_Snow_Mass'
 };
-// Layers whose NASA legend is in Kelvin: own legend in °C, built from the GIBS colour map
-const KELVIN_LAYERS = { lstDay: 'Land °C', lstNight: 'Land °C' };
-const celsiusLegends = {};
-async function celsiusLegendUrl(palette, unit) {
-    if (celsiusLegends[palette]) return celsiusLegends[palette];
-    const r = await fetch(`https://gibs.earthdata.nasa.gov/colormaps/v1.3/${palette}.xml`).catch(() => null);
-    if (!r?.ok) return `https://gibs.earthdata.nasa.gov/legends/${palette}_H.png`; // fallback: Kelvin legend
-    const doc = new DOMParser().parseFromString(await r.text(), 'text/xml'), stops = [];
-    for (const e of doc.getElementsByTagName('ColorMapEntry')) {
-        if (e.getAttribute('nodata') === 'true' || e.getAttribute('transparent') === 'true') continue;
-        const m = /\[\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/.exec(e.getAttribute('value') || '');
-        if (!m || +m[2] - +m[1] > 10) continue; // skip open-ended catch-all classes
-        stops.push([(+m[1] + +m[2]) / 2 - 273.15, (e.getAttribute('rgb') || '0,0,0').split(',').map(Number)]);
+// NASA legends: drawn ourselves from the GIBS colour map (large type, Kelvin shown as °C); GIBS image as fallback
+const gibsLegends = {};
+const fmtNum = v => {
+    const a = Math.abs(v);
+    if (a >= 1e5 || (a > 0 && a < 1e-3)) return v.toExponential(1).replace('e+', 'e'); // e.g. 4.8e15
+    return a >= 100 || Number.isInteger(v) ? String(Math.round(v)) : a >= 10 ? v.toFixed(1).replace(/\.0$/, '') : String(+v.toPrecision(2));
+};
+async function gibsLegendUrl(key) {
+    const palette = ENV_PALETTE[key], cacheKey = key + S.lang;
+    if (gibsLegends[cacheKey]) return gibsLegends[cacheKey];
+    const fallback = `https://gibs.earthdata.nasa.gov/legends/${palette}_H.png`;
+    // Colour map per layer id, else per palette name
+    let r = await fetch(`https://gibs.earthdata.nasa.gov/colormaps/v1.3/${ENV_LAYERS[key][0]}.xml`).catch(() => null);
+    if (!r?.ok) r = await fetch(`https://gibs.earthdata.nasa.gov/colormaps/v1.3/${palette}.xml`).catch(() => null);
+    if (!r?.ok) return fallback;
+    const doc = new DOMParser().parseFromString(await r.text(), 'text/xml');
+    // The data colour map: the one with most coloured entries
+    const maps = [...doc.getElementsByTagName('ColorMap')].map(m => ({ m, n: [...m.getElementsByTagName('ColorMapEntry')].filter(e => e.getAttribute('transparent') !== 'true').length }));
+    const best = maps.sort((a, b) => b.n - a.n)[0]?.m;
+    if (!best) return fallback;
+    const units = best.getAttribute('units') || '', kelvin = units === 'K', title = tr('env.' + key);
+    const rgbOf = e => (e.getAttribute('rgb') || '0,0,0').split(',').map(Number);
+    // Classification (e.g. ice / snow classes): one row per class
+    const legendType = best.getElementsByTagName('Legend')[0]?.getAttribute('type');
+    if (legendType === 'classification') {
+        const rows = [...best.getElementsByTagName('LegendEntry')].map(e => [rgbOf(e), e.getAttribute('tooltip') || '']).slice(0, 8);
+        const c = document.createElement('canvas'); c.width = 420; c.height = 8 + rows.length * 38;
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.textBaseline = 'middle'; g.font = 'bold 24px sans-serif';
+        rows.forEach(([[rr, gg, bb], label], i) => { g.fillStyle = `rgb(${rr},${gg},${bb})`; g.fillRect(10, 6 + i * 38, 56, 30); g.fillStyle = '#111'; g.fillText(label, 80, 22 + i * 38); });
+        return gibsLegends[cacheKey] = c.toDataURL();
     }
-    if (!stops.length) return `https://gibs.earthdata.nasa.gov/legends/${palette}_H.png`;
-    stops.sort((a, b) => a[0] - b[0]);
-    const min = stops[0][0], max = stops.at(-1)[0], ticks = [];
-    for (let v = Math.ceil(min / 20) * 20; v <= max; v += 20) ticks.push(v);
-    const rgba = v => { let best = stops[0]; for (const s of stops) if (Math.abs(s[0] - v) < Math.abs(best[0] - v)) best = s; return [...best[1], 255]; };
-    return celsiusLegends[palette] = gridLegendUrl(rgba, max, ticks, unit, min);
+    // Continuous: entries in order, equal width (as NASA draws them, also for non-linear scales)
+    let ents = [];
+    for (const e of best.getElementsByTagName('ColorMapEntry')) {
+        if (e.getAttribute('transparent') === 'true' || e.getAttribute('nodata') === 'true') continue;
+        const m = /\[\s*([+-]?INF|[-+\d.eE]+)\s*,\s*([+-]?INF|[-+\d.eE]+)\s*[)\]]/.exec(e.getAttribute('value') || '');
+        const lo = m ? parseFloat(m[1]) : parseFloat(e.getAttribute('value'));
+        const hi = m ? parseFloat(m[2]) : lo;
+        if (!Number.isFinite(lo) && !Number.isFinite(hi)) continue;
+        ents.push({ rgb: rgbOf(e), v: Number.isFinite(lo) ? lo : hi, w: Number.isFinite(lo) && Number.isFinite(hi) ? hi - lo : Infinity });
+    }
+    // Drop open-ended / catch-all classes at the ends (e.g. 0–200 K before 200.0–200.6 K)
+    const ws = ents.map(e => e.w).filter(Number.isFinite).sort((a, b) => a - b), med = ws[ws.length >> 1] || 0;
+    if (med > 0) ents = ents.filter(e => e.w <= med * 20);
+    if (ents.length < 2) return fallback;
+    const n = ents.length, conv = v => kelvin ? v - 273.15 : v;
+    const rgba = i => [...ents[Math.min(n - 1, Math.max(0, Math.floor(i)))].rgb, 255];
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => { const i = Math.min(n - 1, Math.round(f * (n - 1))); return [f * n, fmtNum(conv(ents[i].v))]; });
+    const unit = `${title}${units ? ` (${kelvin ? '°C' : units})` : ''}`;
+    return gibsLegends[cacheKey] = gridLegendUrl(rgba, n, ticks, unit, 0);
 }
 // Relative legend (greenhouse gases): today's range from the data
 async function relLegendUrl([file, , , unit]) {
@@ -439,9 +475,10 @@ async function relLegendUrl([file, , , unit]) {
     const ticks = [0, 1, 2, 3, 4].map(i => +(lo + i * step).toFixed(dec));
     return gridLegendUrl(relRgba(lo, hi), hi, ticks, unit, lo);
 }
-const envLegend = async () => S.envOverlay === 'coral' ? coralLegendUrl() : S.envOverlay === 'power' ? powerLegendUrl() : KELVIN_LAYERS[S.envOverlay] ? celsiusLegendUrl(ENV_PALETTE[S.envOverlay], KELVIN_LAYERS[S.envOverlay])
+const envLegend = async () => S.envOverlay === 'coral' ? coralLegendUrl() : S.envOverlay === 'power' ? powerLegendUrl()
     : GRID_LAYERS[S.envOverlay]?.[3] ? relLegendUrl(GRID_LAYERS[S.envOverlay])
-    : S.envOverlay === 'nh3' ? nh3LegendUrl() : S.envOverlay === 'ozoneCams' ? o3LegendUrl() : S.envOverlay === 'tempAnom' ? anomLegendUrl() : ENV_PALETTE[S.envOverlay] ? `https://gibs.earthdata.nasa.gov/legends/${ENV_PALETTE[S.envOverlay]}_H.png` : '';
+    : S.envOverlay === 'nh3' ? nh3LegendUrl() : S.envOverlay === 'ozoneCams' ? o3LegendUrl() : S.envOverlay === 'tempAnom' ? anomLegendUrl()
+    : ENV_PALETTE[S.envOverlay] && ENV_LAYERS[S.envOverlay] ? gibsLegendUrl(S.envOverlay) : '';
 export function setEnvOverlay(name) {
     S.envOverlay = ENV_LAYERS[name] || GRID_LAYERS[name] || OWN_ENV.includes(name) ? name : ''; saveSettings();
     clearEnvLayers();

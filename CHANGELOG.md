@@ -2,6 +2,16 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.98] - 2026-10-30
+
+### Changed
+- All NASA legends are now drawn by WorldView from the GIBS colour maps: large readable type, layer name in the chosen language, Kelvin shown as °C, very large/small values as e.g. 5.0e15 (the small NASA images remain the fallback).
+
+## [1.0.97] - 2026-10-30
+
+### Fixed
+- Own legends (coral, temperature anomaly, CO₂/methane, electricity, ozone, NH₃, land temperature °C) were unreadable: larger type, coral labels on two lines.
+
 ## [1.0.96] - 2026-10-30
 
 ### Fixed
