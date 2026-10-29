@@ -75,6 +75,7 @@ function loadSettings() {
     if (!Number.isFinite(S.nightLight)) S.nightLight = 60;
     if (typeof S.regions !== 'boolean') S.regions = true;
     if (typeof S.cities !== 'boolean') S.cities = true;
+    if (typeof S.timezones !== 'boolean') S.timezones = false;
     S.lang = pickLang(S.lang);
     if (!Array.isArray(S.radioFav)) S.radioFav = [];
     S.zoom = { ...ZOOM_DEFAULT, ...(S.zoom && typeof S.zoom === 'object' ? S.zoom : {}) };
@@ -252,9 +253,10 @@ export async function init(containerId, ref) {
 
     setStyle(S.style);
     if (S.borders) setBorders(true);
+    if (S.timezones) setTimezones(true);
     for (const l of LAYERS) if (S.layers[l]) startLayer(l);
 
-    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, zoom: S.zoom, gpu: gpuName });
+    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, timezones: S.timezones, zoom: S.zoom, gpu: gpuName });
 }
 
 // Warn when the browser renders in software (hardware acceleration off or no GPU)
@@ -618,14 +620,96 @@ function loadBorders() {
     return bordersLoading;
 }
 
+// Time zones (Natural Earth, tools/build-tz.mjs): outlines + "UTC+1 · 15:13" per zone (standard time, no DST)
+let tzLines = null, tzLabels = null, tzFill = null, tzFillIds = [], tzZones = [], tzLoading = null, tzMinute = -1, tzSel = null;
+const TZ_COLOR = '#c080ff';
+// Fill colours: neighbouring whole-hour zones get different colours
+const TZ_PALETTE = ['#ff5a5a', '#ffb020', '#ffe14d', '#5dffa8', '#3fd0ff', '#b07aff'];
+const tzFillColor = i => {
+    const p = TZ_PALETTE[((Math.floor(tzZones[i][0]) % 6) + 6) % 6];
+    const a = tzSel === null ? 0.16 : tzSel === i ? 0.55 : 0.05;
+    return Cz.Color.fromCssColorString(p).withAlpha(a);
+};
+function tzFillPrimitive(d) {
+    const s = d.s, instances = [];
+    d.l.forEach((ring, n) => {
+        const flat = []; let x = 0, y = 0;
+        for (let i = 0; i < ring.length; i += 2) { x += ring[i]; y += ring[i + 1]; flat.push(x / s, Math.max(-89.5, Math.min(89.5, y / s))); }
+        if (flat.length < 6) return;
+        const id = { tz: d.lz[n], n };
+        tzFillIds.push(id);
+        instances.push(new Cz.GeometryInstance({
+            id, geometry: new Cz.PolygonGeometry({ polygonHierarchy: new Cz.PolygonHierarchy(Cz.Cartesian3.fromDegreesArray(flat)), height: 0, granularity: Cz.Math.RADIANS_PER_DEGREE }),
+            attributes: { color: Cz.ColorGeometryInstanceAttribute.fromColor(tzFillColor(d.lz[n])) }
+        }));
+    });
+    return new Cz.Primitive({ geometryInstances: instances, appearance: new Cz.PerInstanceColorAppearance({ translucent: true, flat: true }), allowPicking: false, asynchronous: true });
+}
+// Highlight one zone (index into tzZones) or none (null)
+export function setTzSelected(i) {
+    tzSel = Number.isInteger(i) && tzZones[i] ? i : null;
+    // Turn the globe to the zone (keep a height that shows the whole zone)
+    if (tzSel !== null) { const [, lon, lat] = tzZones[tzSel]; flyTo(lon, Math.max(-40, Math.min(50, lat)), Math.max(camHeight(), 1.2e7), 1.8); }
+    if (!tzFill?.ready) return;
+    for (const id of tzFillIds) {
+        const a = tzFill.getGeometryInstanceAttributes(id);
+        if (a) a.color = Cz.ColorGeometryInstanceAttribute.toValue(tzFillColor(id.tz), a.color);
+    }
+}
+export const getTzZones = () => JSON.stringify(tzZones.map(([zone]) => zone));
+export async function setTimezones(on, fromEngine = false) {
+    S.timezones = !!on; saveSettings();
+    if (fromEngine) notify('OnToggle', 'timezones', S.timezones);
+    if (S.timezones && !tzLines) {
+        tzLoading ??= (async () => {
+            const d = await tryJson('data/timezones.json', 20000);
+            if (!d) { tzLoading = null; return; }
+            tzZones = d.z;
+            tzFill = viewer.scene.primitives.add(tzFillPrimitive(d));
+            // Long straight edges (meridians/parallels): densify every 0.25° to follow the curvature
+            tzLines = viewer.scene.primitives.add(linePrimitive(d, Cz.Color.fromCssColorString(TZ_COLOR).withAlpha(0.55), 1.2, 0.25));
+            tzLabels = viewer.scene.primitives.add(new Cz.LabelCollection());
+            const color = Cz.Color.fromCssColorString(TZ_COLOR);
+            for (const [, lon, lat] of tzZones)
+                tzLabels.add({ position: Cz.Cartesian3.fromDegrees(lon, lat, 300), text: '', ...labelStyle(13, color),
+                    horizontalOrigin: Cz.HorizontalOrigin.CENTER, verticalOrigin: Cz.VerticalOrigin.CENTER, distanceDisplayCondition: new Cz.DistanceDisplayCondition(0, 3e7) });
+            tzMinute = -1; updateTzLabels();
+        })();
+        await tzLoading;
+    }
+    if (tzLines) tzLines.show = tzLabels.show = tzFill.show = S.timezones;
+}
+function updateTzLabels() {
+    if (!tzLabels || !S.timezones) return;
+    const now = Date.now(), minute = Math.floor(now / 60000);
+    if (minute === tzMinute) return;
+    tzMinute = minute;
+    tzZones.forEach(([zone], i) => {
+        const t = new Date(now + zone * 3600000), sign = zone < 0 ? '−' : '+', a = Math.abs(zone);
+        const off = zone === 0 ? 'UTC' : `UTC${sign}${Math.floor(a)}${a % 1 ? ':' + String(Math.round(a % 1 * 60)).padStart(2, '0') : ''}`;
+        tzLabels.get(i).text = `${off} · ${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`;
+    });
+}
+
 // Decode { s, l: delta-encoded lines } into one batched primitive (single draw call)
-function linePrimitive(data, color, width) {
+// maxStep (degrees): densify long segments so straight chords follow the curvature
+function linePrimitive(data, color, width, maxStep = 0) {
     const s = data.s || 100, rows = data.l || data;
     const attr = Cz.ColorGeometryInstanceAttribute.fromColor(color);
     const instances = [];
     for (const d of rows) {
-        const flat = []; let x = 0, y = 0;
-        for (let i = 0; i < d.length; i += 2) { x += d[i]; y += d[i + 1]; flat.push(x / s, y / s); }
+        const flat = []; let x = 0, y = 0, px = null, py = null;
+        for (let i = 0; i < d.length; i += 2) {
+            x += d[i]; y += d[i + 1];
+            const lon = x / s, lat = Math.max(-89.5, Math.min(89.5, y / s));
+            if (maxStep && px !== null) {
+                const n = Math.ceil(Math.max(Math.abs(lon - px), Math.abs(lat - py)) / maxStep);
+                for (let k = 1; k < n; k++) flat.push(px + (lon - px) * k / n, py + (lat - py) * k / n);
+            }
+            if (lon !== px || lat !== py) flat.push(lon, lat);
+            px = lon; py = lat;
+        }
+        if (flat.length < 4) continue;
         instances.push(new Cz.GeometryInstance({
             geometry: new Cz.PolylineGeometry({ positions: Cz.Cartesian3.fromDegreesArray(flat), width, arcType: Cz.ArcType.NONE }),
             attributes: { color: attr }
@@ -1494,6 +1578,7 @@ function tick() {
         for (const r of store[l].values()) { const [la, lo, al] = posAt(r, now); r.bb.position = Cz.Cartesian3.fromDegrees(lo, la, al); }
     }
     if (S.layers.satellites && now % 1000 < 250) propagateSats();
+    updateTzLabels();
     if (selected && now - lastTrail > 1000) {
         lastTrail = now;
         // No trail for trains, nor for aircraft on the ground (taxiing gives odd tracks)
@@ -1623,6 +1708,7 @@ function onKey(e) {
     else if (k === 'd') setDetect(!S.detect, true);
     else if (k === 'n') setDayNight(!S.daynight, true);
     else if (k === 'b') setBorders(!S.borders, true);
+    else if (k === 'z') setTimezones(!S.timezones, true);
     else if (k === 'c') setCockpit(!S.cockpit);
     else if (k === 'escape') { if (S.cockpit) setCockpit(false); else clearSelection(); }
     else return;

@@ -96,6 +96,22 @@ else if (error is not null)
             <button class="@(cities ? "active" : "")" @onclick="ToggleCities">@T("btn.cities")</button>
         </div>
     }
+    <div class="toggles" style="margin-top:4px">
+        <button class="@(timezones ? "active" : "")" @onclick="ToggleTimezones">Z · @T("btn.timezones")</button>
+    </div>
+    @if (timezones && tzZones.Count > 0)
+    {
+        @* Legend: current time per zone; click highlights the zone on the globe *@
+        <div class="tz-legend" role="listbox" aria-label="@T("btn.timezones")">
+            @for (var i = 0; i < tzZones.Count; i++)
+            {
+                var idx = i;
+                <button class="@(tzSelected == idx ? "active" : "")" @onclick="() => SelectTz(idx)">
+                    <span>@TzName(tzZones[idx])</span><b>@DateTime.UtcNow.AddHours(tzZones[idx]).ToString("HH:mm")</b>
+                </button>
+            }
+        </div>
+    }
     @if (dayNight)
     {
         <label class="slider">
@@ -320,7 +336,7 @@ else if (error is not null)
     private string style = "normal", basemap = "esri", ionToken = "", searchText = "";
     private string gpu = "";
     private int nightLight = 60;
-    private bool borders, regions = true, cities = true;
+    private bool borders, regions = true, cities = true, timezones;
     private readonly Dictionary<string, bool> zoomOn = new();
     private bool hud = true, dayNight = true, detect, cockpit, panelToggled, listening, loading = true;
     private string? error, toast;
@@ -378,6 +394,7 @@ else if (error is not null)
                 borders = st.Borders;
                 regions = st.Regions;
                 cities = st.Cities;
+                timezones = st.Timezones;
                 foreach (var (k, v) in st.Zoom) zoomOn[k] = v;
                 gpu = st.Gpu;
             }
@@ -389,6 +406,7 @@ else if (error is not null)
         }
         loading = false;
         StateHasChanged();
+        if (timezones) await LoadTzZones();
         if (layers.GetValueOrDefault("radio")) await LoadRadioCountries();
     }
 
@@ -461,6 +479,40 @@ else if (error is not null)
     {
         cities = !cities;
         if (module is not null) await module.InvokeVoidAsync("setCities", cities);
+    }
+
+    private async Task ToggleTimezones()
+    {
+        timezones = !timezones;
+        if (module is not null) await module.InvokeVoidAsync("setTimezones", timezones, false);
+        if (timezones) await LoadTzZones();
+    }
+
+    // Time zone legend (UTC offsets in hours, from data/timezones.json)
+    private List<double> tzZones = new();
+    private int? tzSelected;
+
+    private async Task LoadTzZones()
+    {
+        if (module is null || tzZones.Count > 0) return;
+        await module.InvokeVoidAsync("setTimezones", true, false); // waits until the data is loaded
+        tzZones = JsonSerializer.Deserialize<List<double>>(await module.InvokeAsync<string>("getTzZones"), JsonOpts) ?? new();
+        StateHasChanged();
+    }
+
+    private async Task SelectTz(int i)
+    {
+        tzSelected = tzSelected == i ? null : i;
+        if (module is not null) await module.InvokeVoidAsync("setTzSelected", tzSelected);
+    }
+
+    private static string TzName(double z)
+    {
+        if (z == 0) return "UTC";
+        var a = Math.Abs(z);
+        var h = (int)Math.Floor(a);
+        var m = (int)Math.Round((a - h) * 60);
+        return $"UTC{(z < 0 ? "−" : "+")}{h}{(m > 0 ? $":{m:00}" : "")}";
     }
 
     private async Task ToggleZoom(string key)
@@ -667,6 +719,7 @@ else if (error is not null)
             case "detect": detect = on; break;
             case "daynight": dayNight = on; break;
             case "borders": borders = on; break;
+            case "timezones": timezones = on; if (on) _ = LoadTzZones(); break;
             case "cockpit": cockpit = on; break;
             case "listening": listening = on; break;
         }
@@ -720,6 +773,7 @@ else if (error is not null)
         public bool Borders { get; set; }
         public bool Regions { get; set; } = true;
         public bool Cities { get; set; } = true;
+        public bool Timezones { get; set; }
         public Dictionary<string, bool> Zoom { get; set; } = new();
         public string Gpu { get; set; } = "";
     }

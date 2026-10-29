@@ -23,6 +23,7 @@ jobs:
       - name: Build borders, provinces and cities
         run: |
           node tools/build-geo.mjs
+          node tools/build-tz.mjs
           node --max-old-space-size=6000 tools/build-borders.mjs
 
       - name: Commit when changed

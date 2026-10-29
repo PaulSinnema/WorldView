@@ -2,6 +2,31 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.53] - 2026-10-29
+
+### Changed
+- Display panel: Provinces/states and Cities directly under Borders, Time zones below them.
+
+## [1.0.52] - 2026-10-29
+
+### Changed
+- Time zones: choosing a zone in the legend turns the globe towards it.
+
+## [1.0.51] - 2026-10-29
+
+### Added
+- Time zones: translucent colour fill per zone, and a clickable legend with the current time per zone; the chosen zone lights up on the globe.
+
+## [1.0.50] - 2026-10-29
+
+### Fixed
+- Time zone lines follow the curvature of the Earth (long edges densified every 0.25°).
+
+## [1.0.49] - 2026-10-29
+
+### Added
+- **Time zones** (toggle Z · Tijdzones): zone outlines and per zone the UTC offset with the current local time, updated every minute (Natural Earth, standard time without DST; `tools/build-tz.mjs`, also in the monthly geo update).
+
 ## [1.0.48] - 2026-10-29
 
 ### Added
