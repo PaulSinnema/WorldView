@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.88] - 2026-10-29
+
+### Changed
+- Snow cover: areas without snow (grey) are fully transparent.
+
 ## [1.0.87] - 2026-10-29
 
 ### Fixed

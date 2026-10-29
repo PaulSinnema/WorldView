@@ -190,7 +190,7 @@ const ENV_LAYERS = {
     aod: ['MODIS_Combined_MAIAC_L2G_AerosolOpticalDepth', 7], rain: ['IMERG_Precipitation_Rate', 6],
     ndvi: ['MODIS_Terra_NDVI_8Day', 9], // Snow: SMAP L4 snow mass (satellite-driven land model, daily, gap-free); MODIS optical products confuse clouds with snow
     // (was MODIS_Terra_NDSI_Snow_Cover, then MODIS_Terra_L3_Snow_Extent_8Day)
-    snow: ['SMAP_L4_Snow_Mass', 6]
+    snow: ['SMAP_L4_Snow_Mass', 6, 0, '#52626a', 0.02] // grey = no snow → transparent
 };
 let envLayer = null, envGen = 0;
 // Ammonia (NH3, µg/m³): colour stops, low values transparent
