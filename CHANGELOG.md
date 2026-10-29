@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.78] - 2026-10-29
+
+### Changed
+- Bus, tram, metro and ferry are no longer extrapolated: shown at their last reported position.
+
 ## [1.0.77] - 2026-10-29
 
 ### Changed

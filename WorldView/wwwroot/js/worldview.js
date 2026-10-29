@@ -590,7 +590,8 @@ async function loadOv() {
         const [kind, color] = OV_ICONS[a[7]] || OV_ICONS.bus;
         return {
             key: a[0], lat: a[2], lon: a[3], alt: 0, gs: a[4], track: a[5], ground: false, t: (a[8] || j.t) * 1000,
-            img: icon(kind, color),
+            img: icon(kind, color), noPredict: true, // stops and turns: no dead reckoning, last reported position
+
             label: `${tr('mode.' + a[7])} ${a[1]}`.trim(),
             info: [['line', a[1] || '—'], ['mode', mode], ['operator', a[6] || '—'], ['vehicle', a[9] || '—']]
         };
@@ -620,7 +621,7 @@ function merge(layer, list, kind, color) {
     validateSel(layer);
 }
 function posAt(r, now) {
-    if (!r.gs || r.ground) return [r.lat, r.lon, r.alt];
+    if (!r.gs || r.ground || r.noPredict) return [r.lat, r.lon, r.alt];
     const dt = Math.min(300, (now - r.t) / 1000), d = r.gs * dt, tr = toRad(r.track || 0);
     const lat = r.lat + toDeg(d * Math.cos(tr) / R_EARTH);
     const lon = r.lon + toDeg(d * Math.sin(tr) / (R_EARTH * Math.max(0.05, Math.cos(toRad(r.lat)))));
