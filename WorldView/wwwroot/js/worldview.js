@@ -181,6 +181,7 @@ function setImagery(name) {
 const ENV_LAYERS = {
     lstDay: ['MODIS_Terra_L3_Land_Surface_Temp_8Day_Day', 7], lstNight: ['MODIS_Terra_L3_Land_Surface_Temp_8Day_Night', 7],
     sst: ['GHRSST_L4_MUR_Sea_Surface_Temperature', 7], sstAnom: ['GHRSST_L4_MUR_Sea_Surface_Temperature_Anomalies', 7],
+    seaIce: ['GHRSST_L4_MUR_Sea_Ice_Concentration', 7], // open water is transparent
     // TROPOMI: the latest day is still incomplete, so show the day before yesterday (3rd value = days back)
     no2: ['TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column', 6, 2, '#ffee8c', 0.15],
     // SO2: MERRA-2 monthly model field (gap-free); 4th value = palette colour made transparent (clean air)
@@ -267,7 +268,7 @@ function addEnvLayer() {
 // Legend image (colour bar with units) from NASA GIBS, named after the palette (from Worldview's config)
 const ENV_PALETTE = {
     lstDay: 'MODIS_Land_Surface_Temp', lstNight: 'MODIS_Land_Surface_Temp', sst: 'GHRSST_Sea_Surface_Temperature',
-    sstAnom: 'GHRSST_Sea_Surface_Temperature_Anomalies', no2: 'OMI_Nitrogen_Dioxide_Tropo_Column', so2: 'MERRA2_SO2_Column_Mass_Density_Monthly', ozone: 'OMPS_Ozone_Total_Column',
+    sstAnom: 'GHRSST_Sea_Surface_Temperature_Anomalies', seaIce: 'GHRSST_Sea_Ice_Concentration', no2: 'OMI_Nitrogen_Dioxide_Tropo_Column', so2: 'MERRA2_SO2_Column_Mass_Density_Monthly', ozone: 'OMPS_Ozone_Total_Column',
     aod: 'MODIS_VIIRS_AOD', rain: 'GPM_Precipitation_Rate', ndvi: 'MODIS_NDVI', snow: 'SMAP_Snow_Mass'
 };
 // Layers whose NASA legend is in Kelvin: own legend in °C, built from the GIBS colour map
@@ -346,6 +347,9 @@ export async function init(containerId, ref) {
     });
     checkGpu();
     const scene = viewer.scene;
+    // Star sky: NASA SVS Deep Star Maps 2020 (Gaia/Hipparcos/Tycho) as cube faces (tools/build-sky.py)
+    const sky = f => `sky/${f}.jpg?v=2`;
+    scene.skyBox = new Cz.SkyBox({ sources: { positiveX: sky('px'), negativeX: sky('nx'), positiveY: sky('py'), negativeY: sky('ny'), positiveZ: sky('pz'), negativeZ: sky('nz') } });
     // Sharp text: FXAA blurs labels (MSAA handles edges); render at full device resolution
     scene.postProcessStages.fxaa.enabled = false;
     viewer.useBrowserRecommendedResolution = false;

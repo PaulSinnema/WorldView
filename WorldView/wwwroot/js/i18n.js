@@ -249,6 +249,7 @@ const S = {
     'env.aod': ['Aerosols / fine dust', 'Aerosolen / fijnstof', 'Aerosole / Feinstaub', 'Aérosols / particules', '气溶胶 / 细颗粒物'],
     'env.rain': ['Precipitation', 'Neerslag', 'Niederschlag', 'Précipitations', '降水'],
     'env.ndvi': ['Vegetation (NDVI)', 'Vegetatie (NDVI)', 'Vegetation (NDVI)', 'Végétation (NDVI)', '植被 (NDVI)'],
+    'env.seaIce': ['Sea ice', 'Zee-ijs', 'Meereis', 'Glace de mer', '海冰'],
     'env.ozone': ['Ozone – measured (OMPS)', 'Ozon – gemeten (OMPS)', 'Ozon – gemessen (OMPS)', 'Ozone – mesuré (OMPS)', '臭氧 – 实测（OMPS）'],
     'env.ozoneCams': ['Ozone – whole Earth (CAMS)', 'Ozon – hele aarde (CAMS)', 'Ozon – ganze Erde (CAMS)', 'Ozone – Terre entière (CAMS)', '臭氧 – 全球（CAMS）'],
     'env.knmi': ['Ozone at the poles (KNMI, today)', 'Ozon bij de polen (KNMI, vandaag)', 'Ozon an den Polen (KNMI, heute)', 'Ozone aux pôles (KNMI, aujourd’hui)', '两极臭氧（KNMI，今日）'],

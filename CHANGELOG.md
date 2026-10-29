@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.91] - 2026-10-29
+
+### Changed
+- Realistic star sky: NASA SVS Deep Star Maps 2020 (Gaia DR2, Hipparcos, Tycho; Milky Way included) as a 6 × 2048 px sky box (`tools/build-sky.py`, ≈ 4.4 MB), replacing Cesium's low-resolution Tycho sky.
+
 ## [1.0.90] - 2026-10-29
 
 ### Changed
