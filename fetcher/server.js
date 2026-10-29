@@ -9,9 +9,10 @@ import { loadOvRoutes, fetchOv } from './ov.js';
 import { fetchCameras } from './cameras.js';
 import { fetchSensorCommunity, fetchOpenAq } from './air.js';
 import { fetchNh3 } from './nh3.js';
+import { fetchOzone } from './ozone.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.7.2';
+const VERSION = '1.8.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -111,6 +112,17 @@ function refreshNh3() {
         .finally(() => { nh3Busy = false; });
 }
 
+// Ozone (CAMS via ADS) every 6 hours in the background; the ADS queue can take minutes
+let lastOzone = 0, ozoneBusy = false;
+function refreshOzone() {
+    if (!env.ADS_API_KEY || ozoneBusy || Date.now() - lastOzone < 6 * 3600000) return;
+    lastOzone = Date.now(); ozoneBusy = true;
+    fetchOzone(env.ADS_API_KEY)
+        .then(async d => { await put('ozone.json', d); log(`ozone: ${d.valid}, ${d.v.filter(x => x != null).length} cells`); })
+        .catch(e => { lastOzone -= 5 * 3600000; log(`ozone: ${e.message}`); }) // retry in an hour
+        .finally(() => { ozoneBusy = false; });
+}
+
 // Each feed on its own schedule; a slow one never delays the others
 const due = {}, busy = {};
 function every(name, ms, fn) {
@@ -165,7 +177,7 @@ async function updateOv() {
 }
 
 function tick() {
-    every('slow', 60000, async () => { await refreshDb(); await refreshOvRoutes(); await refreshCameras(); await refreshAir(); refreshNh3(); });
+    every('slow', 60000, async () => { await refreshDb(); await refreshOvRoutes(); await refreshCameras(); await refreshAir(); refreshNh3(); refreshOzone(); });
     every('flights', interval, updateFlights);
     every('military', 20000, updateMilitary);
     every('ns', 30000, () => updateTrains('ns', () => fetchNs(env.NS_API_KEY)));

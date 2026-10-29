@@ -2,6 +2,26 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.85] - 2026-10-29
+
+### Added
+- **Ozone – whole Earth (CAMS)**: total column ozone incl. polar night from the Copernicus CAMS global forecast (fetcher 1.8.0, `ozone.js`: ADS API + own GRIB decoder, every 6 h, needs `ADS_API_KEY`), own colour scale and legend.
+- With an ozone layer: KNMI/TEMIS polar ozone maps (north/south) as thumbnails, enlarge on click.
+- Top bar: **N↑** (north up, straight down, same spot and height) and **◉** (fly to your own location via the browser, blue dot).
+
+### Changed
+- OMPS layer renamed "Ozone – measured (OMPS)".
+
+## [1.0.84] - 2026-10-29
+
+### Added
+- **Ozone** environment layer: OMPS daily total ozone column (Dobson units, yesterday), with legend.
+
+## [1.0.83] - 2026-10-29
+
+### Fixed
+- Snow cover: MODIS 8-day snow extent composite (cloud-free, no swath strips) instead of the daily swath that showed clouds and gaps.
+
 ## [1.0.82] - 2026-10-29
 
 ### Fixed

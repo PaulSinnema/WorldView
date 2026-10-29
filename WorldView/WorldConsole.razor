@@ -39,6 +39,8 @@ else if (error is not null)
         <button type="submit" title="@T("search.title")">⌕</button>
     </form>
     <button class="mic @(listening ? "on" : "")" title="@T("voice.title")" @onclick="StartVoice">🎙</button>
+    <button title="@T("btn.north")" @onclick='() => Call("northUp")'>N↑</button>
+    <button title="@T("btn.myPos")" @onclick='() => Call("flyToMe")'>◉</button>
     <button title="@T("help.title")" @onclick="OpenHelp">?</button>
     <button title="@T("panel.title")" @onclick="() => panelToggled = !panelToggled">☰</button>
 </div>
@@ -142,6 +144,15 @@ else if (error is not null)
     {
         @* Colour bar with units (NASA GIBS) *@
         <img class="env-legend" src="@envLegend" alt="@T("env.legend")" />
+    }
+    @if (envOverlay.StartsWith("ozone"))
+    {
+        @* KNMI/TEMIS assimilated total ozone, polar views (images only) *@
+        <div class="hint">@T("env.knmi")</div>
+        <div class="knmi">
+            <img src="@KnmiUrl("np", true)" alt="KNMI N" @onclick='() => knmiImg = KnmiUrl("np", false)' />
+            <img src="@KnmiUrl("sp", true)" alt="KNMI S" @onclick='() => knmiImg = KnmiUrl("sp", false)' />
+        </div>
     }
     <div class="toggles" style="margin-top:4px">
         <button class="@(envClick ? "active" : "")" @onclick="ToggleEnvClick">@T("env.click")</button>
@@ -296,6 +307,22 @@ else if (error is not null)
     </div>
 }
 
+@if (knmiImg is not null)
+{
+    <div class="lightbox" @onclick="() => knmiImg = null">
+        <div class="lb-stage">
+            <img class="lb-media" src="@knmiImg" alt="KNMI" draggable="false" @onclick:stopPropagation="true" />
+        </div>
+        <div class="lb-bar" @onclick:stopPropagation="true">
+            <button data-zoom="out" title="−">−</button>
+            <button data-zoom="reset" title="1:1">1:1</button>
+            <button data-zoom="in" title="+">+</button>
+            <span class="lb-cap">© KNMI / TEMIS · @T("info.zoomHint")</span>
+            <button title="@T("info.close")" @onclick="() => knmiImg = null">✕</button>
+        </div>
+    </div>
+}
+
 @if (layers.GetValueOrDefault("radio"))
 {
     <section class="radio @(radioCollapsed ? "collapsed" : "")">
@@ -404,8 +431,12 @@ else if (error is not null)
     private int nightLight = 60;
     private bool borders, regions = true, cities = true, coast, eez, nature, streets, timezones, envClick = true;
     private string envOverlay = "";
-    private static readonly string[] EnvLayers = ["lstDay", "lstNight", "sst", "sstAnom", "no2", "so2", "nh3", "aod", "rain", "ndvi", "snow"];
+    private static readonly string[] EnvLayers = ["lstDay", "lstNight", "sst", "sstAnom", "no2", "so2", "nh3", "ozoneCams", "ozone", "aod", "rain", "ndvi", "snow"];
     private string envLegend = "";
+    private string? knmiImg;
+    // KNMI/TEMIS ozone analysis for today (GOME-2 METOP-C); hourly cache key
+    private static string KnmiUrl(string view, bool small) =>
+        $"https://d1qb6yzwaaq4he.cloudfront.net/protocols/o3field/gome2c/forecast/today_{view}{(small ? "_sm" : "")}.png?h={DateTime.UtcNow:yyyyMMddHH}";
     private readonly Dictionary<string, bool> zoomOn = new();
     private bool hud = true, dayNight = true, detect, cockpit, panelToggled, listening, loading = true;
     private string? error, toast;
@@ -730,6 +761,11 @@ else if (error is not null)
         if (module is null) return;
         listening = await module.InvokeAsync<bool>("startVoice");
         if (!listening) _ = ShowToastAsync(T("toast.noVoice"));
+    }
+
+    private async Task Call(string fn)
+    {
+        if (module is not null) await module.InvokeVoidAsync(fn);
     }
 
     private async Task ZoomToSelection()

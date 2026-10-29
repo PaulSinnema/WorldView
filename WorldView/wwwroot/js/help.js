@@ -24,7 +24,7 @@ const en = [
         <li><b>Day/night</b> (${K('N')}): the night side with city lights; the slider sets its brightness.</li>
         <li><b>Borders</b> (${K('B')}): countries with names, optionally provinces/states, cities, coastlines and sea borders (EEZ).</li>
         <li><b>Time zones</b> (${K('Z')}): coloured zones with the local time; click a zone in the legend to highlight it.</li></ul>`],
-    ['🌡️', 'Environment', `<ul><li><b>Satellite layer</b>: daily NASA images of land and sea temperature, NO₂, SO₂, ammonia (Europe), aerosols, precipitation, vegetation or snow.</li>
+    ['🌡️', 'Environment', `<ul><li><b>Satellite layer</b>: daily NASA images of land and sea temperature, NO₂, SO₂, ammonia (Europe), ozone, aerosols, precipitation, vegetation or snow.</li>
         <li><b>Air & weather on click</b>: click an empty spot on Earth for the air quality index, fine dust, NO₂, ozone, UV and the current weather.</li>
         <li><b>Air quality (sensors)</b> layer: thousands of live measuring points, coloured from good (turquoise) to very poor (purple).</li></ul>`],
     ['📻', 'Radio', `<p>Open the radio bar at the bottom. Search by name, country or genre, show only stations in view, or your ★ favourites. ⏮ ⏭ step through the list; the station keeps playing when you close the info box.</p>`],
@@ -63,7 +63,7 @@ const nl = [
         <li><b>Dag/nacht</b> (${K('N')}): de nachtzijde met stadslichten; de schuif regelt de helderheid.</li>
         <li><b>Grenzen</b> (${K('B')}): landen met namen, eventueel provincies/staten, steden, kustlijnen en zeegrenzen (EEZ).</li>
         <li><b>Tijdzones</b> (${K('Z')}): gekleurde zones met de lokale tijd; klik een zone in de legenda om hem te laten oplichten.</li></ul>`],
-    ['🌡️', 'Milieu', `<ul><li><b>Satellietlaag</b>: dagelijkse NASA-beelden van land- en zeetemperatuur, NO₂, SO₂, ammoniak (Europa), aerosolen, neerslag, vegetatie of sneeuw.</li>
+    ['🌡️', 'Milieu', `<ul><li><b>Satellietlaag</b>: dagelijkse NASA-beelden van land- en zeetemperatuur, NO₂, SO₂, ammoniak (Europa), ozon, aerosolen, neerslag, vegetatie of sneeuw.</li>
         <li><b>Lucht & weer bij klik</b>: klik op een leeg punt op aarde voor de luchtkwaliteitsindex, fijnstof, NO₂, ozon, UV en het actuele weer.</li>
         <li>Laag <b>Luchtkwaliteit (sensoren)</b>: duizenden live meetpunten, gekleurd van goed (turquoise) tot zeer slecht (paars).</li></ul>`],
     ['📻', 'Radio', `<p>Open de radiobalk onderaan. Zoek op naam, land of genre, toon alleen zenders in beeld, of je ★ favorieten. ⏮ ⏭ bladeren door de lijst; de zender blijft spelen als je het infovenster sluit.</p>`],
@@ -92,7 +92,7 @@ const de = [
     ['🎨', 'Optik', `<p>Sieben Ansichten, Tasten ${K('1')}–${K('7')}: Normal, CRT, Nachtsicht, FLIR, Ironbow, Noir und Schnee.</p>`],
     ['👁️', 'Anzeige', `<ul><li><b>HUD</b> (${K('H')}), <b>Erkennung</b> (${K('D')}) mit Namen und Geschwindigkeit.</li><li><b>Tag/Nacht</b> (${K('N')}) mit Helligkeitsregler.</li>
         <li><b>Grenzen</b> (${K('B')}) mit Provinzen, Städten, Küsten und Seegrenzen (AWZ).</li><li><b>Zeitzonen</b> (${K('Z')}): farbige Zonen mit Ortszeit; Zone in der Legende anklicken zum Hervorheben.</li></ul>`],
-    ['🌡️', 'Umwelt', `<ul><li><b>Satellitenebene</b>: tägliche NASA-Bilder zu Land- und Meerestemperatur, NO₂, SO₂, Ammoniak (Europa), Aerosolen, Niederschlag, Vegetation oder Schnee.</li>
+    ['🌡️', 'Umwelt', `<ul><li><b>Satellitenebene</b>: tägliche NASA-Bilder zu Land- und Meerestemperatur, NO₂, SO₂, Ammoniak (Europa), Ozon, Aerosolen, Niederschlag, Vegetation oder Schnee.</li>
         <li><b>Luft & Wetter per Klick</b>: leere Stelle anklicken für Luftqualitätsindex, Feinstaub, NO₂, Ozon, UV und aktuelles Wetter.</li>
         <li>Ebene <b>Luftqualität (Sensoren)</b>: tausende Messpunkte, von gut (türkis) bis sehr schlecht (lila).</li></ul>`],
     ['📻', 'Radio', `<p>Radioleiste unten öffnen; Suche nach Name, Land oder Genre, nur Sender im Bild oder ★ Favoriten. ⏮ ⏭ blättern; die Wiedergabe läuft weiter.</p>`],
@@ -116,7 +116,7 @@ const fr = [
     ['🎨', 'Optique', `<p>Sept vues, touches ${K('1')}–${K('7')} : Normal, CRT, vision nocturne, FLIR, Ironbow, Noir et Neige.</p>`],
     ['👁️', 'Affichage', `<ul><li><b>HUD</b> (${K('H')}), <b>Détection</b> (${K('D')}) avec noms et vitesses.</li><li><b>Jour/nuit</b> (${K('N')}) avec réglage de luminosité.</li>
         <li><b>Frontières</b> (${K('B')}) avec provinces, villes, côtes et frontières maritimes (ZEE).</li><li><b>Fuseaux horaires</b> (${K('Z')}) : zones colorées avec l'heure locale ; cliquez dans la légende pour mettre une zone en évidence.</li></ul>`],
-    ['🌡️', 'Environnement', `<ul><li><b>Couche satellite</b> : images NASA quotidiennes de température du sol et de la mer, NO₂, SO₂, ammoniac (Europe), aérosols, précipitations, végétation ou neige.</li>
+    ['🌡️', 'Environnement', `<ul><li><b>Couche satellite</b> : images NASA quotidiennes de température du sol et de la mer, NO₂, SO₂, ammoniac (Europe), ozone, aérosols, précipitations, végétation ou neige.</li>
         <li><b>Air et météo au clic</b> : cliquez sur un point vide pour l'indice de qualité de l'air, les particules, NO₂, ozone, UV et la météo.</li>
         <li>Couche <b>Qualité de l'air (capteurs)</b> : des milliers de points de mesure, de bonne (turquoise) à très mauvaise (violet).</li></ul>`],
     ['📻', 'Radio', `<p>Ouvrez la barre radio en bas ; recherche par nom, pays ou genre, stations à l'écran ou ★ favoris. ⏮ ⏭ pour parcourir ; la lecture continue.</p>`],
@@ -137,7 +137,7 @@ const zh = [
     ['🎨', '光学', `<p>七种视图，按键 ${K('1')}–${K('7')}：正常、CRT、夜视、FLIR 热成像、Ironbow、黑白和雪。</p>`],
     ['👁️', '显示', `<ul><li><b>HUD</b>（${K('H')}）、<b>检测</b>（${K('D')}）显示名称和速度。</li><li><b>昼夜</b>（${K('N')}）及亮度滑块。</li>
         <li><b>边界</b>（${K('B')}）含省份、城市、海岸线和海上边界。</li><li><b>时区</b>（${K('Z')}）：彩色时区与当地时间；在图例中点击时区可高亮。</li></ul>`],
-    ['🌡️', '环境', `<ul><li><b>卫星图层</b>：NASA 每日陆地与海洋温度、NO₂、SO₂、氨（欧洲）、气溶胶、降水、植被或积雪图像。</li>
+    ['🌡️', '环境', `<ul><li><b>卫星图层</b>：NASA 每日陆地与海洋温度、NO₂、SO₂、氨（欧洲）、臭氧、气溶胶、降水、植被或积雪图像。</li>
         <li><b>点击查看空气与天气</b>：点击地球空白处查看空气质量指数、细颗粒物、NO₂、臭氧、紫外线和当前天气。</li>
         <li><b>空气质量（传感器）</b>图层：数千个实时测量点，颜色从优（青绿）到很差（紫色）。</li></ul>`],
     ['📻', '电台', `<p>打开底部电台栏；按名称、国家或类型搜索，仅显示视野内电台或 ★ 收藏。⏮ ⏭ 切换；关闭信息窗口后继续播放。</p>`],

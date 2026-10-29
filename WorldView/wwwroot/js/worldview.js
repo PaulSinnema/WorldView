@@ -82,7 +82,7 @@ function loadSettings() {
     if (typeof S.eez !== 'boolean') S.eez = false;
     if (typeof S.nature !== 'boolean') S.nature = false;
     if (typeof S.streets !== 'boolean') S.streets = false;
-    if (typeof S.envOverlay !== 'string' || (S.envOverlay && S.envOverlay !== 'nh3' && !ENV_LAYERS[S.envOverlay])) S.envOverlay = '';
+    if (typeof S.envOverlay !== 'string' || (S.envOverlay && !GRID_LAYERS[S.envOverlay] && !ENV_LAYERS[S.envOverlay])) S.envOverlay = '';
     if (typeof S.envClick !== 'boolean') S.envClick = true;
     S.lang = pickLang(S.lang);
     if (!Array.isArray(S.radioFav)) S.radioFav = [];
@@ -185,8 +185,11 @@ const ENV_LAYERS = {
     no2: ['TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column', 6, 2, '#ffee8c', 0.15],
     // SO2: MERRA-2 monthly model field (gap-free); 4th value = palette colour made transparent (clean air)
     so2: ['MERRA2_SO2_Column_Mass_Density_Monthly', 6, 0, '#fff7bc'],
+    // Ozone: OMPS daily total column (Dobson units); today is still incomplete, so yesterday
+    ozone: ['OMPS_Ozone_Total_Column', 6, 1],
     aod: ['MODIS_Combined_MAIAC_L2G_AerosolOpticalDepth', 7], rain: ['IMERG_Precipitation_Rate', 6],
-    ndvi: ['MODIS_Terra_NDVI_8Day', 9], snow: ['MODIS_Terra_NDSI_Snow_Cover', 8]
+    ndvi: ['MODIS_Terra_NDVI_8Day', 9], // Snow: 8-day composite (cloud-free, no swath gaps) instead of the daily swath (MODIS_Terra_NDSI_Snow_Cover)
+    snow: ['MODIS_Terra_L3_Snow_Extent_8Day', 8]
 };
 let envLayer = null, envGen = 0;
 // Ammonia (NH3, µg/m³): colour stops, low values transparent
@@ -199,41 +202,56 @@ function nh3Rgba(v) {
     }
     return NH3_STOPS.at(-1)[1];
 }
-// NH3 grid (fetcher nh3.json) → smooth translucent image over the Netherlands
-async function addNh3Layer(gen) {
-    const d = await tryJson(`${FEED_URL}/nh3.json?b=${Math.floor(Date.now() / 600000)}`, 20000);
+// Total ozone (DU): rainbow like the usual ozone maps; ozone hole (< 220) dark blue/purple
+const O3_STOPS = [[150, [40, 0, 90, 215]], [220, [30, 60, 220, 205]], [260, [0, 200, 230, 190]], [300, [40, 210, 80, 185]], [340, [240, 230, 40, 195]], [380, [255, 130, 20, 205]], [420, [230, 20, 60, 215]], [470, [255, 90, 220, 220]], [500, [255, 220, 255, 225]]];
+function o3Rgba(v) {
+    if (v == null) return [0, 0, 0, 0];
+    if (v <= O3_STOPS[0][0]) return O3_STOPS[0][1];
+    for (let i = 1; i < O3_STOPS.length; i++) {
+        const [v1, c1] = O3_STOPS[i];
+        if (v <= v1) { const [v0, c0] = O3_STOPS[i - 1], f = (v - v0) / (v1 - v0); return c0.map((c, k) => Math.round(c + (c1[k] - c) * f)); }
+    }
+    return O3_STOPS.at(-1)[1];
+}
+// Fetcher grids → smooth translucent image: [file, colour fn, credit]
+const GRID_LAYERS = { nh3: ['nh3.json', nh3Rgba, 'Open-Meteo / CAMS Europe'], ozoneCams: ['ozone.json', o3Rgba, 'Copernicus CAMS (ECMWF)'] };
+async function addGridLayer(gen, [file, rgba, credit]) {
+    const d = await tryJson(`${FEED_URL}/${file}?b=${Math.floor(Date.now() / 600000)}`, 20000);
     if (!d?.v || gen !== envGen) { if (!d?.v) toast(tr('err.noData')); return; }
     const small = document.createElement('canvas'); small.width = d.nx; small.height = d.ny;
     const g = small.getContext('2d'), img = g.createImageData(d.nx, d.ny);
     for (let y = 0; y < d.ny; y++) for (let x = 0; x < d.nx; x++) {
-        const c = nh3Rgba(d.v[y * d.nx + x]), o = ((d.ny - 1 - y) * d.nx + x) * 4; // rows from south → canvas from north
+        const c = rgba(d.v[y * d.nx + x]), o = ((d.ny - 1 - y) * d.nx + x) * 4; // rows from south → canvas from north
         img.data.set(c, o);
     }
     g.putImageData(img, 0, 0);
-    const big = document.createElement('canvas'); big.width = d.nx * 16; big.height = d.ny * 16;
+    const k = d.nx > 200 ? 6 : 16; // keep the canvas size reasonable for the global grid
+    const big = document.createElement('canvas'); big.width = d.nx * k; big.height = d.ny * k;
     const bg = big.getContext('2d'); bg.imageSmoothingEnabled = true; bg.imageSmoothingQuality = 'high';
     bg.drawImage(small, 0, 0, big.width, big.height);
     const h = d.step / 2, rect = Cz.Rectangle.fromDegrees(d.w - h, d.s - h, d.w + (d.nx - 1) * d.step + h, d.s + (d.ny - 1) * d.step + h);
-    const provider = await Cz.SingleTileImageryProvider.fromUrl(big.toDataURL(), { rectangle: rect, credit: 'Open-Meteo / CAMS Europe' });
+    const provider = await Cz.SingleTileImageryProvider.fromUrl(big.toDataURL(), { rectangle: rect, credit });
     if (gen !== envGen) return;
     envLayer = viewer.imageryLayers.addImageryProvider(provider);
 }
-// Own legend for NH3 (colour bar as data URL)
-function nh3LegendUrl() {
+// Own legend: colour bar as data URL
+function gridLegendUrl(rgba, max, ticks, unit, min = 0) {
     const c = document.createElement('canvas'); c.width = 420; c.height = 46;
     const g = c.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-    for (let x = 0; x < 400; x++) { const [r, gg, b, a] = nh3Rgba(x / 400 * 45); g.fillStyle = `rgba(${r},${gg},${b},${a / 255})`; g.fillRect(10 + x, 6, 1, 16); }
+    for (let x = 0; x < 400; x++) { const [r, gg, b, a] = rgba(min + x / 400 * (max - min)); g.fillStyle = `rgba(${r},${gg},${b},${a / 255})`; g.fillRect(10 + x, 6, 1, 16); }
     g.strokeStyle = '#999'; g.strokeRect(10, 6, 400, 16);
     g.fillStyle = '#222'; g.font = '11px sans-serif'; g.textAlign = 'center';
-    for (const v of [0, 5, 10, 20, 30, 45]) g.fillText(String(v), 10 + v / 45 * 400, 36);
-    g.textAlign = 'right'; g.fillText('NH₃ µg/m³', 410, 45);
+    for (const v of ticks) g.fillText(String(v), 10 + (v - min) / (max - min) * 400, 36);
+    g.textAlign = 'right'; g.fillText(unit, 410, 45);
     return c.toDataURL();
 }
+const nh3LegendUrl = () => gridLegendUrl(nh3Rgba, 45, [0, 5, 10, 20, 30, 45], 'NH₃ µg/m³');
+const o3LegendUrl = () => gridLegendUrl(o3Rgba, 500, [150, 220, 300, 380, 450, 500], 'O₃ Dobson (DU)', 150);
 function addEnvLayer() {
     envLayer = null;
     const gen = ++envGen;
-    if (S.envOverlay === 'nh3') { addNh3Layer(gen); return; }
+    if (GRID_LAYERS[S.envOverlay]) { addGridLayer(gen, GRID_LAYERS[S.envOverlay]); return; }
     const e = ENV_LAYERS[S.envOverlay];
     if (!e) return;
     const time = e[2] ? new Date(Date.now() - e[2] * 86400000).toISOString().slice(0, 10) : 'default';
@@ -248,12 +266,12 @@ function addEnvLayer() {
 // Legend image (colour bar with units) from NASA GIBS, named after the palette (from Worldview's config)
 const ENV_PALETTE = {
     lstDay: 'MODIS_Land_Surface_Temp', lstNight: 'MODIS_Land_Surface_Temp', sst: 'GHRSST_Sea_Surface_Temperature',
-    sstAnom: 'GHRSST_Sea_Surface_Temperature_Anomalies', no2: 'OMI_Nitrogen_Dioxide_Tropo_Column', so2: 'MERRA2_SO2_Column_Mass_Density_Monthly',
-    aod: 'MODIS_VIIRS_AOD', rain: 'GPM_Precipitation_Rate', ndvi: 'MODIS_NDVI', snow: 'MODIS_NDSI_Snow_Cover'
+    sstAnom: 'GHRSST_Sea_Surface_Temperature_Anomalies', no2: 'OMI_Nitrogen_Dioxide_Tropo_Column', so2: 'MERRA2_SO2_Column_Mass_Density_Monthly', ozone: 'OMPS_Ozone_Total_Column',
+    aod: 'MODIS_VIIRS_AOD', rain: 'GPM_Precipitation_Rate', ndvi: 'MODIS_NDVI', snow: 'MODIS_L3_Snow_Extent'
 };
-const envLegend = () => S.envOverlay === 'nh3' ? nh3LegendUrl() : ENV_PALETTE[S.envOverlay] ? `https://gibs.earthdata.nasa.gov/legends/${ENV_PALETTE[S.envOverlay]}_H.png` : '';
+const envLegend = () => S.envOverlay === 'nh3' ? nh3LegendUrl() : S.envOverlay === 'ozoneCams' ? o3LegendUrl() : ENV_PALETTE[S.envOverlay] ? `https://gibs.earthdata.nasa.gov/legends/${ENV_PALETTE[S.envOverlay]}_H.png` : '';
 export function setEnvOverlay(name) {
-    S.envOverlay = ENV_LAYERS[name] || name === 'nh3' ? name : ''; saveSettings();
+    S.envOverlay = ENV_LAYERS[name] || GRID_LAYERS[name] ? name : ''; saveSettings();
     if (envLayer) viewer.imageryLayers.remove(envLayer);
     addEnvLayer();
     return envLegend();
@@ -1837,6 +1855,26 @@ function currentCartesian() {
     return r.pos;
 }
 export function selectItem(layer, key) { select(layer, key, true); }
+// North up: same spot in the middle, same height, looking straight down with north at the top
+export function northUp() {
+    const cam = viewer.camera, h = camHeight();
+    const c = cam.pickEllipsoid(new Cz.Cartesian2(viewer.canvas.clientWidth / 2, viewer.canvas.clientHeight / 2));
+    const g = c ? Cz.Cartographic.fromCartesian(c) : cam.positionCartographic;
+    cam.flyTo({ destination: Cz.Cartesian3.fromRadians(g.longitude, g.latitude, h), orientation: { heading: 0, pitch: toRad(-90), roll: 0 }, duration: 1.2 });
+}
+// My position (browser geolocation) with a blue dot
+let meDot = null;
+export function flyToMe() {
+    if (!navigator.geolocation) { toast(tr('toast.geoFail')); return; }
+    navigator.geolocation.getCurrentPosition(p => {
+        const { latitude: lat, longitude: lon, accuracy } = p.coords;
+        meDot ??= viewer.scene.primitives.add(new Cz.PointPrimitiveCollection()).add({ pixelSize: 12, color: Cz.Color.fromCssColorString('#2f8bff'), outlineColor: Cz.Color.WHITE, outlineWidth: 3, disableDepthTestDistance: Number.POSITIVE_INFINITY });
+        meDot.position = Cz.Cartesian3.fromDegrees(lon, lat, 2);
+        // Closer when the fix is precise (GPS), wider for a network estimate
+        const h = Math.min(20000, Math.max(800, accuracy * 6));
+        viewer.camera.flyTo({ destination: Cz.Cartesian3.fromDegrees(lon, lat, h), orientation: { heading: 0, pitch: toRad(-90), roll: 0 }, duration: 2 });
+    }, () => toast(tr('toast.geoFail')), { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+}
 // "Zoom to": centre the selected object (or picked city/country/province/spot) in view, same camera height and direction
 export function zoomToSelection() {
     let target = currentCartesian();
