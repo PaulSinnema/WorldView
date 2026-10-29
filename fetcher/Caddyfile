@@ -18,3 +18,8 @@
 		file_server
 	}
 }
+
+# Sinnema Apps portal (container sinnema-apps from C:\Projects\SinnemaApps, same Docker network)
+apps.sinnema.ch {
+	reverse_proxy sinnema-apps:80
+}

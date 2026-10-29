@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.44] - 2026-10-29
+
+### Changed
+- Radio: choosing a station without coordinates in the radio panel flies to its country (when zoom-on-click is on for radio).
+
 ## [1.0.43] - 2026-10-29
 
 ### Added

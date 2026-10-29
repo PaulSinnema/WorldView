@@ -1288,8 +1288,21 @@ export function radioPlay(key, doSelect = true) {
     audio.addEventListener('error', () => { toast(tr('toast.radioFail')); radioNow(); });
     audio.play().catch(() => { toast(tr('toast.radioFail')); radioNow(); });
     radioNow();
-    // Show it on the globe when it has coordinates
+    // Show it on the globe when it has coordinates, else fly to its country
     if (doSelect && store.radio.has(key)) select('radio', key, true);
+    else if (doSelect && S.zoom.radio === true && m.cc) flyToCountry(m.cc);
+}
+// Country centre via Nominatim (cached)
+const countryCentre = new Map();
+async function flyToCountry(cc) {
+    let p = countryCentre.get(cc);
+    if (!p) {
+        const j = await tryJson(`https://nominatim.openstreetmap.org/search?country=${encodeURIComponent(cc)}&format=json&limit=1`, 15000);
+        if (!j?.[0]) return;
+        p = [Number(j[0].lon), Number(j[0].lat)];
+        countryCentre.set(cc, p);
+    }
+    flyTo(p[0], p[1], 1.5e6);
 }
 function stopAudio() { if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load(); audio = null; } }
 export function radioStop() { stopAudio(); radioNow(); }
