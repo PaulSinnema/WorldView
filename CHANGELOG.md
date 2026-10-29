@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.95] - 2026-10-30
+
+### Fixed
+- Sea ice: NASA GIBS serves stray wrong tiles (clouds, other products) for empty open-ocean tiles of this layer; tiles are now only requested north of 40° N and south of 45° S.
+
 ## [1.0.94] - 2026-10-30
 
 ### Changed

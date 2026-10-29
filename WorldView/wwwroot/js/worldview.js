@@ -181,7 +181,8 @@ function setImagery(name) {
 const ENV_LAYERS = {
     lstDay: ['MODIS_Terra_L3_Land_Surface_Temp_8Day_Day', 7], lstNight: ['MODIS_Terra_L3_Land_Surface_Temp_8Day_Night', 7],
     sst: ['GHRSST_L4_MUR_Sea_Surface_Temperature', 7], sstAnom: ['GHRSST_L4_MUR_Sea_Surface_Temperature_Anomalies', 7],
-    seaIce: ['GHRSST_L4_MUR_Sea_Ice_Concentration', 7], // open water is transparent
+    // Sea ice: only polar areas; GIBS serves stray wrong tiles (other products) for empty open-ocean tiles
+    seaIce: ['GHRSST_L4_MUR_Sea_Ice_Concentration', 7, 0, null, 0, [[-180, 40, 180, 90], [-180, -90, 180, -45]]],
     // TROPOMI: the latest day is still incomplete, so show the day before yesterday (3rd value = days back)
     no2: ['TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column', 6, 2, '#ffee8c', 0.15],
     // SO2: MERRA-2 monthly model field (gap-free); 4th value = palette colour made transparent (clean air)
@@ -387,13 +388,16 @@ function addEnvLayer() {
     const e = ENV_LAYERS[S.envOverlay];
     if (!e) return;
     const time = e[2] ? new Date(Date.now() - e[2] * 86400000).toISOString().slice(0, 10) : 'default';
-    envLayer = envAdd(new Cz.UrlTemplateImageryProvider({
-        url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${e[0]}/default/${time}/GoogleMapsCompatible_Level${e[1]}/{z}/{y}/{x}.png`,
-        maximumLevel: e[1], credit: 'NASA GIBS'
-    }));
-    envLayer.alpha = 0.75;
-    // Lowest (clean) values transparent, so only real concentrations show
-    if (e[3]) { envLayer.colorToAlpha = Cz.Color.fromCssColorString(e[3]); envLayer.colorToAlphaThreshold = e[4] ?? 0.12; }
+    // Optional areas (e[5]): only request tiles there (one imagery layer per area)
+    for (const r of e[5] || [null]) {
+        envLayer = envAdd(new Cz.UrlTemplateImageryProvider({
+            url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${e[0]}/default/${time}/GoogleMapsCompatible_Level${e[1]}/{z}/{y}/{x}.png`,
+            maximumLevel: e[1], credit: 'NASA GIBS', ...(r ? { rectangle: Cz.Rectangle.fromDegrees(...r) } : {})
+        }));
+        envLayer.alpha = 0.75;
+        // Lowest (clean) values transparent, so only real concentrations show
+        if (e[3]) { envLayer.colorToAlpha = Cz.Color.fromCssColorString(e[3]); envLayer.colorToAlphaThreshold = e[4] ?? 0.12; }
+    }
 }
 // Legend image (colour bar with units) from NASA GIBS, named after the palette (from Worldview's config)
 const ENV_PALETTE = {
