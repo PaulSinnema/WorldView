@@ -39,6 +39,7 @@ else if (error is not null)
         <button type="submit" title="@T("search.title")">⌕</button>
     </form>
     <button class="mic @(listening ? "on" : "")" title="@T("voice.title")" @onclick="StartVoice">🎙</button>
+    <button title="@T("help.title")" @onclick="OpenHelp">?</button>
     <button title="@T("panel.title")" @onclick="() => panelToggled = !panelToggled">☰</button>
 </div>
 
@@ -142,10 +143,39 @@ else if (error is not null)
         <input type="password" @bind="ionToken" @bind:event="oninput" placeholder="@T("ion.placeholder")" aria-label="@T("ion.placeholder")" />
         <button @onclick="SaveToken">@T("btn.save")</button>
     </div>
-    <div class="hint">@T("hint.ion")</div>
     <div class="hint">@T("hint.sources")</div>
     <div class="keys">@T("hint.keys")</div>
 </aside>
+
+@if (showHelp)
+{
+    @* Help page: click outside, ✕ or Esc closes *@
+    <div class="help" @onclick="CloseHelp" @onkeydown="HelpKey" tabindex="-1" @ref="helpRef">
+        <div class="help-box" @onclick:stopPropagation="true">
+            <header>
+                <span>WORLDVIEW · @T("help.title")</span>
+                <button class="x" title="@T("info.close")" @onclick="CloseHelp">✕</button>
+            </header>
+            <nav>
+                @for (var i = 0; i < helpSections.Count; i++)
+                {
+                    var id = $"help-{i}";
+                    <button @onclick='() => JS.InvokeVoidAsync("wvScrollTo", id)'>@helpSections[i].Icon @helpSections[i].Title</button>
+                }
+            </nav>
+            <div class="help-body">
+                @for (var i = 0; i < helpSections.Count; i++)
+                {
+                    <section id="help-@i">
+                        <h2><span>@helpSections[i].Icon</span> @helpSections[i].Title</h2>
+                        @((MarkupString)helpSections[i].Html)
+                    </section>
+                }
+                <footer>WorldView v@(AppVersion)</footer>
+            </div>
+        </div>
+    </div>
+}
 
 @if (selection is not null)
 {
@@ -423,6 +453,7 @@ else if (error is not null)
         if (module is null || e.Value?.ToString() is not { } langCode) return;
         ApplyStrings(await module.InvokeAsync<string>("setLang", langCode));
         if (radioCountries.Count > 0) await LoadRadioCountries();
+        if (showHelp) await OpenHelp();
     }
 
     private async Task ToggleLayer(string key, bool on)
@@ -486,6 +517,36 @@ else if (error is not null)
         timezones = !timezones;
         if (module is not null) await module.InvokeVoidAsync("setTimezones", timezones, false);
         if (timezones) await LoadTzZones();
+    }
+
+    // Help page (content per language in wwwroot/js/help.js)
+    private bool showHelp;
+    private List<HelpSection> helpSections = new();
+    private IJSObjectReference? helpModule;
+    private ElementReference helpRef;
+
+    private async Task OpenHelp()
+    {
+        helpModule ??= await JS.InvokeAsync<IJSObjectReference>("import", $"./js/help.js?v={AppVersion}");
+        helpSections = JsonSerializer.Deserialize<List<HelpSection>>(await helpModule.InvokeAsync<string>("getHelp", lang), JsonOpts) ?? new();
+        showHelp = true;
+        StateHasChanged();
+        await Task.Yield();
+        try { await helpRef.FocusAsync(); } catch { } // so Esc works
+    }
+
+    private void CloseHelp() => showHelp = false;
+
+    private void HelpKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") showHelp = false;
+    }
+
+    private sealed class HelpSection
+    {
+        public string Icon { get; set; } = "";
+        public string Title { get; set; } = "";
+        public string Html { get; set; } = "";
     }
 
     // Time zone legend (UTC offsets in hours, from data/timezones.json)

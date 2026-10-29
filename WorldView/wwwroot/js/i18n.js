@@ -75,7 +75,7 @@ const S = {
     'btn.share': ['Share link', 'Deel link', 'Link teilen', 'Partager', '分享链接'],
     'btn.save': ['Save', 'Opslaan', 'Speichern', 'Enregistrer', '保存'],
     'ion.placeholder': ['Cesium ion token', 'Cesium ion-token', 'Cesium-ion-Token', 'Jeton Cesium ion', 'Cesium ion 令牌'],
-    'hint.ion': ['Optional. A free token from cesium.com/ion enables Google 3D cities and world terrain. Stored in this browser only.', 'Optioneel. Gratis token via cesium.com/ion schakelt Google 3D-steden en wereldterrein in. Wordt alleen in deze browser bewaard.', 'Optional. Ein kostenloses Token von cesium.com/ion aktiviert Google-3D-Städte und Weltgelände. Wird nur in diesem Browser gespeichert.', 'Facultatif. Un jeton gratuit sur cesium.com/ion active les villes 3D Google et le relief mondial. Conservé uniquement dans ce navigateur.', '可选。从 cesium.com/ion 获取的免费令牌可启用 Google 3D 城市和全球地形。仅保存在此浏览器中。'],
+    'help.title': ['Help', 'Help', 'Hilfe', 'Aide', '帮助'],
     'hint.sources': ['Flight data: OpenSky Network · military: adsb.lol (ODbL) · places: GeoNames (CC BY 4.0) · borders: geoBoundaries (CC BY 4.0), Natural Earth', 'Vluchtdata: OpenSky Network · militair: adsb.lol (ODbL) · plaatsen: GeoNames (CC BY 4.0) · grenzen: geoBoundaries (CC BY 4.0), Natural Earth', 'Flugdaten: OpenSky Network · Militär: adsb.lol (ODbL) · Orte: GeoNames (CC BY 4.0) · Grenzen: geoBoundaries (CC BY 4.0), Natural Earth', 'Données de vol : OpenSky Network · militaire : adsb.lol (ODbL) · lieux : GeoNames (CC BY 4.0) · frontières : geoBoundaries (CC BY 4.0), Natural Earth', '航班数据：OpenSky Network · 军用：adsb.lol (ODbL) · 地点：GeoNames (CC BY 4.0) · 边界：geoBoundaries (CC BY 4.0)、Natural Earth'],
     'hint.keys': ['←↑↓→ move · +/− zoom · 1–7 optics · H HUD · D detection · N day/night · B borders · Z time zones · C cockpit · Esc release', '←↑↓→ verschuiven · +/− zoomen · 1–7 optiek · H HUD · D detectie · N dag/nacht · B grenzen · Z tijdzones · C cockpit · Esc loslaten', '←↑↓→ bewegen · +/− zoomen · 1–7 Optik · H HUD · D Erkennung · N Tag/Nacht · B Grenzen · Z Zeitzonen · C Cockpit · Esc loslassen', '←↑↓→ déplacer · +/− zoomer · 1–7 optique · H HUD · D détection · N jour/nuit · B frontières · Z fuseaux · C cockpit · Échap relâcher', '←↑↓→ 移动 · +/− 缩放 · 1–7 光学 · H HUD · D 检测 · N 昼夜 · B 边界 · Z 时区 · C 驾驶舱 · Esc 释放'],
     'btn.timezones': ['Time zones', 'Tijdzones', 'Zeitzonen', 'Fuseaux horaires', '时区'],
@@ -233,6 +233,10 @@ const S = {
     'f.operator': ['Operator', 'Beheerder', 'Betreiber', 'Gestionnaire', '运营方'],
     'f.province': ['Province/region', 'Provincie/regio', 'Bundesland/Region', 'Province/région', '省/地区'],
     'f.population': ['Population', 'Inwoners', 'Einwohner', 'Population', '人口'],
+    'f.continent': ['Continent', 'Werelddeel', 'Kontinent', 'Continent', '大洲'],
+    'f.gdp': ['GDP', 'BBP', 'BIP', 'PIB', '国内生产总值'],
+    'f.isoCode': ['ISO code', 'ISO-code', 'ISO-Code', 'Code ISO', 'ISO 代码'],
+    'u.billionUsd': ['billion USD', 'miljard USD', 'Mrd. USD', 'milliards USD', '十亿美元'],
     'f.timezone': ['Time zone', 'Tijdzone', 'Zeitzone', 'Fuseau horaire', '时区'],
 
     // info values

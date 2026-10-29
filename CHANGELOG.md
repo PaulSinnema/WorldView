@@ -2,6 +2,24 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.56] - 2026-10-29
+
+### Added
+- Help page (? button next to the microphone): everything explained in EN/NL/DE/FR/ZH, with an index, keyboard shortcuts and sources. Closes with ✕, Esc or a click outside.
+
+### Changed
+- The Cesium ion token explanation moved from the side panel to the help page.
+
+## [1.0.55] - 2026-10-29
+
+### Changed
+- Time zones: the globe turns to the chosen zone at the equator.
+
+## [1.0.54] - 2026-10-29
+
+### Added
+- Country info: clicking a country label shows continent, region, population, GDP, ISO code and the Wikipedia summary and image (UI language, via Wikidata).
+
 ## [1.0.53] - 2026-10-29
 
 ### Changed

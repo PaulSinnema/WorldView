@@ -233,6 +233,7 @@ export async function init(containerId, ref) {
         const p = scene.pick(e.position);
         if (p?.id?.wv) select(p.id.wv.layer, p.id.wv.key, true);
         else if (p?.id?.city) selectCity(p.id.city);
+        else if (p?.id?.country) selectCountry(p.id.country);
         // Click on empty globe/space closes the info box (not while riding in the cockpit)
         else if ((selected || cityPick) && !S.cockpit) clearSelection();
     }, Cz.ScreenSpaceEventType.LEFT_CLICK);
@@ -607,6 +608,7 @@ function loadBorders() {
             // Small countries only appear when zoomed in
             const rank = p.LABELRANK ?? 5, far = rank <= 2 ? 3e7 : rank <= 4 ? 1.2e7 : 5e6;
             lc.add({
+                id: { country: p },
                 position: Cz.Cartesian3.fromDegrees(p.LABEL_X, p.LABEL_Y, 200), text: name.toUpperCase(),
                 font: '600 26px "Share Tech Mono", monospace', scale: 0.5, fillColor: Cz.Color.WHITE.withAlpha(0.9),
                 outlineColor: Cz.Color.BLACK, outlineWidth: 5, style: Cz.LabelStyle.FILL_AND_OUTLINE,
@@ -648,8 +650,8 @@ function tzFillPrimitive(d) {
 // Highlight one zone (index into tzZones) or none (null)
 export function setTzSelected(i) {
     tzSel = Number.isInteger(i) && tzZones[i] ? i : null;
-    // Turn the globe to the zone (keep a height that shows the whole zone)
-    if (tzSel !== null) { const [, lon, lat] = tzZones[tzSel]; flyTo(lon, Math.max(-40, Math.min(50, lat)), Math.max(camHeight(), 1.2e7), 1.8); }
+    // Turn the globe to the zone at the equator (keep a height that shows the whole zone)
+    if (tzSel !== null) flyTo(tzZones[tzSel][1], 0, Math.max(camHeight(), 1.2e7), 1.8);
     if (!tzFill?.ready) return;
     for (const id of tzFillIds) {
         const a = tzFill.getGeometryInstanceAttributes(id);
@@ -799,6 +801,39 @@ async function selectCity(c, fly = true) {
     if (cityPick !== c) return;
     Object.assign(info, wiki ? { summary: wiki.extract, image: wiki.thumb, link: wiki.url } : { summary: null });
     notify('OnSelect', JSON.stringify(info));
+}
+// Country info panel: Natural Earth facts at once, Wikipedia (via Wikidata id) when it arrives
+async function selectCountry(p) {
+    clearSelection(false);
+    cityPick = p; // same lifecycle as a picked city (cleared by clearSelection)
+    const n = v => Number(v).toLocaleString(loc());
+    const f = [];
+    if (p.CONTINENT) f.push([tr('f.continent'), p.CONTINENT]);
+    if (p.SUBREGION && p.SUBREGION !== p.CONTINENT) f.push([tr('f.region'), p.SUBREGION]);
+    if (p.POP_EST > 0) f.push([tr('f.population'), `${n(p.POP_EST)}${p.POP_YEAR ? ` (${p.POP_YEAR})` : ''}`]);
+    if (p.GDP_MD > 0) f.push([tr('f.gdp'), `${n(Math.round(p.GDP_MD / 1000))} ${tr('u.billionUsd')}${p.GDP_YEAR ? ` (${p.GDP_YEAR})` : ''}`]);
+    if (p.ISO_A2 && p.ISO_A2 !== '-99') f.push([tr('f.isoCode'), `${p.ISO_A2} / ${p.ISO_A3 || ''}`]);
+    f.push([tr('f.position'), fmtPos(p.LABEL_Y, p.LABEL_X)]);
+    const title = (p.ISO_A2 && p.ISO_A2 !== '-99' && regionName(p.ISO_A2)) || countryName(p);
+    const info = { layer: 'country', key: p.ISO_A3 || title, title, fields: f, image: null, video: null, canCockpit: false, isRadio: false, summary: tr('v.wikiLoading'), link: null };
+    notify('OnSelect', JSON.stringify(info));
+    const wiki = p.WIKIDATAID ? await wikidataWiki(p.WIKIDATAID) : null;
+    if (cityPick !== p) return;
+    Object.assign(info, wiki ? { summary: wiki.extract, image: wiki.thumb, link: wiki.url } : { summary: null });
+    notify('OnSelect', JSON.stringify(info));
+}
+// Wikidata item → Wikipedia summary in the UI language, else English
+async function wikidataWiki(qid) {
+    const w = await tryJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${encodeURIComponent(qid)}&props=sitelinks&sitefilter=${S.lang}wiki|enwiki&format=json&origin=*`, 15000);
+    const links = w?.entities?.[qid]?.sitelinks || {};
+    for (const [site, host] of [[`${S.lang}wiki`, `${S.lang}.wikipedia.org`], ['enwiki', 'en.wikipedia.org']]) {
+        const title = links[site]?.title;
+        if (!title) continue;
+        const path = encodeURIComponent(title.replace(/ /g, '_'));
+        const s = await tryJson(`https://${host}/api/rest_v1/page/summary/${path}`, 15000);
+        if (s?.extract) return { extract: s.extract, thumb: wikiImage(s), url: `https://${host}/wiki/${path}` };
+    }
+    return null;
 }
 async function cityWiki(gid) {
     if (!gid) return null;
@@ -1550,7 +1585,7 @@ export function setLang(lang) {
     relabelCountries();
     for (const l of LAYERS) if (lastStatus[l]) notify('OnLayerStatus', l, store[l].size, statusText(l));
     if (selected) pushInfo();
-    else if (cityPick) selectCity(cityPick, false);
+    else if (cityPick) cityPick.LABEL_X != null ? selectCountry(cityPick) : selectCity(cityPick, false);
     if (radioMeta.size) { runRadioSearch(); radioNow(); }
     return getStrings();
 }
