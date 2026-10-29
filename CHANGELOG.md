@@ -4,6 +4,10 @@ All notable changes to WorldView. Versions follow `<Version>` in `WorldView/Worl
 
 ## [1.0.82] - 2026-10-29
 
+### Fixed
+- Fetcher 1.7.1: NS trains no longer jump back to the same spot. NS often repeats an unchanged position; the fetcher now keeps the time that position was first seen, so the browser keeps extrapolating.
+- Fetcher 1.7.2: NS positions with an accuracy worse than 5 km (`horizontaleNauwkeurigheid`, no fresh fix) are skipped.
+
 ### Added
 - **Zoom to** button in the info box: centres the selected object, city, country, province or spot in view without changing the camera height or direction.
 

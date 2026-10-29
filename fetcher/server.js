@@ -11,7 +11,7 @@ import { fetchSensorCommunity, fetchOpenAq } from './air.js';
 import { fetchNh3 } from './nh3.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.7.0';
+const VERSION = '1.7.2';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;

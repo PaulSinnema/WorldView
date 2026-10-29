@@ -15,14 +15,25 @@ export async function fetchNs(key) {
     // Log one record once to verify the field names
     if (!nsLogged && list[0]) { nsLogged = true; console.log('NS sample', JSON.stringify(list[0])); }
     const now = Math.round(Date.now() / 1000);
-    return list
+    const rows = list
         .filter(t => Number.isFinite(t.lat) && Number.isFinite(t.lng))
+        // horizontaleNauwkeurigheid (m) grows while NS has no fresh fix: skip positions off by more than 5 km
+        .filter(t => !(t.horizontaleNauwkeurigheid > NS_MAX_ERROR_M))
         .map(t => {
-            const nr = t.treinNummer ?? t.ritId ?? '';
-            return [`ns-${nr || `${t.lat},${t.lng}`}`, `${t.type || 'NS'} ${nr}`.trim(), r5(t.lat), r5(t.lng),
-                Math.round((t.snelheid || 0) / 3.6 * 10) / 10, Math.round(t.richting || 0), 'NL', 'NS', now];
+            const nr = t.treinNummer ?? t.ritId ?? '', id = `ns-${nr || `${t.lat},${t.lng}`}`, lat = r5(t.lat), lon = r5(t.lng);
+            // Position time: NS often repeats an unchanged position; keep the time it was first seen,
+            // so the browser keeps extrapolating instead of jumping back to the old spot
+            const p = nsPrev.get(id), ts = Date.parse(t.tijd ?? t.timestamp ?? t.lastUpdated ?? '') / 1000;
+            const tPos = Number.isFinite(ts) ? Math.round(ts) : p && p.lat === lat && p.lon === lon ? p.t : now;
+            nsPrev.set(id, { lat, lon, t: tPos });
+            return [id, `${t.type || 'NS'} ${nr}`.trim(), lat, lon,
+                Math.round((t.snelheid || 0) / 3.6 * 10) / 10, Math.round(t.richting || 0), 'NL', 'NS', tPos];
         });
+    prune(nsPrev, rows);
+    return rows;
 }
+const nsPrev = new Map(); // id -> last {lat, lon, t}
+const NS_MAX_ERROR_M = 5000;
 
 // Digitraffic has no heading: derive it from the previous position
 const fiPrev = new Map();
