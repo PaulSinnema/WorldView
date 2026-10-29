@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.77] - 2026-10-29
+
+### Changed
+- Public transport icons per mode: bus (yellow), tram (red, two sections, T), metro (blue capsule, M), ferry (cyan hull).
+
 ## [1.0.76] - 2026-10-29
 
 ### Added

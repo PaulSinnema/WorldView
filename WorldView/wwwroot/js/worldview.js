@@ -17,6 +17,8 @@ const BILLBOARD_LAYERS = ['flights', 'military', 'trains', 'ov', 'launches', 'ca
 const MOVERS = ['flights', 'military', 'trains', 'ov'];
 const PLANES = ['flights', 'military'];
 const TRAIN_COLOR = '#9dff3a', OV_COLOR = '#ffd23f';
+// Public transport per mode: [icon, colour]
+const OV_ICONS = { bus: ['bus', OV_COLOR], tram: ['tram', '#ff6b5a'], metro: ['metro', '#4da6ff'], ferry: ['ferry', '#5af0ff'] };
 const FT = 0.3048, R_EARTH = 6371000;
 const FEED_URL = 'https://flights.sinnema.ch'; // netcup VPS, see fetcher/README.md
 const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, air: '#50f0e6', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff' };
@@ -115,12 +117,26 @@ function makeIcon(kind, color) {
         // Top view of a bus, front up
         g.moveTo(-6, -11); g.quadraticCurveTo(-6, -14, -3, -14); g.lineTo(3, -14); g.quadraticCurveTo(6, -14, 6, -11);
         g.lineTo(6, 14); g.lineTo(-6, 14); g.closePath();
+    } else if (kind === 'tram') {
+        // Two articulated sections, rounded front
+        g.moveTo(-5, -10); g.quadraticCurveTo(-5, -14, 0, -14); g.quadraticCurveTo(5, -14, 5, -10); g.lineTo(5, -1); g.lineTo(-5, -1); g.closePath();
+        g.rect(-5, 1, 10, 13);
+    } else if (kind === 'metro') {
+        // Capsule, rounded at both ends
+        g.moveTo(-6, -9); g.arc(0, -9, 6, Math.PI, 0); g.lineTo(6, 9); g.arc(0, 9, 6, 0, Math.PI); g.closePath();
+    } else if (kind === 'ferry') {
+        // Hull with pointed bow
+        const p = [[0, -15], [7, -5], [7, 13], [-7, 13], [-7, -5]];
+        p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
     } else if (kind === 'rocket') {
         g.moveTo(0, -14); g.lineTo(5, -4); g.lineTo(5, 8); g.lineTo(9, 14); g.lineTo(-9, 14); g.lineTo(-5, 8); g.lineTo(-5, -4); g.closePath();
     } else {
         g.rect(-11, -7, 16, 14); g.moveTo(5, -3); g.lineTo(12, -8); g.lineTo(12, 8); g.lineTo(5, 3); g.closePath();
     }
     g.fill(); g.stroke();
+    // Letter marks tram/metro (readable at a glance)
+    const mark = { tram: 'T', metro: 'M' }[kind];
+    if (mark) { g.fillStyle = 'rgba(0,0,0,0.8)'; g.font = 'bold 10px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(mark, 0, kind === 'tram' ? -6 : 0); }
     return c.toDataURL(); // shared atlas entry via URL id
 }
 const icon = (kind, color) => icons[kind + color] ??= makeIcon(kind, color);
@@ -571,8 +587,10 @@ async function loadOv() {
     if (!j?.ov) { report('ov', 'st.feedDown'); return 30000; }
     merge('ov', j.ov.map(a => {
         const mode = () => tr('mode.' + a[7]);
+        const [kind, color] = OV_ICONS[a[7]] || OV_ICONS.bus;
         return {
             key: a[0], lat: a[2], lon: a[3], alt: 0, gs: a[4], track: a[5], ground: false, t: (a[8] || j.t) * 1000,
+            img: icon(kind, color),
             label: `${tr('mode.' + a[7])} ${a[1]}`.trim(),
             info: [['line', a[1] || '—'], ['mode', mode], ['operator', a[6] || '—'], ['vehicle', a[9] || '—']]
         };
@@ -586,9 +604,12 @@ function merge(layer, list, kind, color) {
         let r = m.get(f.key);
         if (!r) {
             r = f;
-            r.bb = col.add({ image: img, scale: 0.7, alignedAxis: Cz.Cartesian3.UNIT_Z, scaleByDistance: new Cz.NearFarScalar(2e5, 1.0, 1.5e7, 0.45), id: { wv: { layer, key: f.key } } });
+            r.bb = col.add({ image: f.img || img, scale: 0.7, alignedAxis: Cz.Cartesian3.UNIT_Z, scaleByDistance: new Cz.NearFarScalar(2e5, 1.0, 1.5e7, 0.45), id: { wv: { layer, key: f.key } } });
             m.set(f.key, r);
-        } else Object.assign(r, f);
+        } else {
+            if (f.img && f.img !== r.img) r.bb.image = f.img; // vehicle changed type
+            Object.assign(r, f);
+        }
         r.t = Math.min(f.t || now, now); r.seen = now;
         r.bb.rotation = -toRad(r.track || 0);
         // Dead-reckoned position, same as tick(): no jump back on refresh
