@@ -270,7 +270,29 @@ const ENV_PALETTE = {
     sstAnom: 'GHRSST_Sea_Surface_Temperature_Anomalies', no2: 'OMI_Nitrogen_Dioxide_Tropo_Column', so2: 'MERRA2_SO2_Column_Mass_Density_Monthly', ozone: 'OMPS_Ozone_Total_Column',
     aod: 'MODIS_VIIRS_AOD', rain: 'GPM_Precipitation_Rate', ndvi: 'MODIS_NDVI', snow: 'SMAP_Snow_Mass'
 };
-const envLegend = () => S.envOverlay === 'nh3' ? nh3LegendUrl() : S.envOverlay === 'ozoneCams' ? o3LegendUrl() : ENV_PALETTE[S.envOverlay] ? `https://gibs.earthdata.nasa.gov/legends/${ENV_PALETTE[S.envOverlay]}_H.png` : '';
+// Layers whose NASA legend is in Kelvin: own legend in °C, built from the GIBS colour map
+const KELVIN_LAYERS = { lstDay: 'Land °C', lstNight: 'Land °C' };
+const celsiusLegends = {};
+async function celsiusLegendUrl(palette, unit) {
+    if (celsiusLegends[palette]) return celsiusLegends[palette];
+    const r = await fetch(`https://gibs.earthdata.nasa.gov/colormaps/v1.3/${palette}.xml`).catch(() => null);
+    if (!r?.ok) return `https://gibs.earthdata.nasa.gov/legends/${palette}_H.png`; // fallback: Kelvin legend
+    const doc = new DOMParser().parseFromString(await r.text(), 'text/xml'), stops = [];
+    for (const e of doc.getElementsByTagName('ColorMapEntry')) {
+        if (e.getAttribute('nodata') === 'true' || e.getAttribute('transparent') === 'true') continue;
+        const m = /\[\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/.exec(e.getAttribute('value') || '');
+        if (!m || +m[2] - +m[1] > 10) continue; // skip open-ended catch-all classes
+        stops.push([(+m[1] + +m[2]) / 2 - 273.15, (e.getAttribute('rgb') || '0,0,0').split(',').map(Number)]);
+    }
+    if (!stops.length) return `https://gibs.earthdata.nasa.gov/legends/${palette}_H.png`;
+    stops.sort((a, b) => a[0] - b[0]);
+    const min = stops[0][0], max = stops.at(-1)[0], ticks = [];
+    for (let v = Math.ceil(min / 20) * 20; v <= max; v += 20) ticks.push(v);
+    const rgba = v => { let best = stops[0]; for (const s of stops) if (Math.abs(s[0] - v) < Math.abs(best[0] - v)) best = s; return [...best[1], 255]; };
+    return celsiusLegends[palette] = gridLegendUrl(rgba, max, ticks, unit, min);
+}
+const envLegend = async () => KELVIN_LAYERS[S.envOverlay] ? celsiusLegendUrl(ENV_PALETTE[S.envOverlay], KELVIN_LAYERS[S.envOverlay])
+    : S.envOverlay === 'nh3' ? nh3LegendUrl() : S.envOverlay === 'ozoneCams' ? o3LegendUrl() : ENV_PALETTE[S.envOverlay] ? `https://gibs.earthdata.nasa.gov/legends/${ENV_PALETTE[S.envOverlay]}_H.png` : '';
 export function setEnvOverlay(name) {
     S.envOverlay = ENV_LAYERS[name] || GRID_LAYERS[name] ? name : ''; saveSettings();
     if (envLayer) viewer.imageryLayers.remove(envLayer);

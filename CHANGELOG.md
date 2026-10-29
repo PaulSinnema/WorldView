@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.89] - 2026-10-29
+
+### Changed
+- Land surface temperature (day/night): legend in °C instead of Kelvin, drawn from NASA's colour map.
+
 ## [1.0.88] - 2026-10-29
 
 ### Changed
