@@ -2,6 +2,16 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.87] - 2026-10-29
+
+### Fixed
+- Snow cover: NASA SMAP L4 snow mass (daily, gap-free, kg/m²) instead of the MODIS 8-day extent, which flagged clouds as snow (e.g. "snow" around Apeldoorn at +9 °C) and drew blocky red patches.
+
+## [1.0.86] - 2026-10-29
+
+### Fixed
+- My location: specific message (blocked, no position, timeout) and fallback to an approximate location from the internet connection (ipapi.co, city level).
+
 ## [1.0.85] - 2026-10-29
 
 ### Added

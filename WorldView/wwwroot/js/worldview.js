@@ -188,8 +188,9 @@ const ENV_LAYERS = {
     // Ozone: OMPS daily total column (Dobson units); today is still incomplete, so yesterday
     ozone: ['OMPS_Ozone_Total_Column', 6, 1],
     aod: ['MODIS_Combined_MAIAC_L2G_AerosolOpticalDepth', 7], rain: ['IMERG_Precipitation_Rate', 6],
-    ndvi: ['MODIS_Terra_NDVI_8Day', 9], // Snow: 8-day composite (cloud-free, no swath gaps) instead of the daily swath (MODIS_Terra_NDSI_Snow_Cover)
-    snow: ['MODIS_Terra_L3_Snow_Extent_8Day', 8]
+    ndvi: ['MODIS_Terra_NDVI_8Day', 9], // Snow: SMAP L4 snow mass (satellite-driven land model, daily, gap-free); MODIS optical products confuse clouds with snow
+    // (was MODIS_Terra_NDSI_Snow_Cover, then MODIS_Terra_L3_Snow_Extent_8Day)
+    snow: ['SMAP_L4_Snow_Mass', 6]
 };
 let envLayer = null, envGen = 0;
 // Ammonia (NH3, µg/m³): colour stops, low values transparent
@@ -267,7 +268,7 @@ function addEnvLayer() {
 const ENV_PALETTE = {
     lstDay: 'MODIS_Land_Surface_Temp', lstNight: 'MODIS_Land_Surface_Temp', sst: 'GHRSST_Sea_Surface_Temperature',
     sstAnom: 'GHRSST_Sea_Surface_Temperature_Anomalies', no2: 'OMI_Nitrogen_Dioxide_Tropo_Column', so2: 'MERRA2_SO2_Column_Mass_Density_Monthly', ozone: 'OMPS_Ozone_Total_Column',
-    aod: 'MODIS_VIIRS_AOD', rain: 'GPM_Precipitation_Rate', ndvi: 'MODIS_NDVI', snow: 'MODIS_L3_Snow_Extent'
+    aod: 'MODIS_VIIRS_AOD', rain: 'GPM_Precipitation_Rate', ndvi: 'MODIS_NDVI', snow: 'SMAP_Snow_Mass'
 };
 const envLegend = () => S.envOverlay === 'nh3' ? nh3LegendUrl() : S.envOverlay === 'ozoneCams' ? o3LegendUrl() : ENV_PALETTE[S.envOverlay] ? `https://gibs.earthdata.nasa.gov/legends/${ENV_PALETTE[S.envOverlay]}_H.png` : '';
 export function setEnvOverlay(name) {
@@ -1864,16 +1865,24 @@ export function northUp() {
 }
 // My position (browser geolocation) with a blue dot
 let meDot = null;
+function showMe(lat, lon, accuracy) {
+    meDot ??= viewer.scene.primitives.add(new Cz.PointPrimitiveCollection()).add({ pixelSize: 12, color: Cz.Color.fromCssColorString('#2f8bff'), outlineColor: Cz.Color.WHITE, outlineWidth: 3, disableDepthTestDistance: Number.POSITIVE_INFINITY });
+    meDot.position = Cz.Cartesian3.fromDegrees(lon, lat, 2);
+    // Closer when the fix is precise (GPS/Wi-Fi), wider for a rough estimate
+    const h = Math.min(30000, Math.max(800, accuracy * 6));
+    viewer.camera.flyTo({ destination: Cz.Cartesian3.fromDegrees(lon, lat, h), orientation: { heading: 0, pitch: toRad(-90), roll: 0 }, duration: 2 });
+}
+// Fallback when the browser gives no position: approximate place from the internet connection (city level)
+async function approxMe(reason) {
+    const j = await tryJson('https://ipapi.co/json/', 10000);
+    if (Number.isFinite(j?.latitude) && Number.isFinite(j?.longitude)) { toast(tr('toast.geoApprox', { why: reason, place: j.city || '' })); showMe(j.latitude, j.longitude, 3000); }
+    else toast(reason);
+}
 export function flyToMe() {
-    if (!navigator.geolocation) { toast(tr('toast.geoFail')); return; }
-    navigator.geolocation.getCurrentPosition(p => {
-        const { latitude: lat, longitude: lon, accuracy } = p.coords;
-        meDot ??= viewer.scene.primitives.add(new Cz.PointPrimitiveCollection()).add({ pixelSize: 12, color: Cz.Color.fromCssColorString('#2f8bff'), outlineColor: Cz.Color.WHITE, outlineWidth: 3, disableDepthTestDistance: Number.POSITIVE_INFINITY });
-        meDot.position = Cz.Cartesian3.fromDegrees(lon, lat, 2);
-        // Closer when the fix is precise (GPS), wider for a network estimate
-        const h = Math.min(20000, Math.max(800, accuracy * 6));
-        viewer.camera.flyTo({ destination: Cz.Cartesian3.fromDegrees(lon, lat, h), orientation: { heading: 0, pitch: toRad(-90), roll: 0 }, duration: 2 });
-    }, () => toast(tr('toast.geoFail')), { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+    if (!navigator.geolocation) { approxMe(tr('toast.geoNone')); return; }
+    navigator.geolocation.getCurrentPosition(p => showMe(p.coords.latitude, p.coords.longitude, p.coords.accuracy),
+        e => approxMe(tr(e.code === 1 ? 'toast.geoDenied' : e.code === 3 ? 'toast.geoTimeout' : 'toast.geoUnavailable')),
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
 }
 // "Zoom to": centre the selected object (or picked city/country/province/spot) in view, same camera height and direction
 export function zoomToSelection() {
