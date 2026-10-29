@@ -76,7 +76,7 @@ function loadSettings() {
     if (typeof S.regions !== 'boolean') S.regions = true;
     if (typeof S.cities !== 'boolean') S.cities = true;
     if (typeof S.timezones !== 'boolean') S.timezones = false;
-    if (typeof S.envOverlay !== 'string') S.envOverlay = '';
+    if (typeof S.envOverlay !== 'string' || (S.envOverlay && S.envOverlay !== 'nh3' && !ENV_LAYERS[S.envOverlay])) S.envOverlay = '';
     if (typeof S.envClick !== 'boolean') S.envClick = true;
     S.lang = pickLang(S.lang);
     if (!Array.isArray(S.radioFav)) S.radioFav = [];
@@ -161,26 +161,84 @@ function setImagery(name) {
 const ENV_LAYERS = {
     lstDay: ['MODIS_Terra_L3_Land_Surface_Temp_8Day_Day', 7], lstNight: ['MODIS_Terra_L3_Land_Surface_Temp_8Day_Night', 7],
     sst: ['GHRSST_L4_MUR_Sea_Surface_Temperature', 7], sstAnom: ['GHRSST_L4_MUR_Sea_Surface_Temperature_Anomalies', 7],
-    no2: ['TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column', 6], so2: ['TROPOMI_L2_Sulfur_Dioxide_Total_Vertical_Column', 6],
+    // TROPOMI: the latest day is still incomplete, so show the day before yesterday (3rd value = days back)
+    no2: ['TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column', 6, 2, '#ffee8c', 0.15],
+    // SO2: MERRA-2 monthly model field (gap-free); 4th value = palette colour made transparent (clean air)
+    so2: ['MERRA2_SO2_Column_Mass_Density_Monthly', 6, 0, '#fff7bc'],
     aod: ['MODIS_Combined_MAIAC_L2G_AerosolOpticalDepth', 7], rain: ['IMERG_Precipitation_Rate', 6],
     ndvi: ['MODIS_Terra_NDVI_8Day', 9], snow: ['MODIS_Terra_NDSI_Snow_Cover', 8]
 };
-let envLayer = null;
+let envLayer = null, envGen = 0;
+// Ammonia (NH3, µg/m³): colour stops, low values transparent
+const NH3_STOPS = [[2, [255, 255, 80, 0]], [4, [255, 225, 77, 150]], [8, [255, 176, 32, 185]], [15, [255, 90, 26, 210]], [25, [200, 16, 46, 225]], [40, [125, 33, 129, 235]]];
+function nh3Rgba(v) {
+    if (v == null || v <= NH3_STOPS[0][0]) return [0, 0, 0, 0];
+    for (let i = 1; i < NH3_STOPS.length; i++) {
+        const [v1, c1] = NH3_STOPS[i];
+        if (v <= v1) { const [v0, c0] = NH3_STOPS[i - 1], f = (v - v0) / (v1 - v0); return c0.map((c, k) => Math.round(c + (c1[k] - c) * f)); }
+    }
+    return NH3_STOPS.at(-1)[1];
+}
+// NH3 grid (fetcher nh3.json) → smooth translucent image over the Netherlands
+async function addNh3Layer(gen) {
+    const d = await tryJson(`${FEED_URL}/nh3.json?b=${Math.floor(Date.now() / 600000)}`, 20000);
+    if (!d?.v || gen !== envGen) { if (!d?.v) toast(tr('err.noData')); return; }
+    const small = document.createElement('canvas'); small.width = d.nx; small.height = d.ny;
+    const g = small.getContext('2d'), img = g.createImageData(d.nx, d.ny);
+    for (let y = 0; y < d.ny; y++) for (let x = 0; x < d.nx; x++) {
+        const c = nh3Rgba(d.v[y * d.nx + x]), o = ((d.ny - 1 - y) * d.nx + x) * 4; // rows from south → canvas from north
+        img.data.set(c, o);
+    }
+    g.putImageData(img, 0, 0);
+    const big = document.createElement('canvas'); big.width = d.nx * 16; big.height = d.ny * 16;
+    const bg = big.getContext('2d'); bg.imageSmoothingEnabled = true; bg.imageSmoothingQuality = 'high';
+    bg.drawImage(small, 0, 0, big.width, big.height);
+    const h = d.step / 2, rect = Cz.Rectangle.fromDegrees(d.w - h, d.s - h, d.w + (d.nx - 1) * d.step + h, d.s + (d.ny - 1) * d.step + h);
+    const provider = await Cz.SingleTileImageryProvider.fromUrl(big.toDataURL(), { rectangle: rect, credit: 'Open-Meteo / CAMS Europe' });
+    if (gen !== envGen) return;
+    envLayer = viewer.imageryLayers.addImageryProvider(provider);
+}
+// Own legend for NH3 (colour bar as data URL)
+function nh3LegendUrl() {
+    const c = document.createElement('canvas'); c.width = 420; c.height = 46;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    for (let x = 0; x < 400; x++) { const [r, gg, b, a] = nh3Rgba(x / 400 * 45); g.fillStyle = `rgba(${r},${gg},${b},${a / 255})`; g.fillRect(10 + x, 6, 1, 16); }
+    g.strokeStyle = '#999'; g.strokeRect(10, 6, 400, 16);
+    g.fillStyle = '#222'; g.font = '11px sans-serif'; g.textAlign = 'center';
+    for (const v of [0, 5, 10, 20, 30, 45]) g.fillText(String(v), 10 + v / 45 * 400, 36);
+    g.textAlign = 'right'; g.fillText('NH₃ µg/m³', 410, 45);
+    return c.toDataURL();
+}
 function addEnvLayer() {
     envLayer = null;
+    const gen = ++envGen;
+    if (S.envOverlay === 'nh3') { addNh3Layer(gen); return; }
     const e = ENV_LAYERS[S.envOverlay];
     if (!e) return;
+    const time = e[2] ? new Date(Date.now() - e[2] * 86400000).toISOString().slice(0, 10) : 'default';
     envLayer = viewer.imageryLayers.addImageryProvider(new Cz.UrlTemplateImageryProvider({
-        url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${e[0]}/default/default/GoogleMapsCompatible_Level${e[1]}/{z}/{y}/{x}.png`,
+        url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${e[0]}/default/${time}/GoogleMapsCompatible_Level${e[1]}/{z}/{y}/{x}.png`,
         maximumLevel: e[1], credit: 'NASA GIBS'
     }));
     envLayer.alpha = 0.75;
+    // Lowest (clean) values transparent, so only real concentrations show
+    if (e[3]) { envLayer.colorToAlpha = Cz.Color.fromCssColorString(e[3]); envLayer.colorToAlphaThreshold = e[4] ?? 0.12; }
 }
+// Legend image (colour bar with units) from NASA GIBS, named after the palette (from Worldview's config)
+const ENV_PALETTE = {
+    lstDay: 'MODIS_Land_Surface_Temp', lstNight: 'MODIS_Land_Surface_Temp', sst: 'GHRSST_Sea_Surface_Temperature',
+    sstAnom: 'GHRSST_Sea_Surface_Temperature_Anomalies', no2: 'OMI_Nitrogen_Dioxide_Tropo_Column', so2: 'MERRA2_SO2_Column_Mass_Density_Monthly',
+    aod: 'MODIS_VIIRS_AOD', rain: 'GPM_Precipitation_Rate', ndvi: 'MODIS_NDVI', snow: 'MODIS_NDSI_Snow_Cover'
+};
+const envLegend = () => S.envOverlay === 'nh3' ? nh3LegendUrl() : ENV_PALETTE[S.envOverlay] ? `https://gibs.earthdata.nasa.gov/legends/${ENV_PALETTE[S.envOverlay]}_H.png` : '';
 export function setEnvOverlay(name) {
-    S.envOverlay = ENV_LAYERS[name] ? name : ''; saveSettings();
+    S.envOverlay = ENV_LAYERS[name] || name === 'nh3' ? name : ''; saveSettings();
     if (envLayer) viewer.imageryLayers.remove(envLayer);
     addEnvLayer();
+    return envLegend();
 }
+export const getEnvLegend = () => envLegend();
 export function setEnvClick(on) { S.envClick = !!on; saveSettings(); }
 // City lights, only visible on the night side
 function addNightLayer() {
@@ -869,7 +927,7 @@ async function selectSpot(lat, lon) {
     const info = { layer: 'spot', key: pos, title: pos, fields: [[tr('f.position'), pos]], image: null, video: null, canCockpit: false, isRadio: false, summary: tr('v.loading'), link: null };
     notify('OnSelect', JSON.stringify(info));
     const [aq, wx, place] = await Promise.all([
-        tryJson(`https://air-quality-api.open-meteo.com/v1/air-quality?${q}&current=european_aqi,pm10,pm2_5,nitrogen_dioxide,ozone,uv_index`, 15000),
+        tryJson(`https://air-quality-api.open-meteo.com/v1/air-quality?${q}&current=european_aqi,pm10,pm2_5,nitrogen_dioxide,ozone,ammonia,uv_index`, 15000),
         tryJson(`https://api.open-meteo.com/v1/forecast?${q}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code,cloud_cover,precipitation`, 15000),
         tryJson(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&${q.replace('latitude', 'lat').replace('longitude', 'lon')}&accept-language=${S.lang}`, 15000)]);
     if (cityPick !== spot) return;
@@ -882,7 +940,7 @@ async function selectSpot(lat, lon) {
     }
     if (a) {
         if (a.european_aqi != null) f.push([tr('f.airQuality'), `${a.european_aqi} · ${tr('aqi.' + aqiBand(a.european_aqi))}`]);
-        for (const [k, key] of [['pm2_5', 'f.pm25'], ['pm10', 'f.pm10'], ['nitrogen_dioxide', 'f.no2'], ['ozone', 'f.o3']]) if (a[k] != null) f.push([tr(key), num(a[k]) + u]);
+        for (const [k, key] of [['pm2_5', 'f.pm25'], ['pm10', 'f.pm10'], ['nitrogen_dioxide', 'f.no2'], ['ammonia', 'f.nh3'], ['ozone', 'f.o3']]) if (a[k] != null) f.push([tr(key), num(a[k]) + u]);
         if (a.uv_index != null) f.push([tr('f.uv'), num(a.uv_index)]);
     }
     f.push([tr('f.position'), pos]);

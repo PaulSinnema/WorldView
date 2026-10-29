@@ -8,9 +8,10 @@ import { startNsApi } from './nsapi.js';
 import { loadOvRoutes, fetchOv } from './ov.js';
 import { fetchCameras } from './cameras.js';
 import { fetchSensorCommunity, fetchOpenAq } from './air.js';
+import { fetchNh3 } from './nh3.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.5.0';
+const VERSION = '1.6.1';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -84,12 +85,13 @@ async function refreshCameras() {
 
 // Air quality: Sensor.Community every 5 min, OpenAQ every 30 min (rate limits)
 let lastAir = 0, lastOaq = 0, oaqRows = [];
+const oaqKey = env.OPENAQ_API_KEY || env.OPENAQ_KEY; // both names accepted
 async function refreshAir() {
     if (Date.now() - lastAir < 5 * 60000) return;
     lastAir = Date.now();
-    if (env.OPENAQ_API_KEY && Date.now() - lastOaq >= 30 * 60000) {
+    if (oaqKey && Date.now() - lastOaq >= 30 * 60000) {
         lastOaq = Date.now();
-        try { oaqRows = await fetchOpenAq(env.OPENAQ_API_KEY); } catch (e) { log(`openaq: ${e.message}`); }
+        try { oaqRows = await fetchOpenAq(oaqKey); } catch (e) { log(`openaq: ${e.message}`); }
     }
     try {
         const sc = await fetchSensorCommunity();
@@ -98,11 +100,23 @@ async function refreshAir() {
     } catch (e) { log(`air: ${e.message}`); }
 }
 
+// Ammonia grid Europe every 8 hours; runs in the background (≈ 6 min, throttled) so the other feeds keep going
+let lastNh3 = 0, nh3Busy = false;
+function refreshNh3() {
+    if (nh3Busy || Date.now() - lastNh3 < 8 * 3600000) return;
+    lastNh3 = Date.now(); nh3Busy = true;
+    fetchNh3()
+        .then(async d => { await put('nh3.json', d); log(`nh3: ${d.v.filter(x => x != null).length}`); })
+        .catch(e => { lastNh3 -= 7 * 3600000; log(`nh3: ${e.message}`); }) // retry in an hour
+        .finally(() => { nh3Busy = false; });
+}
+
 async function run() {
     await refreshDb();
     await refreshOvRoutes();
     await refreshCameras();
     await refreshAir();
+    refreshNh3();
     if (Date.now() - lastOpensky >= interval) {
         lastOpensky = Date.now(); // also on failure: respect credit budget
         try {

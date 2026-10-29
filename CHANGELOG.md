@@ -2,6 +2,53 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.65] - 2026-10-29
+
+### Changed
+- Ammonia map covers all of Europe (CAMS Europe domain, 1° grid, 2,940 points), refreshed every 8 hours in the background with throttled requests (fetcher 1.6.1).
+
+## [1.0.64] - 2026-10-29
+
+### Added
+- Ammonia (NH₃): in air & weather on click (Europe), and an **Ammonia (NH₃, Netherlands)** map in the Environment list: 588-point CAMS Europe grid via Open-Meteo, refreshed every 2 hours by the fetcher (1.6.0, `nh3.json`), smooth colours with legend; low values transparent.
+
+## [1.0.63] - 2026-10-29
+
+### Fixed
+- Environment legends missing for most layers: legend images are named after the GIBS palette, not the layer.
+
+## [1.0.62] - 2026-10-29
+
+### Changed
+- NO₂: clean-air values are transparent, like SO₂.
+
+## [1.0.61] - 2026-10-29
+
+### Changed
+- NO₂ satellite layer restored (removed by mistake in 1.0.60), now with legend.
+
+## [1.0.60] - 2026-10-29
+
+### Added
+- Environment: colour legend with units (NASA GIBS) under the satellite layer choice.
+
+### Changed
+- SO₂: clean-air values are transparent, only real concentrations are coloured.
+
+### Removed
+- NO₂ satellite layer (daily swaths with gaps and noise; NO₂ stays available via air & weather on click).
+
+## [1.0.59] - 2026-10-29
+
+### Fixed
+- SO₂ overlay: striped TROPOMI swath artefacts replaced by the gap-free MERRA-2 monthly SO₂ field.
+
+## [1.0.58] - 2026-10-29
+
+### Fixed
+- NO₂ and SO₂ overlays were empty: the latest TROPOMI day is still incomplete, now showing the day before yesterday.
+- Fetcher 1.5.1: also accepts `OPENAQ_KEY` as the OpenAQ key name.
+
 ## [1.0.57] - 2026-10-29
 
 ### Added

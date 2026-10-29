@@ -134,6 +134,11 @@ else if (error is not null)
             <option value="@e">@T("env." + e)</option>
         }
     </select>
+    @if (!string.IsNullOrEmpty(envLegend))
+    {
+        @* Colour bar with units (NASA GIBS) *@
+        <img class="env-legend" src="@envLegend" alt="@T("env.legend")" />
+    }
     <div class="toggles" style="margin-top:4px">
         <button class="@(envClick ? "active" : "")" @onclick="ToggleEnvClick">@T("env.click")</button>
     </div>
@@ -382,7 +387,8 @@ else if (error is not null)
     private int nightLight = 60;
     private bool borders, regions = true, cities = true, timezones, envClick = true;
     private string envOverlay = "";
-    private static readonly string[] EnvLayers = ["lstDay", "lstNight", "sst", "sstAnom", "no2", "so2", "aod", "rain", "ndvi", "snow"];
+    private static readonly string[] EnvLayers = ["lstDay", "lstNight", "sst", "sstAnom", "no2", "so2", "nh3", "aod", "rain", "ndvi", "snow"];
+    private string envLegend = "";
     private readonly Dictionary<string, bool> zoomOn = new();
     private bool hud = true, dayNight = true, detect, cockpit, panelToggled, listening, loading = true;
     private string? error, toast;
@@ -442,6 +448,7 @@ else if (error is not null)
                 cities = st.Cities;
                 timezones = st.Timezones;
                 envOverlay = st.EnvOverlay;
+                envLegend = await module.InvokeAsync<string>("getEnvLegend");
                 envClick = st.EnvClick;
                 foreach (var (k, v) in st.Zoom) zoomOn[k] = v;
                 gpu = st.Gpu;
@@ -540,7 +547,7 @@ else if (error is not null)
     private async Task OnEnvOverlayChange(ChangeEventArgs e)
     {
         envOverlay = e.Value?.ToString() ?? "";
-        if (module is not null) await module.InvokeVoidAsync("setEnvOverlay", envOverlay);
+        if (module is not null) envLegend = await module.InvokeAsync<string>("setEnvOverlay", envOverlay);
     }
 
     private async Task ToggleEnvClick()
