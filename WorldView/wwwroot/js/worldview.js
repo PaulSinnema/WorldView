@@ -304,19 +304,44 @@ export async function init(containerId, ref) {
         coll[l] = scene.primitives.add(BILLBOARD_LAYERS.includes(l) ? new Cz.BillboardCollection() : new Cz.PointPrimitiveCollection());
         coll[l].show = S.layers[l];
     }
-    telLabels = scene.primitives.add(new Cz.LabelCollection());
+    telLabels = new Cz.LabelCollection(); // drawn by drawLabels(), not by Cesium
     telOrbits = scene.primitives.add(new Cz.PolylineCollection());
     telLabels.show = telOrbits.show = S.layers.telescopes;
     // L2 lies at ~1.5 million km: extend the far plane
     viewer.camera.frustum.far = 1e10;
 
+    // Map labels: crisp native text on a 2D canvas above the globe (see drawLabels)
+    labelCanvas = document.createElement('canvas');
+    labelCanvas.className = 'labels';
+    document.body.appendChild(labelCanvas);
+    labelCtx = labelCanvas.getContext('2d');
     detectCanvas = document.createElement('canvas');
     detectCanvas.className = 'detect';
     document.body.appendChild(detectCanvas);
     detectCtx = detectCanvas.getContext('2d');
 
     const handler = new Cz.ScreenSpaceEventHandler(scene.canvas);
+    // Hand cursor over clickable things (objects, cities, countries, provinces); throttled picking
+    let hoverPos = null, hoverQueued = false;
     handler.setInputAction(e => {
+        hoverPos = e.endPosition;
+        if (hoverQueued) return;
+        hoverQueued = true;
+        setTimeout(() => {
+            hoverQueued = false;
+            if (!hoverPos) return;
+            const { x, y } = hoverPos;
+            let on = labelHits.some(([hx, hy, w, h]) => x >= hx && x <= hx + w && y >= hy && y <= hy + h);
+            if (!on) { const id = scene.pick(hoverPos)?.id; on = !!(id?.wv || id?.city || id?.country || id?.region); }
+            scene.canvas.style.cursor = on ? 'pointer' : '';
+        }, 80);
+    }, Cz.ScreenSpaceEventType.MOUSE_MOVE);
+    handler.setInputAction(e => {
+        // Labels live on the 2D canvas: hit-test them first (cities, countries)
+        const hit = labelHits.findLast(([x, y, w, h]) => e.position.x >= x && e.position.x <= x + w && e.position.y >= y && e.position.y <= y + h)?.[4];
+        if (hit?.city) { selectCity(hit.city); return; }
+        if (hit?.country) { selectCountry(hit.country); return; }
+        if (hit?.region) { selectRegion(hit.region); return; }
         const p = scene.pick(e.position);
         if (p?.id?.wv) select(p.id.wv.layer, p.id.wv.key, true);
         else if (p?.id?.city) selectCity(p.id.city);
@@ -709,7 +734,7 @@ function loadBorders() {
             });
         }
         borderLines = viewer.scene.primitives.add(pl);
-        countryLabels = viewer.scene.primitives.add(lc);
+        countryLabels = lc; // drawn by drawLabels()
     })();
     return bordersLoading;
 }
@@ -762,7 +787,7 @@ export async function setTimezones(on, fromEngine = false) {
             tzFill = viewer.scene.primitives.add(tzFillPrimitive(d));
             // Long straight edges (meridians/parallels): densify every 0.25° to follow the curvature
             tzLines = viewer.scene.primitives.add(linePrimitive(d, Cz.Color.fromCssColorString(TZ_COLOR).withAlpha(0.55), 1.2, 0.25));
-            tzLabels = viewer.scene.primitives.add(new Cz.LabelCollection());
+            tzLabels = new Cz.LabelCollection(); // drawn by drawLabels()
             const color = Cz.Color.fromCssColorString(TZ_COLOR);
             for (const [, lon, lat] of tzZones)
                 tzLabels.add({ position: Cz.Cartesian3.fromDegrees(lon, lat, 300), text: '', ...labelStyle(13, color),
@@ -857,7 +882,7 @@ function loadRegions() {
             if (seen.has(k)) return false;
             seen.add(k); return true;
         }).map(([name, lon, lat, rank]) => ({ name, lon, lat, rank, carto: Cz.Cartographic.fromDegrees(lon, lat) }));
-        regionLabels = viewer.scene.primitives.add(new Cz.LabelCollection());
+        regionLabels = new Cz.LabelCollection(); // drawn by drawLabels()
     })();
     return regionsLoading;
 }
@@ -914,6 +939,25 @@ async function selectCountry(p) {
     Object.assign(info, wiki ? { summary: wiki.extract, image: wiki.thumb, link: wiki.url } : { summary: null });
     notify('OnSelect', JSON.stringify(info));
 }
+// Province/state info: OSM boundary at the label point (Nominatim, with Wikidata id) → Wikipedia
+async function selectRegion(r) {
+    clearSelection(false);
+    cityPick = r; // same lifecycle as a picked city
+    const info = { layer: 'region', key: r.name, title: r.name, fields: [[tr('f.position'), fmtPos(r.lat, r.lon)]], image: null, video: null, canCockpit: false, isRadio: false, summary: tr('v.wikiLoading'), link: null };
+    notify('OnSelect', JSON.stringify(info));
+    const n = await tryJson(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=5&extratags=1&lat=${r.lat}&lon=${r.lon}&accept-language=${S.lang}`, 15000);
+    if (cityPick !== r) return;
+    const f = [], a = n?.address || {};
+    if (a.country) f.push([tr('f.country'), a.country]);
+    if (n?.extratags?.population) f.push([tr('f.population'), Number(n.extratags.population).toLocaleString(loc())]);
+    f.push([tr('f.position'), fmtPos(r.lat, r.lon)]);
+    const title = n?.name || r.name;
+    const wiki = n?.extratags?.wikidata ? await wikidataWiki(n.extratags.wikidata) : null;
+    if (cityPick !== r) return;
+    Object.assign(info, { title, fields: f, summary: wiki?.extract ?? null, image: wiki?.thumb ?? null, link: wiki?.url ?? null });
+    notify('OnSelect', JSON.stringify(info));
+}
+
 // Clicked spot: air quality + weather (Open-Meteo) and place name (Nominatim)
 const aqiBand = v => v == null ? 0 : v <= 20 ? 1 : v <= 40 ? 2 : v <= 60 ? 3 : v <= 80 ? 4 : v <= 100 ? 5 : 6;
 const wxKey = c => c === 0 ? 'clear' : c <= 3 ? 'cloudy' : c <= 48 ? 'fog' : c <= 57 ? 'drizzle' : c <= 67 ? 'rain' : c <= 77 ? 'snow' : c <= 82 ? 'showers' : c <= 86 ? 'snow' : 'thunder';
@@ -968,6 +1012,56 @@ async function loadAir() {
     return 300000;
 }
 
+// Info under an enlarged image: description, author, licence and source page
+const stripHtml = s => (typeof s === 'string' ? s : '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+// Non-Latin scripts (Cyrillic, Greek, Arabic, Hebrew, Indic, Thai, CJK, Korean)
+const FOREIGN_SCRIPT = /[Ͱ-ϿЀ-ӿ֐-ۿऀ-෿฀-๿぀-ヿ一-鿿가-힯]/;
+// Description in the UI language, else English, else machine-translated (MyMemory, keyless)
+async function imageDesc(v) {
+    let s = '', src = 'autodetect';
+    if (v && typeof v === 'object') {
+        s = stripHtml(v[S.lang] ?? v.en ?? '');
+        if (!s) { const k = Object.keys(v).find(k => k !== '_type'); if (k) { s = stripHtml(v[k]); src = k; } }
+        else return s.slice(0, 300);
+    } else {
+        s = stripHtml(v);
+        if (S.lang === 'zh' || !FOREIGN_SCRIPT.test(s)) return s.slice(0, 300);
+    }
+    if (!s) return '';
+    s = s.slice(0, 300);
+    const target = S.lang === 'zh' ? 'zh-CN' : S.lang;
+    const j = await tryJson(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(s)}&langpair=${encodeURIComponent(`${src}|${target}`)}`, 10000);
+    const t = j?.responseStatus === 200 ? stripHtml(j.responseData?.translatedText) : '';
+    return t ? `${t} (${tr('v.machineTranslated')})` : s;
+}
+export async function imageInfo(url, layer, key) {
+    const out = { desc: '', credit: '', license: '', page: '' };
+    try {
+        if (layer === 'cameras') {
+            const r = store.cameras.get(key);
+            const op = r?.info?.find(([k]) => k === 'operator')?.[1];
+            Object.assign(out, { desc: tr('v.liveCam'), credit: typeof op === 'function' ? op() : op || '' });
+        } else if (/(upload|thumb)\.wikimedia\.org/.test(url)) {
+            // .../commons/thumb/a/ab/Name.jpg/1280px-Name.jpg or .../commons/a/ab/Name.jpg (also /wikipedia/<lang>/)
+            const parts = new URL(url).pathname.split('/'), ti = parts.indexOf('thumb');
+            const file = decodeURIComponent(ti >= 0 ? parts[ti + 3] : parts.at(-1));
+            const wiki = parts[1] === 'wikipedia' && parts[2] !== 'commons' ? `${parts[2]}.wikipedia.org` : 'commons.wikimedia.org';
+            const j = await tryJson(`https://${wiki}/w/api.php?action=query&titles=File:${encodeURIComponent(file)}&prop=imageinfo&iiprop=extmetadata|url&iiextmetadatafilter=ImageDescription|Artist|LicenseShortName|DateTimeOriginal&iiextmetadatamultilang=1&iiextmetadatalanguage=${S.lang}&format=json&origin=*`, 15000);
+            const ii = Object.values(j?.query?.pages || {})[0]?.imageinfo?.[0], m = ii?.extmetadata || {};
+            Object.assign(out, {
+                desc: await imageDesc(m.ImageDescription?.value),
+                credit: stripHtml(m.Artist?.value).replace(/^(.+?)\s+\1$/, '$1'), license: stripHtml(m.LicenseShortName?.value), // "X X" → "X"
+                page: ii?.descriptionurl || ''
+            });
+            const date = stripHtml(m.DateTimeOriginal?.value).match(/^\d{4}(-\d{2}(-\d{2})?)?/)?.[0]; // only a real date
+            if (date) out.desc = [out.desc, date].filter(Boolean).join(' · ');
+        } else if (/ns-mlab\.nl/.test(url)) {
+            Object.assign(out, { desc: tr('v.trainType'), credit: 'NS' });
+        }
+    } catch { }
+    return JSON.stringify(out);
+}
+
 // Wikidata item → Wikipedia summary in the UI language, else English
 async function wikidataWiki(qid) {
     const w = await tryJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${encodeURIComponent(qid)}&props=sitelinks&sitefilter=${S.lang}wiki|enwiki&format=json&origin=*`, 15000);
@@ -1003,7 +1097,7 @@ function loadCities() {
         cityAdmins = j.admins || []; cityTzs = j.tzs || [];
         cityData = j.top.map(toCity);
         cityDots = viewer.scene.primitives.add(new Cz.PointPrimitiveCollection());
-        cityLabels = viewer.scene.primitives.add(new Cz.LabelCollection());
+        cityLabels = new Cz.LabelCollection(); // drawn by drawLabels()
     })();
     return citiesLoading;
 }
@@ -1058,7 +1152,7 @@ function refreshOverlayLabels() {
         // Diff instead of rebuild: unchanged labels stay on screen (no blink)
         for (const [r, lb] of regionShown) if (!want.has(r)) { regionLabels.remove(lb); regionShown.delete(r); }
         for (const r of want) if (!regionShown.has(r)) regionShown.set(r, regionLabels.add({
-            position: Cz.Cartesian3.fromDegrees(r.lon, r.lat, 150), text: r.name, ...labelStyle(12, REGION_COLOR),
+            id: { region: r }, position: Cz.Cartesian3.fromDegrees(r.lon, r.lat, 150), text: r.name, ...labelStyle(12, REGION_COLOR),
             horizontalOrigin: Cz.HorizontalOrigin.CENTER, verticalOrigin: Cz.VerticalOrigin.CENTER }));
     }
     if (cityLabels) {
@@ -1731,7 +1825,7 @@ export function setLang(lang) {
     relabelCountries();
     for (const l of LAYERS) if (lastStatus[l]) notify('OnLayerStatus', l, store[l].size, statusText(l));
     if (selected) pushInfo();
-    else if (cityPick) cityPick.spot ? selectSpot(cityPick.lat, cityPick.lon) : cityPick.LABEL_X != null ? selectCountry(cityPick) : selectCity(cityPick, false);
+    else if (cityPick) cityPick.spot ? selectSpot(cityPick.lat, cityPick.lon) : cityPick.LABEL_X != null ? selectCountry(cityPick) : cityPick.rank != null && cityPick.pop == null ? selectRegion(cityPick) : selectCity(cityPick, false);
     if (radioMeta.size) { runRadioSearch(); radioNow(); }
     return getStrings();
 }
@@ -1790,12 +1884,59 @@ function onPostRender() {
         const c = viewer.camera.positionCartographic;
         notify('OnCamera', toDeg(c.latitude), toDeg(c.longitude), c.height, (toDeg(viewer.camera.heading) + 360) % 360);
     }
+    try { drawLabels(); } catch (e) { console.warn('labels', e); }
     // Every frame: boxes stay glued to their targets while the globe moves
     if (S.detect) {
         lastDetect = now;
         // Never let the overlay break Cesium's render loop
         try { drawDetect(); } catch (e) { console.warn('detect', e); setDetect(false, true); toast(tr('toast.detectOff', { e: e?.message ?? e })); }
     }
+}
+// Map labels drawn as native 2D text (sharp at any pixel ratio); Cesium LabelCollections only hold the data
+let labelCanvas = null, labelCtx = null, labelHits = [];
+const scratchWin = new Cz.Cartesian2();
+const ALIGN = l => l.horizontalOrigin === Cz.HorizontalOrigin.CENTER ? 'center' : l.horizontalOrigin === Cz.HorizontalOrigin.RIGHT ? 'right' : 'left';
+const BASELINE = l => l.verticalOrigin === Cz.VerticalOrigin.CENTER ? 'middle' : l.verticalOrigin === Cz.VerticalOrigin.TOP ? 'top' : l.verticalOrigin === Cz.VerticalOrigin.BOTTOM ? 'bottom' : 'alphabetic';
+function drawLabels() {
+    const cv = labelCanvas, dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const ctx = labelCtx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.lineJoin = 'round'; ctx.miterLimit = 2;
+    const cam = viewer.camera.positionWC, occ = new Cz.EllipsoidalOccluder(Cz.Ellipsoid.WGS84, cam);
+    const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
+    const hits = [];
+    // Draw order: countries, provinces, time zones, cities, telescopes (later = on top)
+    for (const set of [countryLabels, regionLabels, tzLabels, cityLabels, telLabels]) {
+        if (!set || set.show === false) continue;
+        for (let i = 0; i < set.length; i++) {
+            const l = set.get(i), p = l.position;
+            if (!l.show || !l.text || !p) continue;
+            const d = Cz.Cartesian3.distance(cam, p), ddc = l.distanceDisplayCondition;
+            if (ddc && (d < ddc.near || d > ddc.far)) continue;
+            if (!occ.isPointVisible(p)) continue;
+            const s = toWin(viewer.scene, p, scratchWin);
+            if (!s || s.x < -300 || s.y < -50 || s.x > w + 300 || s.y > h + 50) continue;
+            let k = l.scale;
+            const sbd = l.scaleByDistance;
+            if (sbd) { const t = Math.min(1, Math.max(0, (d - sbd.near) / (sbd.far - sbd.near))); k *= sbd.nearValue + (sbd.farValue - sbd.nearValue) * t; }
+            const m = /(\d+(?:\.\d+)?)px/.exec(l.font), px = (m ? +m[1] : 16) * k;
+            ctx.font = l.font.replace(/(\d+(?:\.\d+)?)px/, `${px.toFixed(1)}px`);
+            ctx.textAlign = ALIGN(l); ctx.textBaseline = BASELINE(l);
+            const x = Math.round(s.x + l.pixelOffset.x), y = Math.round(s.y + l.pixelOffset.y);
+            if (l.style !== Cz.LabelStyle.FILL && l.outlineWidth > 0) {
+                ctx.lineWidth = Math.max(2, l.outlineWidth * k); ctx.strokeStyle = l.outlineColor.toCssColorString(); ctx.strokeText(l.text, x, y);
+            }
+            ctx.fillStyle = l.fillColor.toCssColorString(); ctx.fillText(l.text, x, y);
+            if (l.id) {
+                const tw = ctx.measureText(l.text).width, x0 = ctx.textAlign === 'left' ? x : ctx.textAlign === 'right' ? x - tw : x - tw / 2;
+                const y0 = ctx.textBaseline === 'middle' ? y - px / 2 : ctx.textBaseline === 'top' ? y : y - px;
+                hits.push([x0 - 3, y0 - 3, tw + 6, px + 6, l.id]);
+            }
+        }
+    }
+    labelHits = hits;
 }
 function drawDetect() {
     const cv = detectCanvas, dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;

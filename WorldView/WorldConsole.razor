@@ -276,6 +276,18 @@ else if (error is not null)
             <span class="lb-cap">@selection.Title · @T("info.zoomHint")</span>
             <button title="@T("info.close")" @onclick="ToggleEnlarge">✕</button>
         </div>
+        @if (imgInfo is not null && (imgInfo.Desc + imgInfo.Credit + imgInfo.License + imgInfo.Page).Length > 0)
+        {
+            @* Image details: description, author, licence, source page *@
+            <div class="lb-info" @onclick:stopPropagation="true">
+                @if (!string.IsNullOrEmpty(imgInfo.Desc)) { <div>@imgInfo.Desc</div> }
+                <div class="lb-credit">
+                    @if (!string.IsNullOrEmpty(imgInfo.Credit)) { <span>© @imgInfo.Credit</span> }
+                    @if (!string.IsNullOrEmpty(imgInfo.License)) { <span>@imgInfo.License</span> }
+                    @if (!string.IsNullOrEmpty(imgInfo.Page)) { <a href="@imgInfo.Page" target="_blank" rel="noopener">@T("info.source") ↗</a> }
+                </div>
+            </div>
+        }
     </div>
 }
 
@@ -407,7 +419,25 @@ else if (error is not null)
     private bool enlarged;
     private bool HasMedia => !string.IsNullOrEmpty(selection?.Video) || !string.IsNullOrEmpty(selection?.Image);
 
-    private void ToggleEnlarge() => enlarged = !enlarged;
+    private ImageInfo? imgInfo;
+
+    private async Task ToggleEnlarge()
+    {
+        enlarged = !enlarged;
+        imgInfo = null;
+        if (!enlarged || selection is null || module is null || !string.IsNullOrEmpty(selection.Video) || string.IsNullOrEmpty(selection.Image)) return;
+        var sel = selection;
+        var info = JsonSerializer.Deserialize<ImageInfo>(await module.InvokeAsync<string>("imageInfo", sel.Image, sel.Layer, sel.Key), JsonOpts);
+        if (enlarged && selection == sel) imgInfo = info;
+    }
+
+    private sealed class ImageInfo
+    {
+        public string Desc { get; set; } = "";
+        public string Credit { get; set; } = "";
+        public string License { get; set; } = "";
+        public string Page { get; set; } = "";
+    }
 
     private static string GetVersion()
     {

@@ -2,6 +2,41 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.72] - 2026-10-29
+
+### Changed
+- Image descriptions that only exist in another language are machine-translated into the UI language (MyMemory) and marked as such, instead of being left out.
+
+## [1.0.71] - 2026-10-29
+
+### Fixed
+- Image descriptions only in the UI language or English; a description that exists only in another script (e.g. Russian) is left out. Doubled author names cleaned up.
+
+## [1.0.70] - 2026-10-29
+
+### Fixed
+- Image details missing for most Wikipedia images: Wikimedia now serves images from `thumb.wikimedia.org` as well as `upload.wikimedia.org`.
+
+## [1.0.69] - 2026-10-29
+
+### Added
+- Enlarged images show details underneath: description, date, author, licence and a link to the source (Wikimedia Commons); camera images show the operator, NS images the source.
+
+## [1.0.68] - 2026-10-29
+
+### Added
+- Hand cursor over everything clickable on the globe (objects, cities, countries, provinces/states).
+
+## [1.0.67] - 2026-10-29
+
+### Added
+- Province/state info: clicking a province or state name shows country, population and the Wikipedia summary and image (via the OSM boundary and its Wikidata id).
+
+## [1.0.66] - 2026-10-29
+
+### Changed
+- Sharp map labels: country, province, city, time zone and telescope names are drawn as native text on a 2D overlay (pixel-aligned, any screen resolution) instead of Cesium texture labels; clicking country and city names still works.
+
 ## [1.0.65] - 2026-10-29
 
 ### Changed
