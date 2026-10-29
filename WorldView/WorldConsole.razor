@@ -418,7 +418,8 @@ else if (error is not null)
         new("fires", "#ff7a1a"),
         new("launches", "#c080ff"),
         new("radio", "#ff4fd8"),
-        new("cameras", "#ff3b3b")
+        new("cameras", "#ff3b3b"),
+        new("plants", "#ffd23f")
     ];
     private static readonly string[] Styles = ["normal", "crt", "nvg", "flir", "ironbow", "noir", "snow"];
 
@@ -431,7 +432,7 @@ else if (error is not null)
     private int nightLight = 60;
     private bool borders, regions = true, cities = true, coast, eez, nature, streets, timezones, envClick = true;
     private string envOverlay = "";
-    private static readonly string[] EnvLayers = ["lstDay", "lstNight", "sst", "sstAnom", "seaIce", "no2", "so2", "nh3", "ozoneCams", "ozone", "aod", "rain", "ndvi", "snow"];
+    private static readonly string[] EnvLayers = ["tempAnom", "lstDay", "lstNight", "sst", "sstAnom", "coral", "seaIce", "no2", "so2", "nh3", "co2", "ch4", "power", "ozoneCams", "ozone", "aod", "rain", "ndvi", "snow"];
     private string envLegend = "";
     private string? knmiImg;
     // KNMI/TEMIS ozone analysis for today (GOME-2 METOP-C); hourly cache key

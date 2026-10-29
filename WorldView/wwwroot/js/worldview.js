@@ -1,7 +1,7 @@
 ﻿// WorldView globe engine: CesiumJS + keyless public feeds
 const Cz = window.Cesium;
 const SETTINGS_KEY = 'wv-settings';
-const LAYERS = ['flights', 'military', 'trains', 'ov', 'air', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras'];
+const LAYERS = ['flights', 'military', 'trains', 'ov', 'air', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras', 'plants'];
 const ORBITERS = ['satellites', 'telescopes'];
 const TEL_COLOR = '#00e5ff';
 // Earth-orbiting space telescopes (NORAD id, name)
@@ -21,7 +21,7 @@ const TRAIN_COLOR = '#9dff3a', OV_COLOR = '#ffd23f';
 const OV_ICONS = { bus: ['bus', OV_COLOR], tram: ['tram', '#ff6b5a'], metro: ['metro', '#4da6ff'], ferry: ['ferry', '#5af0ff'] };
 const FT = 0.3048, R_EARTH = 6371000;
 const FEED_URL = 'https://flights.sinnema.ch'; // netcup VPS, see fetcher/README.md
-const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, air: '#50f0e6', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff' };
+const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, air: '#50f0e6', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff', plants: '#ffd23f' };
 // Translations (same cache-busting version as this module)
 const { LANGS, LOCALES, pickLang, t, strings } = await import(`./i18n.js${new URL(import.meta.url).search}`);
 const tr = (key, params) => t(S.lang, key, params);
@@ -42,7 +42,7 @@ const CITIES = {
 let viewer = null, dotnet = null, sat = null;
 const S = { layers: {}, style: 'normal', basemap: 'esri', ionToken: '', hud: true, detect: false, daynight: true, nightLight: 60, borders: false, regions: true, cities: true, zoom: {}, cockpit: false };
 // Per layer: zoom/follow on click
-const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, ov: false, air: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false };
+const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, ov: false, air: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false, plants: false };
 const NIGHT_URL = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png';
 let nightLayer = null;
 // Night brightness 0..100 → city-lights blend 0.8..0.05 (60 ≈ 0.35)
@@ -82,7 +82,7 @@ function loadSettings() {
     if (typeof S.eez !== 'boolean') S.eez = false;
     if (typeof S.nature !== 'boolean') S.nature = false;
     if (typeof S.streets !== 'boolean') S.streets = false;
-    if (typeof S.envOverlay !== 'string' || (S.envOverlay && !GRID_LAYERS[S.envOverlay] && !ENV_LAYERS[S.envOverlay])) S.envOverlay = '';
+    if (typeof S.envOverlay !== 'string' || (S.envOverlay && !OWN_ENV.includes(S.envOverlay) && !GRID_LAYERS[S.envOverlay] && !ENV_LAYERS[S.envOverlay])) S.envOverlay = '';
     if (typeof S.envClick !== 'boolean') S.envClick = true;
     S.lang = pickLang(S.lang);
     if (!Array.isArray(S.radioFav)) S.radioFav = [];
@@ -215,11 +215,51 @@ function o3Rgba(v) {
     }
     return O3_STOPS.at(-1)[1];
 }
-// Fetcher grids → smooth translucent image: [file, colour fn, credit]
-const GRID_LAYERS = { nh3: ['nh3.json', nh3Rgba, 'Open-Meteo / CAMS Europe'], ozoneCams: ['ozone.json', o3Rgba, 'Copernicus CAMS (ECMWF)'] };
-async function addGridLayer(gen, [file, rgba, credit]) {
-    const d = await tryJson(`${FEED_URL}/${file}?b=${Math.floor(Date.now() / 600000)}`, 20000);
+// Relative scale for greenhouse gases (range = 2nd–98th percentile of today's field): blue → green → yellow → red
+const REL_STOPS = [[0, [40, 50, 170, 185]], [0.25, [30, 150, 230, 185]], [0.5, [60, 200, 120, 185]], [0.75, [250, 210, 40, 195]], [1, [220, 40, 40, 205]]];
+const relRgba = (lo, hi) => v => {
+    if (v == null) return [0, 0, 0, 0];
+    const f = Math.max(0, Math.min(1, (v - lo) / (hi - lo || 1)));
+    for (let i = 1; i < REL_STOPS.length; i++) {
+        const [f1, c1] = REL_STOPS[i];
+        if (f <= f1) { const [f0, c0] = REL_STOPS[i - 1], k = (f - f0) / (f1 - f0); return c0.map((c, j) => Math.round(c + (c1[j] - c) * k)); }
+    }
+    return REL_STOPS.at(-1)[1];
+};
+function pctRange(v) {
+    const s = v.filter(x => x != null).sort((a, b) => a - b);
+    return s.length ? [s[Math.floor(s.length * 0.02)], s[Math.floor(s.length * 0.98)]] : [0, 1];
+}
+// Temperature anomaly (°C ×10 in the file): blue colder, red warmer; near-normal fades out
+const ANOM_STOPS = [[-10, [5, 48, 97]], [-5, [67, 147, 195]], [-2, [146, 197, 222]], [0, [247, 247, 247]], [2, [244, 165, 130]], [5, [214, 96, 77]], [10, [103, 0, 31]]];
+function anomRgba(v10) {
+    if (v10 == null) return [0, 0, 0, 0];
+    const v = Math.max(-10, Math.min(10, v10 / 10)), a = Math.round(Math.min(1, 0.25 + Math.abs(v) / 4) * 200);
+    for (let i = 1; i < ANOM_STOPS.length; i++) {
+        const [v1, c1] = ANOM_STOPS[i];
+        if (v <= v1) { const [v0, c0] = ANOM_STOPS[i - 1], f = (v - v0) / (v1 - v0); return [...c0.map((c, k) => Math.round(c + (c1[k] - c) * f)), a]; }
+    }
+    return [...ANOM_STOPS.at(-1)[1], a];
+}
+// Fetcher grids → smooth translucent image: [file, colour fn (or factory for relative scales), credit, unit for relative legend]
+const GRID_LAYERS = {
+    tempAnom: ['tempanom.json', anomRgba, 'Copernicus ERA5 (ECMWF)'],
+    nh3: ['nh3.json', nh3Rgba, 'Open-Meteo / CAMS Europe'], ozoneCams: ['ozone.json', o3Rgba, 'Copernicus CAMS (ECMWF)'],
+    co2: ['co2.json', null, 'Copernicus CAMS (ECMWF)', 'XCO₂ ppm'], ch4: ['ch4.json', null, 'Copernicus CAMS (ECMWF)', 'XCH₄ ppb']
+};
+// Grid files cached for 10 minutes (layer + legend share one download)
+const gridCache = {};
+function loadGrid(file) {
+    const b = Math.floor(Date.now() / 600000), c = gridCache[file];
+    if (c?.b === b) return c.p;
+    const p = tryJson(`${FEED_URL}/${file}?b=${b}`, 20000);
+    gridCache[file] = { b, p };
+    return p;
+}
+async function addGridLayer(gen, [file, rgbaFn, credit]) {
+    const d = await loadGrid(file);
     if (!d?.v || gen !== envGen) { if (!d?.v) toast(tr('err.noData')); return; }
+    const rgba = rgbaFn || relRgba(...pctRange(d.v));
     const small = document.createElement('canvas'); small.width = d.nx; small.height = d.ny;
     const g = small.getContext('2d'), img = g.createImageData(d.nx, d.ny);
     for (let y = 0; y < d.ny; y++) for (let x = 0; x < d.nx; x++) {
@@ -244,15 +284,91 @@ function gridLegendUrl(rgba, max, ticks, unit, min = 0) {
     for (let x = 0; x < 400; x++) { const [r, gg, b, a] = rgba(min + x / 400 * (max - min)); g.fillStyle = `rgba(${r},${gg},${b},${a / 255})`; g.fillRect(10 + x, 6, 1, 16); }
     g.strokeStyle = '#999'; g.strokeRect(10, 6, 400, 16);
     g.fillStyle = '#222'; g.font = '11px sans-serif'; g.textAlign = 'center';
-    for (const v of ticks) g.fillText(String(v), 10 + (v - min) / (max - min) * 400, 36);
+    for (const t of ticks) { const [v, lab] = Array.isArray(t) ? t : [t, t]; g.fillText(String(lab), 10 + (v - min) / (max - min) * 400, 36); }
     g.textAlign = 'right'; g.fillText(unit, 410, 45);
     return c.toDataURL();
 }
 const nh3LegendUrl = () => gridLegendUrl(nh3Rgba, 45, [0, 5, 10, 20, 30, 45], 'NH₃ µg/m³');
+const anomLegendUrl = () => gridLegendUrl(anomRgba, 100, [[-100, '−10'], [-50, '−5'], [0, '0'], [50, '+5'], [100, '+10']], tr('env.anomUnit'), -100);
 const o3LegendUrl = () => gridLegendUrl(o3Rgba, 500, [150, 220, 300, 380, 450, 500], 'O₃ Dobson (DU)', 150);
+// Environment overlays with their own rendering (not GIBS or fetcher grids)
+const OWN_ENV = ['coral', 'power'];
+// NOAA Coral Reef Watch bleaching alert (7-day max), ERDDAP WMS; colours as ERDDAP draws levels 0–4 (checked against the data)
+const CRW_LEVELS = [['#0000ff', 'crw.watch'], ['#00ff00', 'crw.warning'], ['#ff9900', 'crw.alert1'], ['#800000', 'crw.alert2']];
+function addCoralLayer() {
+    envLayer = viewer.imageryLayers.addImageryProvider(new Cz.WebMapServiceImageryProvider({
+        url: 'https://coastwatch.pfeg.noaa.gov/erddap/wms/NOAA_DHW/request', layers: 'dhw_5km:CRW_BAA_7D_MAX',
+        parameters: { version: '1.1.1', format: 'image/png', transparent: true, styles: '' },
+        tilingScheme: new Cz.GeographicTilingScheme(), maximumLevel: 7, credit: 'NOAA Coral Reef Watch'
+    }));
+    envLayer.alpha = 0.8;
+    // Level 0 (no stress, purple) transparent
+    envLayer.colorToAlpha = Cz.Color.fromCssColorString('#800080'); envLayer.colorToAlphaThreshold = 0.05;
+}
+function coralLegendUrl() {
+    const c = document.createElement('canvas'); c.width = 420; c.height = 46;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    g.font = '11px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'top';
+    CRW_LEVELS.forEach(([col, key], i) => {
+        g.fillStyle = col; g.fillRect(10 + i * 100, 6, 100, 16);
+        g.fillStyle = '#222'; g.fillText(tr(key), 60 + i * 100, 27);
+    });
+    g.strokeStyle = '#999'; g.strokeRect(10, 6, 400, 16);
+    return c.toDataURL();
+}
+// Electricity CO2 intensity per European country (fetcher power.json from Energy-Charts; estimate from the generation mix)
+const CI_STOPS = [[0, [26, 152, 80, 170]], [150, [145, 207, 96, 170]], [300, [254, 224, 139, 175]], [450, [252, 141, 89, 180]], [600, [215, 48, 39, 185]], [800, [127, 0, 0, 190]]];
+function ciRgba(v) {
+    if (v == null) return [0, 0, 0, 0];
+    if (v <= 0) return CI_STOPS[0][1];
+    for (let i = 1; i < CI_STOPS.length; i++) {
+        const [v1, c1] = CI_STOPS[i];
+        if (v <= v1) { const [v0, c0] = CI_STOPS[i - 1], f = (v - v0) / (v1 - v0); return c0.map((c, k) => Math.round(c + (c1[k] - c) * f)); }
+    }
+    return CI_STOPS.at(-1)[1];
+}
+let euCountries = null;
+async function addPowerLayer(gen) {
+    const [d, geo] = await Promise.all([loadGrid('power.json'), euCountries ??= tryJson(NE_BASE + 'ne_50m_admin_0_countries.geojson', 30000)]);
+    if (!geo?.features) euCountries = null; // retry next time
+    if (!d?.c || !geo?.features || gen !== envGen) { if (!d?.c) toast(tr('err.noData')); return; }
+    // Europe in plate carrée, 40 px per degree
+    const W0 = -25, E0 = 45, S0 = 34, N0 = 72, K = 40, cv = document.createElement('canvas');
+    cv.width = (E0 - W0) * K; cv.height = (N0 - S0) * K;
+    const g = cv.getContext('2d'), X = lon => (lon - W0) * K, Y = lat => (N0 - lat) * K;
+    const code = p => { const c = String(p.ISO_A2_EH && p.ISO_A2_EH !== '-99' ? p.ISO_A2_EH : p.ISO_A2).toLowerCase(); return c === 'gb' ? 'uk' : c; };
+    const labels = [];
+    for (const f of geo.features) {
+        const v = d.c[code(f.properties)];
+        if (!v) continue;
+        const [r, gg, b, a] = ciRgba(v.ci);
+        g.fillStyle = `rgba(${r},${gg},${b},${a / 255})`;
+        const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
+        g.beginPath();
+        for (const poly of polys) for (const ring of poly) ring.forEach(([lon, lat], i) => i ? g.lineTo(X(lon), Y(lat)) : g.moveTo(X(lon), Y(lat)));
+        g.fill('evenodd');
+        labels.push([f.properties.LABEL_X, f.properties.LABEL_Y, v]);
+    }
+    // Value per country: g CO2/kWh and renewable share
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+    for (const [lon, lat, v] of labels) {
+        if (!Number.isFinite(lon) || lon < W0 || lon > E0 || lat < S0 || lat > N0) continue;
+        const x = X(lon), y = Y(lat);
+        g.font = 'bold 34px sans-serif'; g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.fillStyle = '#fff';
+        g.strokeText(`${v.ci} g`, x, y); g.fillText(`${v.ci} g`, x, y);
+        if (v.ren != null) { g.font = '26px sans-serif'; g.lineWidth = 5; g.strokeText(`${v.ren}% ♻`, x, y + 32); g.fillText(`${v.ren}% ♻`, x, y + 32); }
+    }
+    const provider = await Cz.SingleTileImageryProvider.fromUrl(cv.toDataURL(), { rectangle: Cz.Rectangle.fromDegrees(W0, S0, E0, N0), credit: 'Energy-Charts (Fraunhofer ISE)' });
+    if (gen !== envGen) return;
+    envLayer = viewer.imageryLayers.addImageryProvider(provider);
+}
+const powerLegendUrl = () => gridLegendUrl(ciRgba, 800, [0, 200, 400, 600, 800], tr('env.ciUnit'));
 function addEnvLayer() {
     envLayer = null;
     const gen = ++envGen;
+    if (S.envOverlay === 'coral') { addCoralLayer(); return; }
+    if (S.envOverlay === 'power') { addPowerLayer(gen); return; }
     if (GRID_LAYERS[S.envOverlay]) { addGridLayer(gen, GRID_LAYERS[S.envOverlay]); return; }
     const e = ENV_LAYERS[S.envOverlay];
     if (!e) return;
@@ -292,10 +408,19 @@ async function celsiusLegendUrl(palette, unit) {
     const rgba = v => { let best = stops[0]; for (const s of stops) if (Math.abs(s[0] - v) < Math.abs(best[0] - v)) best = s; return [...best[1], 255]; };
     return celsiusLegends[palette] = gridLegendUrl(rgba, max, ticks, unit, min);
 }
-const envLegend = async () => KELVIN_LAYERS[S.envOverlay] ? celsiusLegendUrl(ENV_PALETTE[S.envOverlay], KELVIN_LAYERS[S.envOverlay])
-    : S.envOverlay === 'nh3' ? nh3LegendUrl() : S.envOverlay === 'ozoneCams' ? o3LegendUrl() : ENV_PALETTE[S.envOverlay] ? `https://gibs.earthdata.nasa.gov/legends/${ENV_PALETTE[S.envOverlay]}_H.png` : '';
+// Relative legend (greenhouse gases): today's range from the data
+async function relLegendUrl([file, , , unit]) {
+    const d = await loadGrid(file);
+    if (!d?.v) return '';
+    const [lo, hi] = pctRange(d.v), step = (hi - lo) / 4, dec = hi - lo < 20 ? 1 : 0;
+    const ticks = [0, 1, 2, 3, 4].map(i => +(lo + i * step).toFixed(dec));
+    return gridLegendUrl(relRgba(lo, hi), hi, ticks, unit, lo);
+}
+const envLegend = async () => S.envOverlay === 'coral' ? coralLegendUrl() : S.envOverlay === 'power' ? powerLegendUrl() : KELVIN_LAYERS[S.envOverlay] ? celsiusLegendUrl(ENV_PALETTE[S.envOverlay], KELVIN_LAYERS[S.envOverlay])
+    : GRID_LAYERS[S.envOverlay]?.[3] ? relLegendUrl(GRID_LAYERS[S.envOverlay])
+    : S.envOverlay === 'nh3' ? nh3LegendUrl() : S.envOverlay === 'ozoneCams' ? o3LegendUrl() : S.envOverlay === 'tempAnom' ? anomLegendUrl() : ENV_PALETTE[S.envOverlay] ? `https://gibs.earthdata.nasa.gov/legends/${ENV_PALETTE[S.envOverlay]}_H.png` : '';
 export function setEnvOverlay(name) {
-    S.envOverlay = ENV_LAYERS[name] || GRID_LAYERS[name] ? name : ''; saveSettings();
+    S.envOverlay = ENV_LAYERS[name] || GRID_LAYERS[name] || OWN_ENV.includes(name) ? name : ''; saveSettings();
     if (envLayer) viewer.imageryLayers.remove(envLayer);
     addEnvLayer();
     return envLegend();
@@ -460,7 +585,7 @@ function checkGpu() {
 export const getGpu = () => gpuName;
 
 // ---------- layers ----------
-const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, ov: loadOv, air: loadAir, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras };
+const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, ov: loadOv, air: loadAir, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras, plants: loadPlants };
 
 export function setLayer(name, on) { applyLayer(name, on, false); }
 function applyLayer(name, on, fromEngine) {
@@ -1712,6 +1837,24 @@ function addBillboard(layer, r, img, scale) {
     r.pos = Cz.Cartesian3.fromDegrees(r.lon, r.lat, 0);
     r.bb = coll[layer].add({ position: r.pos, image: img, scale, disableDepthTestDistance: 1.5e6, scaleByDistance: new Cz.NearFarScalar(1e3, 1.0, 8e6, 0.4), id: { wv: { layer, key: r.key } } });
     store[layer].set(r.key, r);
+}
+// Power plants (WRI Global Power Plant Database, tools/build-plants.mjs): colour per fuel, size per capacity; static, loaded once
+const FUEL_COLORS = { Solar: '#ffd23f', Wind: '#7fd8ff', Hydro: '#2f7bff', Nuclear: '#c86bff', Gas: '#ff9a2a', Coal: '#b07850', Oil: '#ff4b4b', Biomass: '#4cd964',
+    Waste: '#9e9e9e', Geothermal: '#ff6fa8', Storage: '#00e5c0', 'Wave and Tidal': '#00bcd4', Cogeneration: '#cccccc', Petcoke: '#8d6e63', Other: '#cccccc' };
+const fuelKey = f => 'fuel.' + f.toLowerCase().replace(/ /g, '');
+async function loadPlants() {
+    if (store.plants.size) { report('plants', 'st.plants'); return 0; }
+    const d = await tryJson('data/plants.json', 30000);
+    if (!d?.p) { report('plants', 'st.sourceDown'); return 120000; }
+    d.p.forEach(([lon, lat, mw, fi, name, owner, year, country], i) => {
+        const fuel = d.fuels[fi];
+        addPoint('plants', {
+            key: 'pp' + i, lat, lon, label: name,
+            info: [['fuel', () => tr(fuelKey(fuel))], ['capacity', () => `${mw.toLocaleString(loc())} MW`], ['owner', owner || '—'], ['commissioned', year || '—'], ['country', country]]
+        }, Math.min(16, 3 + Math.sqrt(mw) / 6), FUEL_COLORS[fuel] || '#cccccc');
+    });
+    report('plants', 'st.plants');
+    return 0;
 }
 async function loadQuakes() {
     const j = await tryJson('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson');

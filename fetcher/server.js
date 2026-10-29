@@ -9,10 +9,12 @@ import { loadOvRoutes, fetchOv } from './ov.js';
 import { fetchCameras } from './cameras.js';
 import { fetchSensorCommunity, fetchOpenAq } from './air.js';
 import { fetchNh3 } from './nh3.js';
-import { fetchOzone } from './ozone.js';
+import { fetchOzone, fetchCo2, fetchCh4 } from './ozone.js';
+import { fetchPower } from './power.js';
+import { fetchTempAnomaly } from './era5.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.8.0';
+const VERSION = '1.10.1';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -112,15 +114,33 @@ function refreshNh3() {
         .finally(() => { nh3Busy = false; });
 }
 
-// Ozone (CAMS via ADS) every 6 hours in the background; the ADS queue can take minutes
-let lastOzone = 0, ozoneBusy = false;
-function refreshOzone() {
-    if (!env.ADS_API_KEY || ozoneBusy || Date.now() - lastOzone < 6 * 3600000) return;
-    lastOzone = Date.now(); ozoneBusy = true;
-    fetchOzone(env.ADS_API_KEY)
-        .then(async d => { await put('ozone.json', d); log(`ozone: ${d.valid}, ${d.v.filter(x => x != null).length} cells`); })
-        .catch(e => { lastOzone -= 5 * 3600000; log(`ozone: ${e.message}`); }) // retry in an hour
-        .finally(() => { ozoneBusy = false; });
+// CAMS grids via ADS (ozone, CO2, methane) every 6 hours in the background, one after the other (the ADS queue can take minutes)
+const CAMS_JOBS = [['ozone', fetchOzone], ['co2', fetchCo2], ['ch4', fetchCh4]];
+const lastCamsGrid = {};
+let camsBusy = false;
+async function refreshCamsGrids() {
+    if (!env.ADS_API_KEY || camsBusy) return;
+    const due = CAMS_JOBS.filter(([n]) => Date.now() - (lastCamsGrid[n] || 0) >= 6 * 3600000);
+    if (!due.length) return;
+    camsBusy = true;
+    for (const [name, fn] of due) {
+        lastCamsGrid[name] = Date.now();
+        try { const d = await fn(env.ADS_API_KEY); await put(`${name}.json`, d); log(`${name}: ${d.valid}, ${d.v.filter(x => x != null).length} cells`); }
+        catch (e) { lastCamsGrid[name] -= 5 * 3600000; log(`${name}: ${e.message}`); } // retry in an hour
+    }
+    camsBusy = false;
+}
+const refreshOzone = () => { refreshCamsGrids(); };
+
+// Temperature anomaly (ERA5 via CDS) every 12 hours in the background; first run also builds the monthly climatology
+let lastAnom = 0, anomBusy = false;
+function refreshTempAnomaly() {
+    if (!env.CDS_API_KEY || anomBusy || Date.now() - lastAnom < 12 * 3600000) return;
+    lastAnom = Date.now(); anomBusy = true;
+    fetchTempAnomaly(env.CDS_API_KEY, DATA)
+        .then(async d => { await put('tempanom.json', d); log(`tempanom: ${d.day}`); })
+        .catch(e => { lastAnom -= 11 * 3600000; log(`tempanom: ${e.message}`); }) // retry in an hour
+        .finally(() => { anomBusy = false; });
 }
 
 // Each feed on its own schedule; a slow one never delays the others
@@ -177,17 +197,23 @@ async function updateOv() {
 }
 
 function tick() {
-    every('slow', 60000, async () => { await refreshDb(); await refreshOvRoutes(); await refreshCameras(); await refreshAir(); refreshNh3(); refreshOzone(); });
+    every('slow', 60000, async () => { await refreshDb(); await refreshOvRoutes(); await refreshCameras(); await refreshAir(); refreshNh3(); refreshOzone(); refreshTempAnomaly(); });
     every('flights', interval, updateFlights);
     every('military', 20000, updateMilitary);
     every('ns', 30000, () => updateTrains('ns', () => fetchNs(env.NS_API_KEY)));
     every('finland', 15000, () => updateTrains('finland', fetchFinland));
     every('amtrak', 60000, () => updateTrains('amtrak', fetchAmtrak));
     every('ov', 15000, updateOv);
+    every('power', 30 * 60000, async () => { const d = await fetchPower(); await put('power.json', d); log(`power: ${Object.keys(d.c).length} countries`); });
 }
 
 await mkdir(DATA, { recursive: true });
 log(`WorldView fetcher v${VERSION}`);
+// Optional keys: say which features stay off
+for (const [k, what] of [['OPENSKY_CLIENT_ID', 'civil flights'], ['NS_API_KEY', 'NS trains'], ['OPENAQ_API_KEY', 'OpenAQ stations'],
+    ['ADS_API_KEY', 'ozone, CO2, methane (Copernicus ADS)'], ['CDS_API_KEY', 'temperature anomaly (Copernicus CDS)']]) {
+    if (!env[k] && !(k === 'OPENAQ_API_KEY' && env.OPENAQ_KEY)) log(`no ${k} in .env: ${what} disabled`);
+}
 await put('status.json', { version: VERSION, started: new Date().toISOString() });
 startNsApi(env.NS_API_KEY);
 // First load of the databases (the slow loop skips them while they're fresh)

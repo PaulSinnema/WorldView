@@ -13,7 +13,8 @@ const en = [
         <li><b>Trains</b>: the Netherlands (NS, with rolling stock and seats), Finland, the US and Canada.</li>
         <li><b>Bus, tram, metro</b>: all Dutch public transport.</li>
         <li><b>Satellites</b> and <b>Space telescopes</b> (Hubble, JWST, …) with their orbits.</li>
-        <li><b>Earthquakes</b>, <b>Wildfires</b>, <b>Launches</b>, <b>Radio</b> and <b>Traffic cameras</b>.</li></ul>
+        <li><b>Earthquakes</b>, <b>Wildfires</b>, <b>Launches</b>, <b>Radio</b> and <b>Traffic cameras</b>.</li>
+<li><b>Power plants</b>: about 35,000 plants worldwide, colour per energy source, size per capacity (WRI database, ≈ 2021).</li></ul>
         <p>The <b>⌖</b> button next to a layer sets whether the globe zooms in when you click an object of that layer.</p>`],
     ['ℹ️', 'Info box', `<p>Click an object, a city or a country name for details, usually with a photo and a Wikipedia summary. Click a photo or camera image to enlarge it; zoom with the wheel, buttons or pinch and drag to pan. Click beside the info box to close it.</p>
         <p>For aircraft: <b>Cockpit</b> (${K('C')}) rides along, <b>Nearby</b> lists traffic around it.</p>`],
@@ -24,7 +25,7 @@ const en = [
         <li><b>Day/night</b> (${K('N')}): the night side with city lights; the slider sets its brightness.</li>
         <li><b>Borders</b> (${K('B')}): countries with names, optionally provinces/states, cities, coastlines and sea borders (EEZ).</li>
         <li><b>Time zones</b> (${K('Z')}): coloured zones with the local time; click a zone in the legend to highlight it.</li></ul>`],
-    ['🌡️', 'Environment', `<ul><li><b>Satellite layer</b>: daily NASA images of land and sea temperature, NO₂, SO₂, ammonia (Europe), ozone, aerosols, precipitation, vegetation or snow.</li>
+    ['🌡️', 'Environment', `<ul><li><b>Satellite layer</b>: daily NASA images of land and sea temperature, NO₂, SO₂, ammonia (Europe), ozone, aerosols, precipitation, vegetation or snow. Also: temperature anomaly (ERA5), CO₂ and methane (Copernicus CAMS), sea ice, coral bleaching heat stress (NOAA) and the CO₂ per kWh of electricity in Europe right now (estimated from the generation mix, Energy-Charts).</li>
         <li><b>Air & weather on click</b>: click an empty spot on Earth for the air quality index, fine dust, NO₂, ozone, UV and the current weather.</li>
         <li><b>Air quality (sensors)</b> layer: thousands of live measuring points, coloured from good (turquoise) to very poor (purple).</li></ul>`],
     ['📻', 'Radio', `<p>Open the radio bar at the bottom. Search by name, country or genre, show only stations in view, or your ★ favourites. ⏮ ⏭ step through the list; the station keeps playing when you close the info box.</p>`],
@@ -52,7 +53,8 @@ const nl = [
         <li><b>Treinen</b>: Nederland (NS, met materieel en zitplaatsen), Finland, de VS en Canada.</li>
         <li><b>Bus, tram, metro</b>: al het Nederlandse openbaar vervoer.</li>
         <li><b>Satellieten</b> en <b>Ruimtetelescopen</b> (Hubble, JWST, …) met hun banen.</li>
-        <li><b>Aardbevingen</b>, <b>Bosbranden</b>, <b>Lanceringen</b>, <b>Radio</b> en <b>Verkeerscamera's</b>.</li></ul>
+        <li><b>Aardbevingen</b>, <b>Bosbranden</b>, <b>Lanceringen</b>, <b>Radio</b> en <b>Verkeerscamera's</b>.</li>
+<li><b>Energiecentrales</b>: zo'n 35.000 centrales wereldwijd, kleur per energiebron, grootte naar vermogen (WRI-database, ± 2021).</li></ul>
         <p>Met de knop <b>⌖</b> naast een laag stel je in of de globe inzoomt als je een object van die laag aanklikt.</p>`],
     ['ℹ️', 'Infovenster', `<p>Klik op een object, een stad of een landnaam voor details, meestal met een foto en een samenvatting van Wikipedia. Klik op een foto of camerabeeld om te vergroten; zoom met het wiel, de knoppen of knijpen en sleep om te verschuiven. Klik naast het infovenster om het te sluiten.</p>
         <p>Bij vliegtuigen: <b>Cockpit</b> (${K('C')}) vliegt mee, <b>In de buurt</b> toont het verkeer eromheen.</p>`],
@@ -63,7 +65,7 @@ const nl = [
         <li><b>Dag/nacht</b> (${K('N')}): de nachtzijde met stadslichten; de schuif regelt de helderheid.</li>
         <li><b>Grenzen</b> (${K('B')}): landen met namen, eventueel provincies/staten, steden, kustlijnen en zeegrenzen (EEZ).</li>
         <li><b>Tijdzones</b> (${K('Z')}): gekleurde zones met de lokale tijd; klik een zone in de legenda om hem te laten oplichten.</li></ul>`],
-    ['🌡️', 'Milieu', `<ul><li><b>Satellietlaag</b>: dagelijkse NASA-beelden van land- en zeetemperatuur, NO₂, SO₂, ammoniak (Europa), ozon, aerosolen, neerslag, vegetatie of sneeuw.</li>
+    ['🌡️', 'Milieu', `<ul><li><b>Satellietlaag</b>: dagelijkse NASA-beelden van land- en zeetemperatuur, NO₂, SO₂, ammoniak (Europa), ozon, aerosolen, neerslag, vegetatie of sneeuw. Verder: temperatuurafwijking (ERA5), CO₂ en methaan (Copernicus CAMS), zee-ijs, hittestress voor koraal (NOAA) en de CO₂ per kWh stroom in Europa op dit moment (geschat uit de opwekmix, Energy-Charts).</li>
         <li><b>Lucht & weer bij klik</b>: klik op een leeg punt op aarde voor de luchtkwaliteitsindex, fijnstof, NO₂, ozon, UV en het actuele weer.</li>
         <li>Laag <b>Luchtkwaliteit (sensoren)</b>: duizenden live meetpunten, gekleurd van goed (turquoise) tot zeer slecht (paars).</li></ul>`],
     ['📻', 'Radio', `<p>Open de radiobalk onderaan. Zoek op naam, land of genre, toon alleen zenders in beeld, of je ★ favorieten. ⏮ ⏭ bladeren door de lijst; de zender blijft spelen als je het infovenster sluit.</p>`],
@@ -86,13 +88,14 @@ const de = [
     ['🛰️', 'Datenebenen', `<p>Ebenen im Seitenbereich ein- und ausschalten; die Zahl zeigt die geladenen Objekte, darunter Quelle und Alter.</p><ul>
         <li><b>Flüge</b> und <b>Militärflüge</b> mit Typ, Kennzeichen und Foto.</li><li><b>Züge</b>: Niederlande (NS), Finnland, USA und Kanada.</li>
         <li><b>Bus, Tram, U-Bahn</b>: der gesamte niederländische ÖPNV.</li><li><b>Satelliten</b> und <b>Weltraumteleskope</b> mit Bahnen.</li>
-        <li><b>Erdbeben</b>, <b>Waldbrände</b>, <b>Raketenstarts</b>, <b>Radio</b> und <b>Verkehrskameras</b>.</li></ul>
+        <li><b>Erdbeben</b>, <b>Waldbrände</b>, <b>Raketenstarts</b>, <b>Radio</b> und <b>Verkehrskameras</b>.</li>
+        <li><b>Kraftwerke</b>: rund 35.000 Kraftwerke weltweit, Farbe nach Energieträger, Größe nach Leistung (WRI-Datenbank, ≈ 2021).</li></ul>
         <p><b>⌖</b> neben einer Ebene: zoomen beim Anklicken ein/aus.</p>`],
     ['ℹ️', 'Infofenster', `<p>Objekt, Stadt oder Ländername anklicken für Details mit Foto und Wikipedia-Text. Bilder vergrößern per Klick, zoomen mit Rad oder Fingern, verschieben durch Ziehen. Klick daneben schließt das Fenster. Bei Flugzeugen: <b>Cockpit</b> (${K('C')}) und <b>Umgebung</b>.</p>`],
     ['🎨', 'Optik', `<p>Sieben Ansichten, Tasten ${K('1')}–${K('7')}: Normal, CRT, Nachtsicht, FLIR, Ironbow, Noir und Schnee.</p>`],
     ['👁️', 'Anzeige', `<ul><li><b>HUD</b> (${K('H')}), <b>Erkennung</b> (${K('D')}) mit Namen und Geschwindigkeit.</li><li><b>Tag/Nacht</b> (${K('N')}) mit Helligkeitsregler.</li>
         <li><b>Grenzen</b> (${K('B')}) mit Provinzen, Städten, Küsten und Seegrenzen (AWZ).</li><li><b>Zeitzonen</b> (${K('Z')}): farbige Zonen mit Ortszeit; Zone in der Legende anklicken zum Hervorheben.</li></ul>`],
-    ['🌡️', 'Umwelt', `<ul><li><b>Satellitenebene</b>: tägliche NASA-Bilder zu Land- und Meerestemperatur, NO₂, SO₂, Ammoniak (Europa), Ozon, Aerosolen, Niederschlag, Vegetation oder Schnee.</li>
+    ['🌡️', 'Umwelt', `<ul><li><b>Satellitenebene</b>: tägliche NASA-Bilder zu Land- und Meerestemperatur, NO₂, SO₂, Ammoniak (Europa), Ozon, Aerosolen, Niederschlag, Vegetation oder Schnee. Außerdem: Temperaturabweichung (ERA5), CO₂ und Methan (Copernicus CAMS), Meereis, Hitzestress für Korallen (NOAA) und CO₂ pro kWh Strom in Europa jetzt (geschätzt aus dem Erzeugungsmix, Energy-Charts).</li>
         <li><b>Luft & Wetter per Klick</b>: leere Stelle anklicken für Luftqualitätsindex, Feinstaub, NO₂, Ozon, UV und aktuelles Wetter.</li>
         <li>Ebene <b>Luftqualität (Sensoren)</b>: tausende Messpunkte, von gut (türkis) bis sehr schlecht (lila).</li></ul>`],
     ['📻', 'Radio', `<p>Radioleiste unten öffnen; Suche nach Name, Land oder Genre, nur Sender im Bild oder ★ Favoriten. ⏮ ⏭ blättern; die Wiedergabe läuft weiter.</p>`],
@@ -111,12 +114,12 @@ const fr = [
     ['🛰️', 'Couches', `<p>Activez les couches dans le panneau latéral ; le nombre indique les objets chargés, avec la source et l'âge.</p><ul>
         <li><b>Vols</b> et <b>Vols militaires</b> avec type, immatriculation et photo.</li><li><b>Trains</b> : Pays-Bas (NS), Finlande, États-Unis et Canada.</li>
         <li><b>Bus, tram, métro</b> : tous les transports publics néerlandais.</li><li><b>Satellites</b> et <b>télescopes spatiaux</b> avec leurs orbites.</li>
-        <li><b>Séismes</b>, <b>feux</b>, <b>lancements</b>, <b>radio</b> et <b>caméras</b>.</li></ul><p><b>⌖</b> à côté d'une couche : zoom au clic activé ou non.</p>`],
+        <li><b>Séismes</b>, <b>feux</b>, <b>lancements</b>, <b>radio</b> et <b>caméras</b>.</li><li><b>Centrales électriques</b> : environ 35 000 dans le monde, couleur selon la source, taille selon la puissance (base WRI, ≈ 2021).</li></ul><p><b>⌖</b> à côté d'une couche : zoom au clic activé ou non.</p>`],
     ['ℹ️', "Fenêtre d'info", `<p>Cliquez sur un objet, une ville ou un pays pour les détails, avec photo et résumé Wikipédia. Cliquez sur une image pour l'agrandir, zoomez à la molette ou aux doigts et faites glisser. Cliquez à côté pour fermer. Avions : <b>Cockpit</b> (${K('C')}) et <b>À proximité</b>.</p>`],
     ['🎨', 'Optique', `<p>Sept vues, touches ${K('1')}–${K('7')} : Normal, CRT, vision nocturne, FLIR, Ironbow, Noir et Neige.</p>`],
     ['👁️', 'Affichage', `<ul><li><b>HUD</b> (${K('H')}), <b>Détection</b> (${K('D')}) avec noms et vitesses.</li><li><b>Jour/nuit</b> (${K('N')}) avec réglage de luminosité.</li>
         <li><b>Frontières</b> (${K('B')}) avec provinces, villes, côtes et frontières maritimes (ZEE).</li><li><b>Fuseaux horaires</b> (${K('Z')}) : zones colorées avec l'heure locale ; cliquez dans la légende pour mettre une zone en évidence.</li></ul>`],
-    ['🌡️', 'Environnement', `<ul><li><b>Couche satellite</b> : images NASA quotidiennes de température du sol et de la mer, NO₂, SO₂, ammoniac (Europe), ozone, aérosols, précipitations, végétation ou neige.</li>
+    ['🌡️', 'Environnement', `<ul><li><b>Couche satellite</b> : images NASA quotidiennes de température du sol et de la mer, NO₂, SO₂, ammoniac (Europe), ozone, aérosols, précipitations, végétation ou neige. Aussi : anomalie de température (ERA5), CO₂ et méthane (Copernicus CAMS), glace de mer, stress thermique des coraux (NOAA) et CO₂ par kWh d’électricité en Europe en ce moment (estimé à partir du mix, Energy-Charts).</li>
         <li><b>Air et météo au clic</b> : cliquez sur un point vide pour l'indice de qualité de l'air, les particules, NO₂, ozone, UV et la météo.</li>
         <li>Couche <b>Qualité de l'air (capteurs)</b> : des milliers de points de mesure, de bonne (turquoise) à très mauvaise (violet).</li></ul>`],
     ['📻', 'Radio', `<p>Ouvrez la barre radio en bas ; recherche par nom, pays ou genre, stations à l'écran ou ★ favoris. ⏮ ⏭ pour parcourir ; la lecture continue.</p>`],
@@ -132,12 +135,12 @@ const zh = [
         <li><b>搜索</b>（顶部）：地名或坐标，例如 <code>52.21, 5.97</code>。</li><li><b>重置地球</b>回到全景；<b>分享链接</b>复制当前视图的链接。</li></ul>`],
     ['🛰️', '数据图层', `<p>在侧边栏开关图层；数字为已加载对象数量，下方为来源和数据时间。</p><ul><li><b>航班</b>和<b>军用航班</b>：机型、注册号和照片。</li>
         <li><b>火车</b>：荷兰（NS）、芬兰、美国和加拿大。</li><li><b>公交、电车、地铁</b>：荷兰全部公共交通。</li><li><b>卫星</b>和<b>太空望远镜</b>及其轨道。</li>
-        <li><b>地震</b>、<b>山火</b>、<b>发射</b>、<b>电台</b>和<b>交通摄像头</b>。</li></ul><p>图层旁的 <b>⌖</b>：点击对象时是否缩放。</p>`],
+        <li><b>地震</b>、<b>山火</b>、<b>发射</b>、<b>电台</b>和<b>交通摄像头</b>。</li><li><b>发电厂</b>：全球约 35,000 座，颜色表示能源，大小表示装机容量（WRI 数据库，约 2021）。</li></ul><p>图层旁的 <b>⌖</b>：点击对象时是否缩放。</p>`],
     ['ℹ️', '信息窗口', `<p>点击对象、城市或国家名称查看详情，含照片和维基百科摘要。点击图片放大，可用滚轮或手指缩放并拖动。点击窗口外关闭。飞机：<b>驾驶舱</b>（${K('C')}）和<b>附近</b>。</p>`],
     ['🎨', '光学', `<p>七种视图，按键 ${K('1')}–${K('7')}：正常、CRT、夜视、FLIR 热成像、Ironbow、黑白和雪。</p>`],
     ['👁️', '显示', `<ul><li><b>HUD</b>（${K('H')}）、<b>检测</b>（${K('D')}）显示名称和速度。</li><li><b>昼夜</b>（${K('N')}）及亮度滑块。</li>
         <li><b>边界</b>（${K('B')}）含省份、城市、海岸线和海上边界。</li><li><b>时区</b>（${K('Z')}）：彩色时区与当地时间；在图例中点击时区可高亮。</li></ul>`],
-    ['🌡️', '环境', `<ul><li><b>卫星图层</b>：NASA 每日陆地与海洋温度、NO₂、SO₂、氨（欧洲）、臭氧、气溶胶、降水、植被或积雪图像。</li>
+    ['🌡️', '环境', `<ul><li><b>卫星图层</b>：NASA 每日陆地与海洋温度、NO₂、SO₂、氨（欧洲）、臭氧、气溶胶、降水、植被或积雪图像。另有：气温距平（ERA5）、CO₂ 和甲烷（Copernicus CAMS）、海冰、珊瑚热应激（NOAA）以及欧洲当前每千瓦时电力的 CO₂（根据发电结构估算，Energy-Charts）。</li>
         <li><b>点击查看空气与天气</b>：点击地球空白处查看空气质量指数、细颗粒物、NO₂、臭氧、紫外线和当前天气。</li>
         <li><b>空气质量（传感器）</b>图层：数千个实时测量点，颜色从优（青绿）到很差（紫色）。</li></ul>`],
     ['📻', '电台', `<p>打开底部电台栏；按名称、国家或类型搜索，仅显示视野内电台或 ★ 收藏。⏮ ⏭ 切换；关闭信息窗口后继续播放。</p>`],

@@ -2,6 +2,13 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.92] - 2026-10-29
+
+### Added
+- Environment layers: **Temperature anomaly** (ERA5 vs 1991–2020, fetcher `era5.js` via the Copernicus CDS, needs `CDS_API_KEY`), **CO₂** and **methane** column averages (CAMS greenhouse gas forecasts via ADS, relative colour scale with today's range), **Sea ice** (NASA GHRSST MUR), **Coral bleaching heat stress** (NOAA Coral Reef Watch, 7-day max alert level, ERDDAP WMS) and **Electricity CO₂ per kWh** for ~37 European countries (fetcher `power.js` from Energy-Charts every 30 min, rate-limited; estimate from the generation mix with IPCC lifecycle factors, renewable share shown).
+- **Power plants** data layer: ~35,000 plants (WRI Global Power Plant Database, `tools/build-plants.mjs`), colour per energy source, size per capacity, details in the info box.
+- Fetcher 1.10.0: generic Copernicus data store request, multi-message GRIB decoding. 1.10.1: logs at start which optional keys are missing and which features stay off.
+
 ## [1.0.91] - 2026-10-29
 
 ### Changed
