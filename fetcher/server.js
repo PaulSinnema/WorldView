@@ -7,9 +7,10 @@ import { fetchNs, fetchFinland, fetchAmtrak } from './trains.js';
 import { startNsApi } from './nsapi.js';
 import { loadOvRoutes, fetchOv } from './ov.js';
 import { fetchCameras } from './cameras.js';
+import { fetchSensorCommunity, fetchOpenAq } from './air.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.4.1';
+const VERSION = '1.5.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -81,10 +82,27 @@ async function refreshCameras() {
     } catch (e) { log(`cameras: ${e.message}`); }
 }
 
+// Air quality: Sensor.Community every 5 min, OpenAQ every 30 min (rate limits)
+let lastAir = 0, lastOaq = 0, oaqRows = [];
+async function refreshAir() {
+    if (Date.now() - lastAir < 5 * 60000) return;
+    lastAir = Date.now();
+    if (env.OPENAQ_API_KEY && Date.now() - lastOaq >= 30 * 60000) {
+        lastOaq = Date.now();
+        try { oaqRows = await fetchOpenAq(env.OPENAQ_API_KEY); } catch (e) { log(`openaq: ${e.message}`); }
+    }
+    try {
+        const sc = await fetchSensorCommunity();
+        await put('air.json', { t: Math.round(Date.now() / 1000), src: oaqRows.length ? 'Sensor.Community · OpenAQ' : 'Sensor.Community', a: [...sc, ...oaqRows] });
+        log(`air: ${sc.length} + openaq ${oaqRows.length}`);
+    } catch (e) { log(`air: ${e.message}`); }
+}
+
 async function run() {
     await refreshDb();
     await refreshOvRoutes();
     await refreshCameras();
+    await refreshAir();
     if (Date.now() - lastOpensky >= interval) {
         lastOpensky = Date.now(); // also on failure: respect credit budget
         try {

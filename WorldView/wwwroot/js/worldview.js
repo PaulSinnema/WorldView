@@ -1,7 +1,7 @@
 ﻿// WorldView globe engine: CesiumJS + keyless public feeds
 const Cz = window.Cesium;
 const SETTINGS_KEY = 'wv-settings';
-const LAYERS = ['flights', 'military', 'trains', 'ov', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras'];
+const LAYERS = ['flights', 'military', 'trains', 'ov', 'air', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras'];
 const ORBITERS = ['satellites', 'telescopes'];
 const TEL_COLOR = '#00e5ff';
 // Earth-orbiting space telescopes (NORAD id, name)
@@ -19,7 +19,7 @@ const PLANES = ['flights', 'military'];
 const TRAIN_COLOR = '#9dff3a', OV_COLOR = '#ffd23f';
 const FT = 0.3048, R_EARTH = 6371000;
 const FEED_URL = 'https://flights.sinnema.ch'; // netcup VPS, see fetcher/README.md
-const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff' };
+const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, air: '#50f0e6', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff' };
 // Translations (same cache-busting version as this module)
 const { LANGS, LOCALES, pickLang, t, strings } = await import(`./i18n.js${new URL(import.meta.url).search}`);
 const tr = (key, params) => t(S.lang, key, params);
@@ -40,7 +40,7 @@ const CITIES = {
 let viewer = null, dotnet = null, sat = null;
 const S = { layers: {}, style: 'normal', basemap: 'esri', ionToken: '', hud: true, detect: false, daynight: true, nightLight: 60, borders: false, regions: true, cities: true, zoom: {}, cockpit: false };
 // Per layer: zoom/follow on click
-const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, ov: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false };
+const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, ov: false, air: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false };
 const NIGHT_URL = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png';
 let nightLayer = null;
 // Night brightness 0..100 → city-lights blend 0.8..0.05 (60 ≈ 0.35)
@@ -76,6 +76,8 @@ function loadSettings() {
     if (typeof S.regions !== 'boolean') S.regions = true;
     if (typeof S.cities !== 'boolean') S.cities = true;
     if (typeof S.timezones !== 'boolean') S.timezones = false;
+    if (typeof S.envOverlay !== 'string') S.envOverlay = '';
+    if (typeof S.envClick !== 'boolean') S.envClick = true;
     S.lang = pickLang(S.lang);
     if (!Array.isArray(S.radioFav)) S.radioFav = [];
     S.zoom = { ...ZOOM_DEFAULT, ...(S.zoom && typeof S.zoom === 'object' ? S.zoom : {}) };
@@ -153,7 +155,33 @@ function setImagery(name) {
     viewer.imageryLayers.removeAll();
     viewer.imageryLayers.addImageryProvider(imagery(name));
     addNightLayer();
+    addEnvLayer();
 }
+// Environment overlays: NASA GIBS satellite layers, latest available date ('default'); [layer id, max zoom]
+const ENV_LAYERS = {
+    lstDay: ['MODIS_Terra_L3_Land_Surface_Temp_8Day_Day', 7], lstNight: ['MODIS_Terra_L3_Land_Surface_Temp_8Day_Night', 7],
+    sst: ['GHRSST_L4_MUR_Sea_Surface_Temperature', 7], sstAnom: ['GHRSST_L4_MUR_Sea_Surface_Temperature_Anomalies', 7],
+    no2: ['TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column', 6], so2: ['TROPOMI_L2_Sulfur_Dioxide_Total_Vertical_Column', 6],
+    aod: ['MODIS_Combined_MAIAC_L2G_AerosolOpticalDepth', 7], rain: ['IMERG_Precipitation_Rate', 6],
+    ndvi: ['MODIS_Terra_NDVI_8Day', 9], snow: ['MODIS_Terra_NDSI_Snow_Cover', 8]
+};
+let envLayer = null;
+function addEnvLayer() {
+    envLayer = null;
+    const e = ENV_LAYERS[S.envOverlay];
+    if (!e) return;
+    envLayer = viewer.imageryLayers.addImageryProvider(new Cz.UrlTemplateImageryProvider({
+        url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${e[0]}/default/default/GoogleMapsCompatible_Level${e[1]}/{z}/{y}/{x}.png`,
+        maximumLevel: e[1], credit: 'NASA GIBS'
+    }));
+    envLayer.alpha = 0.75;
+}
+export function setEnvOverlay(name) {
+    S.envOverlay = ENV_LAYERS[name] ? name : ''; saveSettings();
+    if (envLayer) viewer.imageryLayers.remove(envLayer);
+    addEnvLayer();
+}
+export function setEnvClick(on) { S.envClick = !!on; saveSettings(); }
 // City lights, only visible on the night side
 function addNightLayer() {
     nightLayer = viewer.imageryLayers.addImageryProvider(new Cz.UrlTemplateImageryProvider({ url: NIGHT_URL, maximumLevel: 8, credit: 'NASA Black Marble (GIBS)' }));
@@ -209,6 +237,7 @@ export async function init(containerId, ref) {
     // Ground atmosphere turns the night side pitch black; plain shading keeps contours visible
     globe.showGroundAtmosphere = false;
     addNightLayer();
+    addEnvLayer();
     setDayNight(S.daynight);
     if (S.ionToken) { try { scene.setTerrain(Cz.Terrain.fromWorldTerrain()); } catch { } }
     if (S.basemap === 'google') { const r = await setBasemap('google'); const msg = r.split('|')[1]; if (msg) toast(msg); }
@@ -236,6 +265,11 @@ export async function init(containerId, ref) {
         else if (p?.id?.country) selectCountry(p.id.country);
         // Click on empty globe/space closes the info box (not while riding in the cockpit)
         else if ((selected || cityPick) && !S.cockpit) clearSelection();
+        // Nothing open: local air quality + weather for the clicked spot
+        else if (S.envClick && !S.cockpit) {
+            const c = viewer.camera.pickEllipsoid(e.position);
+            if (c) { const g = Cz.Cartographic.fromCartesian(c); selectSpot(toDeg(g.latitude), toDeg(g.longitude)); }
+        }
     }, Cz.ScreenSpaceEventType.LEFT_CLICK);
 
     window.addEventListener('keydown', onKey);
@@ -257,7 +291,7 @@ export async function init(containerId, ref) {
     if (S.timezones) setTimezones(true);
     for (const l of LAYERS) if (S.layers[l]) startLayer(l);
 
-    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, timezones: S.timezones, zoom: S.zoom, gpu: gpuName });
+    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, timezones: S.timezones, envOverlay: S.envOverlay, envClick: S.envClick, zoom: S.zoom, gpu: gpuName });
 }
 
 // Warn when the browser renders in software (hardware acceleration off or no GPU)
@@ -276,7 +310,7 @@ function checkGpu() {
 export const getGpu = () => gpuName;
 
 // ---------- layers ----------
-const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, ov: loadOv, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras };
+const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, ov: loadOv, air: loadAir, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras };
 
 export function setLayer(name, on) { applyLayer(name, on, false); }
 function applyLayer(name, on, fromEngine) {
@@ -822,6 +856,60 @@ async function selectCountry(p) {
     Object.assign(info, wiki ? { summary: wiki.extract, image: wiki.thumb, link: wiki.url } : { summary: null });
     notify('OnSelect', JSON.stringify(info));
 }
+// Clicked spot: air quality + weather (Open-Meteo) and place name (Nominatim)
+const aqiBand = v => v == null ? 0 : v <= 20 ? 1 : v <= 40 ? 2 : v <= 60 ? 3 : v <= 80 ? 4 : v <= 100 ? 5 : 6;
+const wxKey = c => c === 0 ? 'clear' : c <= 3 ? 'cloudy' : c <= 48 ? 'fog' : c <= 57 ? 'drizzle' : c <= 67 ? 'rain' : c <= 77 ? 'snow' : c <= 82 ? 'showers' : c <= 86 ? 'snow' : 'thunder';
+const COMPASS8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+async function selectSpot(lat, lon) {
+    clearSelection(false);
+    const spot = { spot: true, lat, lon };
+    cityPick = spot; // cleared by clearSelection
+    trackEntity = viewer.entities.add({ position: Cz.Cartesian3.fromDegrees(lon, lat), point: { pixelSize: 14, color: Cz.Color.TRANSPARENT, outlineColor: Cz.Color.fromCssColorString('#7dffb0'), outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY } });
+    const pos = fmtPos(lat, lon), q = `latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}`;
+    const info = { layer: 'spot', key: pos, title: pos, fields: [[tr('f.position'), pos]], image: null, video: null, canCockpit: false, isRadio: false, summary: tr('v.loading'), link: null };
+    notify('OnSelect', JSON.stringify(info));
+    const [aq, wx, place] = await Promise.all([
+        tryJson(`https://air-quality-api.open-meteo.com/v1/air-quality?${q}&current=european_aqi,pm10,pm2_5,nitrogen_dioxide,ozone,uv_index`, 15000),
+        tryJson(`https://api.open-meteo.com/v1/forecast?${q}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code,cloud_cover,precipitation`, 15000),
+        tryJson(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&${q.replace('latitude', 'lat').replace('longitude', 'lon')}&accept-language=${S.lang}`, 15000)]);
+    if (cityPick !== spot) return;
+    const f = [], a = aq?.current, w = wx?.current, u = ' µg/m³', num = v => Number(v).toLocaleString(loc());
+    if (w) {
+        if (w.weather_code != null) f.push([tr('f.weather'), tr('wx.' + wxKey(w.weather_code))]);
+        f.push([tr('f.temperature'), `${num(w.temperature_2m)} °C`], [tr('f.humidity'), `${w.relative_humidity_2m} %`],
+            [tr('f.wind'), `${Math.round(w.wind_speed_10m)} ${tr('u.kmh')} ${COMPASS8[Math.round(w.wind_direction_10m / 45) % 8]}`],
+            [tr('f.clouds'), `${w.cloud_cover} %`], [tr('f.precip'), `${num(w.precipitation)} mm`]);
+    }
+    if (a) {
+        if (a.european_aqi != null) f.push([tr('f.airQuality'), `${a.european_aqi} · ${tr('aqi.' + aqiBand(a.european_aqi))}`]);
+        for (const [k, key] of [['pm2_5', 'f.pm25'], ['pm10', 'f.pm10'], ['nitrogen_dioxide', 'f.no2'], ['ozone', 'f.o3']]) if (a[k] != null) f.push([tr(key), num(a[k]) + u]);
+        if (a.uv_index != null) f.push([tr('f.uv'), num(a.uv_index)]);
+    }
+    f.push([tr('f.position'), pos]);
+    Object.assign(info, { title: place?.display_name?.split(',').slice(0, 2).join(',') || pos, fields: f, summary: a || w ? null : tr('err.noData') });
+    notify('OnSelect', JSON.stringify(info));
+}
+
+// Air quality sensors: Sensor.Community + OpenAQ via the fetcher (air.json)
+// row: [id, lat, lon, pm25, pm10, tempC, humidity, source]
+const PM25_COLORS = [[10, '#50f0e6'], [20, '#50ccaa'], [25, '#f0e641'], [50, '#ff5050'], [75, '#960032'], [Infinity, '#7d2181']];
+async function loadAir() {
+    const j = await getFeed('air');
+    if (!j?.a) { report('air', 'st.feedDown'); return 120000; }
+    clearLayer('air');
+    const n = v => v == null ? '—' : Number(v).toLocaleString(loc());
+    for (const [id, lat, lon, pm25, pm10, t, h, src] of j.a) {
+        if (pm25 == null) continue;
+        addPoint('air', {
+            key: id, lat, lon, label: `PM2.5 ${pm25}`,
+            info: [['pm25', `${n(pm25)} µg/m³`], ['pm10', pm10 == null ? '—' : `${n(pm10)} µg/m³`], ['temperature', t == null ? '—' : `${n(t)} °C`], ['humidity', h == null ? '—' : `${n(h)} %`], ['source', src]]
+        }, 6, PM25_COLORS.find(([max]) => pm25 <= max)[1]);
+    }
+    validateSel('air');
+    report('air', 'st.age', { src: j.src, s: age(j.t) });
+    return 300000;
+}
+
 // Wikidata item → Wikipedia summary in the UI language, else English
 async function wikidataWiki(qid) {
     const w = await tryJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${encodeURIComponent(qid)}&props=sitelinks&sitefilter=${S.lang}wiki|enwiki&format=json&origin=*`, 15000);
@@ -1585,7 +1673,7 @@ export function setLang(lang) {
     relabelCountries();
     for (const l of LAYERS) if (lastStatus[l]) notify('OnLayerStatus', l, store[l].size, statusText(l));
     if (selected) pushInfo();
-    else if (cityPick) cityPick.LABEL_X != null ? selectCountry(cityPick) : selectCity(cityPick, false);
+    else if (cityPick) cityPick.spot ? selectSpot(cityPick.lat, cityPick.lon) : cityPick.LABEL_X != null ? selectCountry(cityPick) : selectCity(cityPick, false);
     if (radioMeta.size) { runRadioSearch(); radioNow(); }
     return getStrings();
 }

@@ -2,6 +2,13 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.57] - 2026-10-29
+
+### Added
+- **Environment** section: NASA GIBS satellite overlays (land temperature day/night, sea temperature and anomaly, NO₂, SO₂, aerosols, precipitation, vegetation, snow), latest available day.
+- **Air & weather on click**: click an empty spot on Earth for the European air quality index, PM2.5, PM10, NO₂, ozone, UV and the current weather (Open-Meteo), with the place name (Nominatim).
+- **Air quality (sensors)** layer: ~9,000 Sensor.Community sensors (+ OpenAQ stations with `OPENAQ_API_KEY`), coloured by PM2.5 (fetcher 1.5.0, `air.json`, every 5 min).
+
 ## [1.0.56] - 2026-10-29
 
 ### Added

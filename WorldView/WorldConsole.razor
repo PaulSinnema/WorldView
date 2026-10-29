@@ -126,6 +126,19 @@ else if (error is not null)
         <div class="hint">GPU: @gpu</div>
     }
 
+    <h3>@T("sec.env")</h3>
+    <select value="@envOverlay" @onchange="OnEnvOverlayChange" aria-label="@T("sec.env")">
+        <option value="">@T("env.none")</option>
+        @foreach (var e in EnvLayers)
+        {
+            <option value="@e">@T("env." + e)</option>
+        }
+    </select>
+    <div class="toggles" style="margin-top:4px">
+        <button class="@(envClick ? "active" : "")" @onclick="ToggleEnvClick">@T("env.click")</button>
+    </div>
+    <div class="hint">@T("env.hint")</div>
+
     <h3>@T("sec.map")</h3>
     <select value="@basemap" @onchange="OnBasemapChange">
         <option value="esri">@T("map.esri")</option>
@@ -349,6 +362,7 @@ else if (error is not null)
         new("military", "#ffb020"),
         new("trains", "#9dff3a"),
         new("ov", "#ffd23f"),
+        new("air", "#50f0e6"),
         new("satellites", "#ffffff"),
         new("telescopes", "#00e5ff"),
         new("quakes", "#ff5050"),
@@ -366,7 +380,9 @@ else if (error is not null)
     private string style = "normal", basemap = "esri", ionToken = "", searchText = "";
     private string gpu = "";
     private int nightLight = 60;
-    private bool borders, regions = true, cities = true, timezones;
+    private bool borders, regions = true, cities = true, timezones, envClick = true;
+    private string envOverlay = "";
+    private static readonly string[] EnvLayers = ["lstDay", "lstNight", "sst", "sstAnom", "no2", "so2", "aod", "rain", "ndvi", "snow"];
     private readonly Dictionary<string, bool> zoomOn = new();
     private bool hud = true, dayNight = true, detect, cockpit, panelToggled, listening, loading = true;
     private string? error, toast;
@@ -425,6 +441,8 @@ else if (error is not null)
                 regions = st.Regions;
                 cities = st.Cities;
                 timezones = st.Timezones;
+                envOverlay = st.EnvOverlay;
+                envClick = st.EnvClick;
                 foreach (var (k, v) in st.Zoom) zoomOn[k] = v;
                 gpu = st.Gpu;
             }
@@ -517,6 +535,18 @@ else if (error is not null)
         timezones = !timezones;
         if (module is not null) await module.InvokeVoidAsync("setTimezones", timezones, false);
         if (timezones) await LoadTzZones();
+    }
+
+    private async Task OnEnvOverlayChange(ChangeEventArgs e)
+    {
+        envOverlay = e.Value?.ToString() ?? "";
+        if (module is not null) await module.InvokeVoidAsync("setEnvOverlay", envOverlay);
+    }
+
+    private async Task ToggleEnvClick()
+    {
+        envClick = !envClick;
+        if (module is not null) await module.InvokeVoidAsync("setEnvClick", envClick);
     }
 
     // Help page (content per language in wwwroot/js/help.js)
@@ -835,6 +865,8 @@ else if (error is not null)
         public bool Regions { get; set; } = true;
         public bool Cities { get; set; } = true;
         public bool Timezones { get; set; }
+        public string EnvOverlay { get; set; } = "";
+        public bool EnvClick { get; set; } = true;
         public Dictionary<string, bool> Zoom { get; set; } = new();
         public string Gpu { get; set; } = "";
     }

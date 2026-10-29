@@ -24,6 +24,9 @@ const en = [
         <li><b>Day/night</b> (${K('N')}): the night side with city lights; the slider sets its brightness.</li>
         <li><b>Borders</b> (${K('B')}): countries with names, optionally provinces/states and cities.</li>
         <li><b>Time zones</b> (${K('Z')}): coloured zones with the local time; click a zone in the legend to highlight it.</li></ul>`],
+    ['🌡️', 'Environment', `<ul><li><b>Satellite layer</b>: daily NASA images of land and sea temperature, NO₂, SO₂, aerosols, precipitation, vegetation or snow.</li>
+        <li><b>Air & weather on click</b>: click an empty spot on Earth for the air quality index, fine dust, NO₂, ozone, UV and the current weather.</li>
+        <li><b>Air quality (sensors)</b> layer: thousands of live measuring points, coloured from good (turquoise) to very poor (purple).</li></ul>`],
     ['📻', 'Radio', `<p>Open the radio bar at the bottom. Search by name, country or genre, show only stations in view, or your ★ favourites. ⏮ ⏭ step through the list; the station keeps playing when you close the info box.</p>`],
     ['🗺️', 'Map & Power up', `<p>Choose the base map: Esri satellite, Dark, OpenStreetMap or Google 3D.</p>
         <p><b>Cesium ion token</b> (optional, free): create an account at <a href="https://cesium.com/ion" target="_blank" rel="noopener">cesium.com/ion</a>, copy your <i>Default token</i> under <i>Access Tokens</i> and paste it under Power up. This enables Google photorealistic 3D cities and world terrain. The token is only stored in this browser.</p>`],
@@ -32,8 +35,10 @@ const en = [
         <tr><td>${K('← ↑ ↓ →')}</td><td>move</td></tr><tr><td>${K('+ −')}</td><td>zoom</td></tr>
         <tr><td>${K('1')}–${K('7')}</td><td>optics</td></tr><tr><td>${K('H')} ${K('D')} ${K('N')} ${K('B')} ${K('Z')}</td><td>HUD, detection, day/night, borders, time zones</td></tr>
         <tr><td>${K('C')}</td><td>cockpit</td></tr><tr><td>${K('Esc')}</td><td>release / close</td></tr></table>`],
-    ['📚', 'Sources', `<p>OpenSky Network, adsb.lol (ODbL), Planespotters.net, tar1090-db, NS, Digitraffic (CC BY 4.0), Amtraker, OVapi/NDOV, CelesTrak, USGS, NASA EONET, Launch Library 2, Radio Browser, Wikipedia/Wikidata, GeoNames (CC BY 4.0), Natural Earth, geoBoundaries (CC BY 4.0), Esri, OpenStreetMap, CesiumJS. Camera images: TfL, Fintraffic, Caltrans, Austin, Calgary, Hong Kong, Vegagerðin, DriveBC, Transport for NSW, NZTA.</p>`]
+    ['📚', 'Sources', `<p>OpenSky Network, adsb.lol (ODbL), Planespotters.net, tar1090-db, NS, Digitraffic (CC BY 4.0), Amtraker, OVapi/NDOV, CelesTrak, USGS, NASA EONET, Launch Library 2, Radio Browser, Wikipedia/Wikidata, Open-Meteo, NASA GIBS, Sensor.Community, OpenAQ, Nominatim/OpenStreetMap, GeoNames (CC BY 4.0), Natural Earth, geoBoundaries (CC BY 4.0), Esri, OpenStreetMap, CesiumJS. Camera images: TfL, Fintraffic, Caltrans, Austin, Calgary, Hong Kong, Vegagerðin, DriveBC, Transport for NSW, NZTA.</p>`]
 ];
+
+const KEYS_EN = en.find(x => x[1] === 'Keyboard shortcuts')[2], SOURCES_EN = en.find(x => x[1] === 'Sources')[2];
 
 const nl = [
     ['🌍', 'Welkom', `<p><b>WorldView</b> is een live 3D-wereldbol in je browser: vliegtuigen, treinen, openbaar vervoer, satellieten, ruimtetelescopen, aardbevingen, bosbranden, lanceringen, verkeerscamera's en internetradio, allemaal op één kaart. Niets te installeren; nieuwe versies laden automatisch (versie rechtsboven).</p>`],
@@ -58,6 +63,9 @@ const nl = [
         <li><b>Dag/nacht</b> (${K('N')}): de nachtzijde met stadslichten; de schuif regelt de helderheid.</li>
         <li><b>Grenzen</b> (${K('B')}): landen met namen, eventueel provincies/staten en steden.</li>
         <li><b>Tijdzones</b> (${K('Z')}): gekleurde zones met de lokale tijd; klik een zone in de legenda om hem te laten oplichten.</li></ul>`],
+    ['🌡️', 'Milieu', `<ul><li><b>Satellietlaag</b>: dagelijkse NASA-beelden van land- en zeetemperatuur, NO₂, SO₂, aerosolen, neerslag, vegetatie of sneeuw.</li>
+        <li><b>Lucht & weer bij klik</b>: klik op een leeg punt op aarde voor de luchtkwaliteitsindex, fijnstof, NO₂, ozon, UV en het actuele weer.</li>
+        <li>Laag <b>Luchtkwaliteit (sensoren)</b>: duizenden live meetpunten, gekleurd van goed (turquoise) tot zeer slecht (paars).</li></ul>`],
     ['📻', 'Radio', `<p>Open de radiobalk onderaan. Zoek op naam, land of genre, toon alleen zenders in beeld, of je ★ favorieten. ⏮ ⏭ bladeren door de lijst; de zender blijft spelen als je het infovenster sluit.</p>`],
     ['🗺️', 'Kaart & Power up', `<p>Kies de ondergrond: Esri satelliet, Donker, OpenStreetMap of Google 3D.</p>
         <p><b>Cesium ion-token</b> (optioneel, gratis): maak een account op <a href="https://cesium.com/ion" target="_blank" rel="noopener">cesium.com/ion</a>, kopieer onder <i>Access Tokens</i> je <i>Default token</i> en plak die bij Power up. Dat schakelt fotorealistische Google 3D-steden en wereldterrein in. Het token wordt alleen in deze browser bewaard.</p>`],
@@ -66,7 +74,7 @@ const nl = [
         <tr><td>${K('← ↑ ↓ →')}</td><td>verschuiven</td></tr><tr><td>${K('+ −')}</td><td>zoomen</td></tr>
         <tr><td>${K('1')}–${K('7')}</td><td>optiek</td></tr><tr><td>${K('H')} ${K('D')} ${K('N')} ${K('B')} ${K('Z')}</td><td>HUD, detectie, dag/nacht, grenzen, tijdzones</td></tr>
         <tr><td>${K('C')}</td><td>cockpit</td></tr><tr><td>${K('Esc')}</td><td>loslaten / sluiten</td></tr></table>`],
-    ['📚', 'Bronnen', en[10][2]]
+    ['📚', 'Bronnen', SOURCES_EN]
 ];
 
 const de = [
@@ -84,11 +92,14 @@ const de = [
     ['🎨', 'Optik', `<p>Sieben Ansichten, Tasten ${K('1')}–${K('7')}: Normal, CRT, Nachtsicht, FLIR, Ironbow, Noir und Schnee.</p>`],
     ['👁️', 'Anzeige', `<ul><li><b>HUD</b> (${K('H')}), <b>Erkennung</b> (${K('D')}) mit Namen und Geschwindigkeit.</li><li><b>Tag/Nacht</b> (${K('N')}) mit Helligkeitsregler.</li>
         <li><b>Grenzen</b> (${K('B')}) mit Provinzen und Städten.</li><li><b>Zeitzonen</b> (${K('Z')}): farbige Zonen mit Ortszeit; Zone in der Legende anklicken zum Hervorheben.</li></ul>`],
+    ['🌡️', 'Umwelt', `<ul><li><b>Satellitenebene</b>: tägliche NASA-Bilder zu Land- und Meerestemperatur, NO₂, SO₂, Aerosolen, Niederschlag, Vegetation oder Schnee.</li>
+        <li><b>Luft & Wetter per Klick</b>: leere Stelle anklicken für Luftqualitätsindex, Feinstaub, NO₂, Ozon, UV und aktuelles Wetter.</li>
+        <li>Ebene <b>Luftqualität (Sensoren)</b>: tausende Messpunkte, von gut (türkis) bis sehr schlecht (lila).</li></ul>`],
     ['📻', 'Radio', `<p>Radioleiste unten öffnen; Suche nach Name, Land oder Genre, nur Sender im Bild oder ★ Favoriten. ⏮ ⏭ blättern; die Wiedergabe läuft weiter.</p>`],
     ['🗺️', 'Karte & Power up', `<p>Grundkarte: Esri-Satellit, Dunkel, OpenStreetMap oder Google 3D.</p><p><b>Cesium-ion-Token</b> (optional, kostenlos): Konto auf <a href="https://cesium.com/ion" target="_blank" rel="noopener">cesium.com/ion</a> anlegen, unter <i>Access Tokens</i> den <i>Default token</i> kopieren und bei Power up einfügen. Aktiviert Google-3D-Städte und Weltgelände; wird nur in diesem Browser gespeichert.</p>`],
     ['🎙️', 'Sprache', `<p>Mikrofon drücken und z. B. „Flüge“, „Züge“, „Radio“, „Nachtsicht“ oder einen Ortsnamen sagen.</p>`],
-    ['⌨️', 'Tastenkürzel', en[9][2].replace('move', 'bewegen').replace('zoom', 'zoomen').replace('optics', 'Optik').replace('HUD, detection, day/night, borders, time zones', 'HUD, Erkennung, Tag/Nacht, Grenzen, Zeitzonen').replace('release / close', 'loslassen / schließen')],
-    ['📚', 'Quellen', en[10][2]]
+    ['⌨️', 'Tastenkürzel', KEYS_EN.replace('move', 'bewegen').replace('zoom', 'zoomen').replace('optics', 'Optik').replace('HUD, detection, day/night, borders, time zones', 'HUD, Erkennung, Tag/Nacht, Grenzen, Zeitzonen').replace('release / close', 'loslassen / schließen')],
+    ['📚', 'Quellen', SOURCES_EN]
 ];
 
 const fr = [
@@ -105,11 +116,14 @@ const fr = [
     ['🎨', 'Optique', `<p>Sept vues, touches ${K('1')}–${K('7')} : Normal, CRT, vision nocturne, FLIR, Ironbow, Noir et Neige.</p>`],
     ['👁️', 'Affichage', `<ul><li><b>HUD</b> (${K('H')}), <b>Détection</b> (${K('D')}) avec noms et vitesses.</li><li><b>Jour/nuit</b> (${K('N')}) avec réglage de luminosité.</li>
         <li><b>Frontières</b> (${K('B')}) avec provinces et villes.</li><li><b>Fuseaux horaires</b> (${K('Z')}) : zones colorées avec l'heure locale ; cliquez dans la légende pour mettre une zone en évidence.</li></ul>`],
+    ['🌡️', 'Environnement', `<ul><li><b>Couche satellite</b> : images NASA quotidiennes de température du sol et de la mer, NO₂, SO₂, aérosols, précipitations, végétation ou neige.</li>
+        <li><b>Air et météo au clic</b> : cliquez sur un point vide pour l'indice de qualité de l'air, les particules, NO₂, ozone, UV et la météo.</li>
+        <li>Couche <b>Qualité de l'air (capteurs)</b> : des milliers de points de mesure, de bonne (turquoise) à très mauvaise (violet).</li></ul>`],
     ['📻', 'Radio', `<p>Ouvrez la barre radio en bas ; recherche par nom, pays ou genre, stations à l'écran ou ★ favoris. ⏮ ⏭ pour parcourir ; la lecture continue.</p>`],
     ['🗺️', 'Carte & Power up', `<p>Fond de carte : satellite Esri, Sombre, OpenStreetMap ou Google 3D.</p><p><b>Jeton Cesium ion</b> (optionnel, gratuit) : créez un compte sur <a href="https://cesium.com/ion" target="_blank" rel="noopener">cesium.com/ion</a>, copiez le <i>Default token</i> sous <i>Access Tokens</i> et collez-le dans Power up. Active les villes 3D Google et le relief mondial ; enregistré uniquement dans ce navigateur.</p>`],
     ['🎙️', 'Voix', `<p>Appuyez sur le micro et dites par exemple « vols », « trains », « radio », « vision nocturne » ou un lieu.</p>`],
-    ['⌨️', 'Raccourcis', en[9][2].replace('move', 'déplacer').replace('zoom', 'zoomer').replace('optics', 'optique').replace('HUD, detection, day/night, borders, time zones', 'HUD, détection, jour/nuit, frontières, fuseaux').replace('release / close', 'relâcher / fermer')],
-    ['📚', 'Sources', en[10][2]]
+    ['⌨️', 'Raccourcis', KEYS_EN.replace('move', 'déplacer').replace('zoom', 'zoomer').replace('optics', 'optique').replace('HUD, detection, day/night, borders, time zones', 'HUD, détection, jour/nuit, frontières, fuseaux').replace('release / close', 'relâcher / fermer')],
+    ['📚', 'Sources', SOURCES_EN]
 ];
 
 const zh = [
@@ -123,11 +137,14 @@ const zh = [
     ['🎨', '光学', `<p>七种视图，按键 ${K('1')}–${K('7')}：正常、CRT、夜视、FLIR 热成像、Ironbow、黑白和雪。</p>`],
     ['👁️', '显示', `<ul><li><b>HUD</b>（${K('H')}）、<b>检测</b>（${K('D')}）显示名称和速度。</li><li><b>昼夜</b>（${K('N')}）及亮度滑块。</li>
         <li><b>边界</b>（${K('B')}）含省份和城市。</li><li><b>时区</b>（${K('Z')}）：彩色时区与当地时间；在图例中点击时区可高亮。</li></ul>`],
+    ['🌡️', '环境', `<ul><li><b>卫星图层</b>：NASA 每日陆地与海洋温度、NO₂、SO₂、气溶胶、降水、植被或积雪图像。</li>
+        <li><b>点击查看空气与天气</b>：点击地球空白处查看空气质量指数、细颗粒物、NO₂、臭氧、紫外线和当前天气。</li>
+        <li><b>空气质量（传感器）</b>图层：数千个实时测量点，颜色从优（青绿）到很差（紫色）。</li></ul>`],
     ['📻', '电台', `<p>打开底部电台栏；按名称、国家或类型搜索，仅显示视野内电台或 ★ 收藏。⏮ ⏭ 切换；关闭信息窗口后继续播放。</p>`],
     ['🗺️', '地图与 Power up', `<p>底图：Esri 卫星、暗色、OpenStreetMap 或 Google 3D。</p><p><b>Cesium ion 令牌</b>（可选，免费）：在 <a href="https://cesium.com/ion" target="_blank" rel="noopener">cesium.com/ion</a> 注册，在 <i>Access Tokens</i> 中复制 <i>Default token</i> 并粘贴到 Power up。启用 Google 3D 城市和全球地形；仅保存在此浏览器中。</p>`],
     ['🎙️', '语音', `<p>按下麦克风，说出例如“航班”“火车”“电台”“夜视”或地名。</p>`],
-    ['⌨️', '快捷键', en[9][2].replace('move', '移动').replace('zoom', '缩放').replace('optics', '光学').replace('HUD, detection, day/night, borders, time zones', 'HUD、检测、昼夜、边界、时区').replace('release / close', '释放 / 关闭')],
-    ['📚', '来源', en[10][2]]
+    ['⌨️', '快捷键', KEYS_EN.replace('move', '移动').replace('zoom', '缩放').replace('optics', '光学').replace('HUD, detection, day/night, borders, time zones', 'HUD、检测、昼夜、边界、时区').replace('release / close', '释放 / 关闭')],
+    ['📚', '来源', SOURCES_EN]
 ];
 
 const HELP = { en, nl, de, fr, zh };
