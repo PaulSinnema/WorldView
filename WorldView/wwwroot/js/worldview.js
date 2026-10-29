@@ -81,6 +81,7 @@ function loadSettings() {
     if (typeof S.coast !== 'boolean') S.coast = false;
     if (typeof S.eez !== 'boolean') S.eez = false;
     if (typeof S.nature !== 'boolean') S.nature = false;
+    if (typeof S.streets !== 'boolean') S.streets = false;
     if (typeof S.envOverlay !== 'string' || (S.envOverlay && S.envOverlay !== 'nh3' && !ENV_LAYERS[S.envOverlay])) S.envOverlay = '';
     if (typeof S.envClick !== 'boolean') S.envClick = true;
     S.lang = pickLang(S.lang);
@@ -392,9 +393,10 @@ export async function init(containerId, ref) {
     if (S.borders) setBorders(true);
     if (S.timezones) setTimezones(true);
     if (S.nature) applyNature();
+    if (S.streets) setStreets(true);
     for (const l of LAYERS) if (S.layers[l]) startLayer(l);
 
-    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, coast: S.coast, eez: S.eez, nature: S.nature, timezones: S.timezones, envOverlay: S.envOverlay, envClick: S.envClick, zoom: S.zoom, gpu: gpuName });
+    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, coast: S.coast, eez: S.eez, nature: S.nature, streets: S.streets, timezones: S.timezones, envOverlay: S.envOverlay, envClick: S.envClick, zoom: S.zoom, gpu: gpuName });
 }
 
 // Warn when the browser renders in software (hardware acceleration off or no GPU)
@@ -946,6 +948,7 @@ async function applyNature() {
     })());
     if (!natureHooked && natureLabels) {
         natureHooked = true;
+        viewer.camera.percentageChanged = Math.min(viewer.camera.percentageChanged, 0.15);
         viewer.camera.changed.addEventListener(refreshNature);
         viewer.camera.moveEnd.addEventListener(refreshNature);
     }
@@ -960,7 +963,7 @@ function refreshNature() {
     const h = camHeight(), rect = viewer.camera.computeViewRectangle(), want = new Map();
     if (S.nature) {
         const z = zoomOf(h) + 1;
-        const list = h < OSM_NATURE_H ? natureData.concat(osmNatureInView(rect, h)) : natureData;
+        const list = h < OSM_NATURE_H ? natureData.concat(osmNatureInView(rect)) : natureData;
         const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
         const placed = [];
         for (const f of list) { // most important first
@@ -990,21 +993,48 @@ function refreshNature() {
 const OMT_TILEJSON = 'https://tiles.openfreemap.org/planet';
 const osmNatureTiles = new Map(); // "z/x/y" -> rows | 'loading' | 'failed'
 let omtTemplate = null, osmNatureRefreshQueued = false;
-function osmNatureInView(rect, h) {
+// Web-mercator tiles [z, x, y] covering the view: most detailed zoom (maxZ..minZ) that needs at most maxTiles
+function omtTilesInView(rect, maxZ, minZ, maxTiles = 48) {
     if (!rect) return [];
     const w = toDeg(rect.west), e = toDeg(rect.east);
     if (e < w) return []; // antimeridian: skip
-    // Most detailed zoom (canals appear from z12) that needs at most 48 tiles
-    let z = 13, n, x0, x1, y0, y1;
+    let z = maxZ + 1, n, x0, x1, y0, y1;
     do {
         n = 2 ** --z;
         const tx = lon => Math.max(0, Math.min(n - 1, Math.floor((lon + 180) / 360 * n)));
         const ty = lat => { const r = toRad(Math.max(-85, Math.min(85, lat))); return Math.max(0, Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n))); };
         x0 = tx(w); x1 = tx(e); y0 = ty(toDeg(rect.north)); y1 = ty(toDeg(rect.south));
-    } while ((x1 - x0 + 1) * (y1 - y0 + 1) > 48 && z > 9);
-    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 48) return [];
+    } while ((x1 - x0 + 1) * (y1 - y0 + 1) > maxTiles && z > minZ);
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > maxTiles) return [];
     const out = [];
-    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) out.push([z, x, y]);
+    return out;
+}
+// Tilted view reaches the horizon: limit the view rectangle to the area around the point the camera looks at
+function nearRect(rect, h) {
+    const c = viewer.camera.pickEllipsoid(new Cz.Cartesian2(viewer.canvas.clientWidth / 2, viewer.canvas.clientHeight / 2));
+    const g = c ? Cz.Cartographic.fromCartesian(c) : viewer.camera.positionCartographic;
+    const dLat = Math.max(h * 3, 3000) / 111320, dLon = dLat / Math.max(0.1, Math.cos(g.latitude));
+    const lat = toDeg(g.latitude), lon = toDeg(g.longitude);
+    const near = Cz.Rectangle.fromDegrees(lon - dLon, Math.max(-89, lat - dLat), lon + dLon, Math.min(89, lat + dLat));
+    return rect ? Cz.Rectangle.intersection(rect, near) || near : near;
+}
+// One OpenFreeMap vector tile, decoded
+async function fetchOmt(z, x, y) {
+    omtTemplate ??= (await tryJson(OMT_TILEJSON, 15000))?.tiles?.[0];
+    if (!omtTemplate) throw new Error('tilejson');
+    const r = await fetch(omtTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y), { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return decodeMvt(await r.arrayBuffer());
+}
+// Tile pixel (0..extent) → lon/lat
+function omtLonLat(z, x, y, px, py, extent) {
+    const n = 2 ** z, X = x + px / extent, Y = y + py / extent;
+    return [X / n * 360 - 180, toDeg(Math.atan(Math.sinh(Math.PI * (1 - 2 * Y / n))))];
+}
+function osmNatureInView(rect) {
+    const out = [];
+    for (const [z, x, y] of omtTilesInView(nearRect(rect, camHeight()), 12, 9)) { // canals appear from z12
         const k = `${z}/${x}/${y}`, t = osmNatureTiles.get(k);
         if (Array.isArray(t)) out.push(...t);
         else if (!t) loadOsmNatureTile(k, z, x, y);
@@ -1016,11 +1046,7 @@ const SEA_CLASSES = new Set(['ocean', 'sea', 'bay', 'strait', 'gulf', 'sound', '
 async function loadOsmNatureTile(k, z, x, y) {
     osmNatureTiles.set(k, 'loading');
     try {
-        omtTemplate ??= (await tryJson(OMT_TILEJSON, 15000))?.tiles?.[0];
-        if (!omtTemplate) throw new Error('tilejson');
-        const r = await fetch(omtTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y), { signal: AbortSignal.timeout(20000) });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const layers = decodeMvt(await r.arrayBuffer()), n = 2 ** z, seen = new Set(), rows = [];
+        const layers = await fetchOmt(z, x, y), seen = new Set(), rows = [];
         for (const [ln, kindOf] of [['water_name', t => SEA_CLASSES.has(t.class) ? 'o' : 'l'], ['waterway', () => 'r'], ['mountain_peak', () => 'p']]) {
             const L = layers[ln];
             if (!L) continue;
@@ -1031,8 +1057,7 @@ async function loadOsmNatureTile(k, z, x, y) {
                 const kind = kindOf(t);
                 if (seen.has(kind + t.name)) continue; // one per name per tile
                 seen.add(kind + t.name);
-                const X = x + f.pt[0] / L.extent, Y = y + f.pt[1] / L.extent;
-                const lon = X / n * 360 - 180, lat = toDeg(Math.atan(Math.sinh(Math.PI * (1 - 2 * Y / n))));
+                const [lon, lat] = omtLonLat(z, x, y, f.pt[0], f.pt[1], L.extent);
                 const names = {};
                 for (const l of Object.keys(LANGS)) if (t['name:' + l]) names[l] = t['name:' + l];
                 rows.push({ k: kind, lon, lat, z: 0, name: t.name, n: names, ele: kind === 'p' && t.ele ? Math.round(t.ele) : null, carto: Cz.Cartographic.fromDegrees(lon, lat) });
@@ -1045,6 +1070,102 @@ async function loadOsmNatureTile(k, z, x, y) {
     } catch {
         osmNatureTiles.set(k, 'failed');
         setTimeout(() => osmNatureTiles.delete(k), 30000); // retry later
+    }
+}
+// Street names (OpenMapTiles transportation_name), drawn along the street by drawLabels below 6 km
+const STREETS_MAX_H = 10000;
+const streetTiles = new Map(); // "z/x/y" -> rows | 'loading' | 'failed'
+let streetShown = [], streetsHooked = false, streetRefreshQueued = false;
+const STREET_SKIP = /^(path|track|service|bridleway|ferry|rail|transit|aerialway|pier)$/;
+const STREET_MAJOR = /^(motorway|trunk|primary|secondary)$/;
+export function setStreets(on) {
+    S.streets = !!on; saveSettings();
+    if (S.streets && !streetsHooked) {
+        streetsHooked = true;
+        viewer.camera.percentageChanged = Math.min(viewer.camera.percentageChanged, 0.15);
+        viewer.camera.changed.addEventListener(refreshStreets);
+        viewer.camera.moveEnd.addEventListener(refreshStreets);
+    }
+    refreshStreets();
+}
+async function loadStreetTile(k, z, x, y) {
+    streetTiles.set(k, 'loading');
+    try {
+        const L = (await fetchOmt(z, x, y)).transportation_name, rows = [], placed = new Map(); // name -> label points (tile units)
+        const ext = L?.extent || 4096, step = ext / 4, minGap = ext / 8; // ≈ 1 label per 400 m at z14
+        const ll = p => omtLonLat(z, x, y, p[0], p[1], ext);
+        for (const f of L?.feats || []) {
+            const t = {};
+            for (let i = 0; i < f.tags.length; i += 2) t[L.keys[f.tags[i]]] = L.values[f.tags[i + 1]];
+            if (!t.name || STREET_SKIP.test(t.class || '') || !f.line || f.line.length < 2) continue;
+            // Label points along the line: every `step`, or the middle for short streets
+            const seg = [];
+            let len = 0;
+            for (let i = 1; i < f.line.length; i++) { const d = Math.hypot(f.line[i][0] - f.line[i - 1][0], f.line[i][1] - f.line[i - 1][1]); seg.push(d); len += d; }
+            const n = Math.max(1, Math.floor(len / step)), at = [];
+            for (let j = 0; j < n; j++) at.push(len * (j + 0.5) / n);
+            const pts = placed.get(t.name) || [];
+            let i = 0, acc = 0;
+            for (const d of at) {
+                while (i < seg.length - 1 && acc + seg[i] < d) acc += seg[i++];
+                const a = f.line[i], b = f.line[i + 1], k = seg[i] ? (d - acc) / seg[i] : 0;
+                const p = [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+                if (pts.some(q => Math.hypot(q[0] - p[0], q[1] - p[1]) < minGap)) continue; // same street, other piece close by
+                pts.push(p);
+                const [lon, lat] = ll(p), [alon, alat] = ll(a), [blon, blat] = ll(b);
+                rows.push({ text: t.name, major: STREET_MAJOR.test(t.class || ''), carto: Cz.Cartographic.fromDegrees(lon, lat),
+                    pos: Cz.Cartesian3.fromDegrees(lon, lat, 5), a: Cz.Cartesian3.fromDegrees(alon, alat, 5), b: Cz.Cartesian3.fromDegrees(blon, blat, 5) });
+            }
+            placed.set(t.name, pts);
+        }
+        streetTiles.set(k, rows);
+        if (!streetRefreshQueued) { streetRefreshQueued = true; requestAnimationFrame(() => { streetRefreshQueued = false; refreshStreets(); }); }
+    } catch {
+        streetTiles.set(k, 'failed');
+        setTimeout(() => streetTiles.delete(k), 30000); // retry later
+    }
+}
+function refreshStreets() {
+    streetShown = [];
+    if (!viewer || !S.streets || camHeight() > STREETS_MAX_H) return;
+    const rect = viewer.camera.computeViewRectangle(), list = [];
+    for (const [z, x, y] of omtTilesInView(nearRect(rect, camHeight()), 14, 12, 64)) { // street names: z14 all, z12–13 main roads
+        const k = `${z}/${x}/${y}`, t = streetTiles.get(k);
+        if (Array.isArray(t)) list.push(...t);
+        else if (!t) loadStreetTile(k, z, x, y);
+    }
+    list.sort((p, q) => q.major - p.major);
+    const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
+    const placed = [];
+    for (const s of list) {
+        if (!inView(rect, s.carto)) continue;
+        const p = toWin(viewer.scene, s.pos);
+        if (!p) continue;
+        // Declutter (axis-aligned box is good enough), one label per name nearby
+        const w = s.text.length * 6.5 + 6, x = p.x - w / 2;
+        if (placed.some(q => (x < q.x + q.w && x + w > q.x && Math.abs(p.y - q.y) < 16) || (q.t === s.text && Math.hypot(q.cx - p.x, q.y - p.y) < w + 120))) continue;
+        placed.push({ x, y: p.y, w, cx: p.x, t: s.text });
+        streetShown.push(s);
+        if (streetShown.length >= 250) break;
+    }
+}
+const scratchA = new Cz.Cartesian2(), scratchB = new Cz.Cartesian2(), scratchP = new Cz.Cartesian2();
+function drawStreetNames(ctx, occ, toWin, w, h) {
+    if (!streetShown.length) return;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    for (const s of streetShown) {
+        if (!occ.isPointVisible(s.pos)) continue;
+        const p = toWin(viewer.scene, s.pos, scratchP), a = toWin(viewer.scene, s.a, scratchA), b = toWin(viewer.scene, s.b, scratchB);
+        if (!p || !a || !b || p.x < -100 || p.y < -50 || p.x > w + 100 || p.y > h + 50) continue;
+        // Along the street, never upside down
+        let ang = Math.atan2(b.y - a.y, b.x - a.x);
+        if (ang > Math.PI / 2) ang -= Math.PI; else if (ang < -Math.PI / 2) ang += Math.PI;
+        ctx.save();
+        ctx.translate(Math.round(p.x), Math.round(p.y)); ctx.rotate(ang);
+        ctx.font = `${s.major ? 12 : 11}px "Share Tech Mono", monospace`;
+        ctx.strokeText(s.text, 0, 0);
+        ctx.fillStyle = s.major ? '#ffe9a8' : '#f2f2f2'; ctx.fillText(s.text, 0, 0);
+        ctx.restore();
     }
 }
 // Minimal Mapbox Vector Tile decoder: layer keys/values, feature tags and a label point (middle vertex of the first part)
@@ -1098,6 +1219,7 @@ function decodeMvt(buf) {
                         for (let j = 0; j < cnt; j++) { x += zz(geom[i++]); y += zz(geom[i++]); pts.push([x, y]); }
                     }
                     F.pt = pts[pts.length >> 1] || null;
+                    F.line = pts;
                 }
                 L.feats.push(F);
             }
@@ -2164,6 +2286,7 @@ function drawLabels() {
     const cam = viewer.camera.positionWC, occ = new Cz.EllipsoidalOccluder(Cz.Ellipsoid.WGS84, cam);
     const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
     const hits = [];
+    drawStreetNames(ctx, occ, toWin, w, h); // lowest layer
     // Draw order: countries, nature, provinces, time zones, cities, telescopes (later = on top)
     for (const set of [countryLabels, natureLabels, regionLabels, tzLabels, cityLabels, telLabels]) {
         if (!set || set.show === false) continue;

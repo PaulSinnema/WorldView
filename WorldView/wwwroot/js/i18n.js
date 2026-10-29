@@ -76,6 +76,8 @@ const S = {
     'btn.save': ['Save', 'Opslaan', 'Speichern', 'Enregistrer', '保存'],
     'ion.placeholder': ['Cesium ion token', 'Cesium ion-token', 'Cesium-ion-Token', 'Jeton Cesium ion', 'Cesium ion 令牌'],
     'btn.coast': ['Coastlines', 'Kustlijnen', 'Küsten', 'Côtes', '海岸线'],
+    'btn.streets': ['Street names', 'Straatnamen', 'Straßennamen', 'Noms de rues', '街道名称'],
+    'hint.streets': ['Below 10 km altitude (OpenStreetMap)', 'Onder 10 km hoogte (OpenStreetMap)', 'Unter 10 km Höhe (OpenStreetMap)', 'Sous 10 km d’altitude (OpenStreetMap)', '高度低于 10 公里时显示（OpenStreetMap）'],
     'btn.nature': ['Nature names', 'Natuurnamen', 'Naturnamen', 'Noms naturels', '地理名称'],
     'hint.nature': ['Seas, rivers, canals, lakes, mountains and landscapes', 'Zeeën, rivieren, kanalen, meren, bergen en landschappen', 'Meere, Flüsse, Kanäle, Seen, Berge und Landschaften', 'Mers, fleuves, canaux, lacs, montagnes et paysages', '海洋、河流、运河、湖泊、山脉和地貌'],
     'btn.eez': ['Sea borders', 'Zeegrenzen', 'Seegrenzen', 'Frontières maritimes', '海上边界'],

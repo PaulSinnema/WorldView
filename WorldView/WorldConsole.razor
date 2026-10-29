@@ -102,6 +102,7 @@ else if (error is not null)
     <div class="toggles" style="margin-top:4px">
         <button class="@(timezones ? "active" : "")" @onclick="ToggleTimezones">Z · @T("btn.timezones")</button>
         <button class="@(nature ? "active" : "")" @onclick="ToggleNature" title="@T("hint.nature")">@T("btn.nature")</button>
+        <button class="@(streets ? "active" : "")" @onclick="ToggleStreets" title="@T("hint.streets")">@T("btn.streets")</button>
     </div>
     @if (timezones && tzZones.Count > 0)
     {
@@ -400,7 +401,7 @@ else if (error is not null)
     private string style = "normal", basemap = "esri", ionToken = "", searchText = "";
     private string gpu = "";
     private int nightLight = 60;
-    private bool borders, regions = true, cities = true, coast, eez, nature, timezones, envClick = true;
+    private bool borders, regions = true, cities = true, coast, eez, nature, streets, timezones, envClick = true;
     private string envOverlay = "";
     private static readonly string[] EnvLayers = ["lstDay", "lstNight", "sst", "sstAnom", "no2", "so2", "nh3", "aod", "rain", "ndvi", "snow"];
     private string envLegend = "";
@@ -483,6 +484,7 @@ else if (error is not null)
                 coast = st.Coast;
                 eez = st.Eez;
                 nature = st.Nature;
+                streets = st.Streets;
                 envOverlay = st.EnvOverlay;
                 envLegend = await module.InvokeAsync<string>("getEnvLegend");
                 envClick = st.EnvClick;
@@ -589,6 +591,12 @@ else if (error is not null)
     {
         nature = !nature;
         if (module is not null) await module.InvokeVoidAsync("setNature", nature);
+    }
+
+    private async Task ToggleStreets()
+    {
+        streets = !streets;
+        if (module is not null) await module.InvokeVoidAsync("setStreets", streets);
     }
 
     private async Task ToggleTimezones()
@@ -929,6 +937,7 @@ else if (error is not null)
         public bool Coast { get; set; }
         public bool Eez { get; set; }
         public bool Nature { get; set; }
+        public bool Streets { get; set; }
         public string EnvOverlay { get; set; } = "";
         public bool EnvClick { get; set; } = true;
         public Dictionary<string, bool> Zoom { get; set; } = new();

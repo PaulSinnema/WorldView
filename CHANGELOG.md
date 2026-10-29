@@ -2,6 +2,17 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.81] - 2026-10-29
+
+### Fixed
+- Long streets are labelled repeatedly (about every 400 m, at least a label width plus 120 px apart on screen).
+- Street and OSM nature names also in a tilted view (only the area around the view centre is loaded) and up to 10 km altitude (main roads from 6 km).
+
+## [1.0.80] - 2026-10-29
+
+### Added
+- **Street names** toggle: below 6 km, names from OpenStreetMap (OpenFreeMap vector tiles) drawn along the street, main roads highlighted.
+
 ## [1.0.79] - 2026-10-29
 
 ### Changed
