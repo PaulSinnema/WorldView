@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.45] - 2026-10-29
+
+### Added
+- **Bus, tram, metro (NL)** layer: live positions of Dutch public transport via OVapi GTFS-Realtime (fetcher 1.3.0, `ov.json`), with line, operator and vehicle; line numbers from the static GTFS (read via HTTP ranges, daily).
+
 ## [1.0.44] - 2026-10-29
 
 ### Changed

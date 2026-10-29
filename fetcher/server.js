@@ -5,9 +5,10 @@ import { openskyToken, fetchOpensky, fetchMilitary } from './core.js';
 import { loadAircraftDb, loadTypes, lookup } from './aircraftdb.js';
 import { fetchNs, fetchFinland, fetchAmtrak } from './trains.js';
 import { startNsApi } from './nsapi.js';
+import { loadOvRoutes, fetchOv } from './ov.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -59,8 +60,17 @@ async function refreshDb() {
     try { await put('types.json', await loadTypes()); log('types: ok'); } catch (e) { log(`types: ${e.message}`); }
 }
 
+// Daily refresh of the Dutch PT routes (line numbers, operators)
+let lastOvRoutes = 0;
+async function refreshOvRoutes() {
+    if (Date.now() - lastOvRoutes < 86400000) return;
+    lastOvRoutes = Date.now();
+    try { log(`ov routes: ${await loadOvRoutes()}`); } catch (e) { lastOvRoutes -= 23 * 3600000; log(`ov routes: ${e.message}`); }
+}
+
 async function run() {
     await refreshDb();
+    await refreshOvRoutes();
     if (Date.now() - lastOpensky >= interval) {
         lastOpensky = Date.now(); // also on failure: respect credit budget
         try {
@@ -86,6 +96,11 @@ async function run() {
     const tr = [...nsList, ...(fi.value || []), ...(us.value || [])];
     try { await put('trains.json', { t: Math.round(Date.now() / 1000), src: 'NS · Digitraffic (CC BY 4.0) · Amtraker', tr }); log(`trains: ${tr.length}`); }
     catch (e) { log(`trains: ${e.message}`); }
+    try {
+        const ov = await fetchOv();
+        await put('ov.json', { t: Math.round(Date.now() / 1000), src: 'OVapi (NDOV)', ov });
+        log(`ov: ${ov.length}`);
+    } catch (e) { log(`ov: ${e.message}`); }
 }
 
 await mkdir(DATA, { recursive: true });

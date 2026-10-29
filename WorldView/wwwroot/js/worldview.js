@@ -1,7 +1,7 @@
 ﻿// WorldView globe engine: CesiumJS + keyless public feeds
 const Cz = window.Cesium;
 const SETTINGS_KEY = 'wv-settings';
-const LAYERS = ['flights', 'military', 'trains', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras'];
+const LAYERS = ['flights', 'military', 'trains', 'ov', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras'];
 const ORBITERS = ['satellites', 'telescopes'];
 const TEL_COLOR = '#00e5ff';
 // Earth-orbiting space telescopes (NORAD id, name)
@@ -13,13 +13,13 @@ const TELESCOPES = [[20580, 'Hubble', 'Hubble Space Telescope'], [25867, 'Chandr
 const L2_TELESCOPES = [['jwst', 'James Webb (JWST)', 3e8, 'James Webb Space Telescope'], ['euclid', 'Euclid', -3e8, 'Euclid (spacecraft)']];
 const L2_DIST = 1.5e9;
 const STYLE_KEYS = ['normal', 'crt', 'nvg', 'flir', 'ironbow', 'noir', 'snow'];
-const BILLBOARD_LAYERS = ['flights', 'military', 'trains', 'launches', 'cameras'];
-const MOVERS = ['flights', 'military', 'trains'];
+const BILLBOARD_LAYERS = ['flights', 'military', 'trains', 'ov', 'launches', 'cameras'];
+const MOVERS = ['flights', 'military', 'trains', 'ov'];
 const PLANES = ['flights', 'military'];
-const TRAIN_COLOR = '#9dff3a';
+const TRAIN_COLOR = '#9dff3a', OV_COLOR = '#ffd23f';
 const FT = 0.3048, R_EARTH = 6371000;
 const FEED_URL = 'https://flights.sinnema.ch'; // netcup VPS, see fetcher/README.md
-const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff' };
+const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff' };
 // Translations (same cache-busting version as this module)
 const { LANGS, LOCALES, pickLang, t, strings } = await import(`./i18n.js${new URL(import.meta.url).search}`);
 const tr = (key, params) => t(S.lang, key, params);
@@ -40,7 +40,7 @@ const CITIES = {
 let viewer = null, dotnet = null, sat = null;
 const S = { layers: {}, style: 'normal', basemap: 'esri', ionToken: '', hud: true, detect: false, daynight: true, nightLight: 60, borders: false, regions: true, cities: true, zoom: {}, cockpit: false };
 // Per layer: zoom/follow on click
-const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false };
+const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, ov: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false };
 const NIGHT_URL = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png';
 let nightLayer = null;
 // Night brightness 0..100 → city-lights blend 0.8..0.05 (60 ≈ 0.35)
@@ -105,6 +105,10 @@ function makeIcon(kind, color) {
         // Top view of a locomotive, nose up
         const p = [[0, -14], [6, -8], [6, 14], [-6, 14], [-6, -8]];
         p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
+    } else if (kind === 'bus') {
+        // Top view of a bus, front up
+        g.moveTo(-6, -11); g.quadraticCurveTo(-6, -14, -3, -14); g.lineTo(3, -14); g.quadraticCurveTo(6, -14, 6, -11);
+        g.lineTo(6, 14); g.lineTo(-6, 14); g.closePath();
     } else if (kind === 'rocket') {
         g.moveTo(0, -14); g.lineTo(5, -4); g.lineTo(5, 8); g.lineTo(9, 14); g.lineTo(-9, 14); g.lineTo(-5, 8); g.lineTo(-5, -4); g.closePath();
     } else {
@@ -268,7 +272,7 @@ function checkGpu() {
 export const getGpu = () => gpuName;
 
 // ---------- layers ----------
-const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras };
+const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, ov: loadOv, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras };
 
 export function setLayer(name, on) { applyLayer(name, on, false); }
 function applyLayer(name, on, fromEngine) {
@@ -434,6 +438,21 @@ async function loadTrains() {
         info: [['train', a[1]], ['operator', a[7]], ['country', a[6]], ['route', a[9]], ['from', a[10]], ['to', a[11]]].filter(([, v]) => v)
     })), 'train', TRAIN_COLOR);
     report('trains', 'st.age', { src: j.src, s: age(j.t) });
+    return 30000;
+}
+// Dutch public transport: [id, line, lat, lon, speedMs, heading, operator, mode, tPos, vehicle] (OVapi via fetcher)
+async function loadOv() {
+    const j = await getFeed('ov');
+    if (!j?.ov) { report('ov', 'st.feedDown'); return 30000; }
+    merge('ov', j.ov.map(a => {
+        const mode = () => tr('mode.' + a[7]);
+        return {
+            key: a[0], lat: a[2], lon: a[3], alt: 0, gs: a[4], track: a[5], ground: false, t: (a[8] || j.t) * 1000,
+            label: `${tr('mode.' + a[7])} ${a[1]}`.trim(),
+            info: [['line', a[1] || '—'], ['mode', mode], ['operator', a[6] || '—'], ['vehicle', a[9] || '—']]
+        };
+    }), 'bus', OV_COLOR);
+    report('ov', 'st.age', { src: j.src, s: age(j.t) });
     return 30000;
 }
 function merge(layer, list, kind, color) {
@@ -1470,7 +1489,7 @@ function tick() {
     if (selected && now - lastTrail > 1000) {
         lastTrail = now;
         // No trail for trains, nor for aircraft on the ground (taxiing gives odd tracks)
-        const noTrail = selected.layer === 'trains' || (MOVERS.includes(selected.layer) && store[selected.layer].get(selected.key)?.ground);
+        const noTrail = selected.layer === 'trains' || selected.layer === 'ov' || (MOVERS.includes(selected.layer) && store[selected.layer].get(selected.key)?.ground);
         if (noTrail) trail = [];
         else {
             const p = currentCartesian();
@@ -1613,6 +1632,7 @@ const VOICE_LAYERS = [
     ['bosbrand', 'fires'], ['brand', 'fires'], ['fire', 'fires'], ['feu', 'fires'], ['火', 'fires'],
     ['lancering', 'launches'], ['launch', 'launches'], ['raketenstart', 'launches'], ['lancement', 'launches'], ['发射', 'launches'],
     ['radio', 'radio'], ['电台', 'radio'],
+    ['bus', 'ov'], ['tram', 'ov'], ['metro', 'ov'], ['公交', 'ov'],
     ['trein', 'trains'], ['train', 'trains'], ['zug', 'trains'], ['züge', 'trains'], ['火车', 'trains'],
     ['camera', 'cameras'], ['kamera', 'cameras'], ['caméra', 'cameras'], ['摄像', 'cameras']];
 const VOICE_STYLES = [['nacht', 'nvg'], ['night', 'nvg'], ['nuit', 'nvg'], ['夜视', 'nvg'], ['nvg', 'nvg'], ['ironbow', 'ironbow'],
