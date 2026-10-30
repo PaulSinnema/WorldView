@@ -288,6 +288,31 @@ function clearEnvLayers() {
     const L = viewer.imageryLayers;
     for (let i = L.length - 1; i >= 0; i--) if (L.get(i)._wvEnv) L.remove(L.get(i));
     envLayer = null;
+    envLabels = [];
+}
+// Value labels of the current env layer: { pos, title, value, rank }
+let envLabels = [];
+function drawEnvLabels(ctx, occ, toWin, w, h) {
+    if (!envLabels.length) return;
+    const cam = viewer.camera.positionWC, placed = [];
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.fillStyle = '#fff';
+    for (const l of envLabels) {
+        if (!occ.isPointVisible(l.pos)) continue;
+        const s = toWin(viewer.scene, l.pos, scratchWin);
+        if (!s || s.x < -100 || s.y < -50 || s.x > w + 100 || s.y > h + 50) continue;
+        // Same distance scaling as the country names
+        const d = Cz.Cartesian3.distance(cam, l.pos), t = Math.min(1, Math.max(0, (d - 1e6) / 1.9e7)), k = 1.1 - 0.35 * t;
+        const f1 = 12 * k, f2 = 14 * k, x = Math.round(s.x), y = Math.round(s.y);
+        ctx.font = `600 ${f1.toFixed(1)}px "Share Tech Mono", monospace`; const w1 = ctx.measureText(l.title).width;
+        ctx.font = `bold ${f2.toFixed(1)}px sans-serif`; const w2 = ctx.measureText(l.value).width;
+        const hw = Math.max(w1, w2) / 2 + 3, top = y - f2 - 2, bottom = y + f2 + 2;
+        if (placed.some(p => x - hw < p[2] && x + hw > p[0] && top < p[3] && bottom > p[1])) continue;
+        placed.push([x - hw, top, x + hw, bottom]);
+        ctx.font = `600 ${f1.toFixed(1)}px "Share Tech Mono", monospace`; ctx.lineWidth = 3;
+        ctx.strokeText(l.title, x, y - f2 * 0.6); ctx.fillText(l.title, x, y - f2 * 0.6);
+        ctx.font = `bold ${f2.toFixed(1)}px sans-serif`; ctx.lineWidth = 3.5;
+        ctx.strokeText(l.value, x, y + f2 * 0.6); ctx.fillText(l.value, x, y + f2 * 0.6);
+    }
 }
 // Own legend: colour bar as data URL; shown at ~half size in the panel, so large type
 function gridLegendUrl(rgba, max, ticks, unit, min = 0) {
@@ -355,18 +380,22 @@ async function addPowerLayer(gen) {
     const d = await loadGrid('power.json');
     if (!d?.c) { if (gen === envGen) toast(tr('err.noData')); return; }
     const iso2 = p => { const c = String(p.ISO_A2_EH && p.ISO_A2_EH !== '-99' ? p.ISO_A2_EH : p.ISO_A2).toLowerCase(); return c === 'gb' ? 'uk' : c; };
-    await addCountryLayer(gen, p => d.c[iso2(p)], [-25, 34, 45, 72], 40, 'Energy-Charts (Fraunhofer ISE)');
+    await addCountryLayer(gen, p => d.c[iso2(p)], EUROPE_BOX, 40, 'Energy-Charts (Fraunhofer ISE)');
 }
+const EUROPE_BOX = [-25, 34, 45, 72];
 // Electricity per year (whole world, data/energy-year.json from Our World in Data / Ember: ISO3 → [year, g/kWh, renewable %])
 let energyYear = null;
 async function addPowerYearLayer(gen) {
     const d = await (energyYear ??= tryJson('data/energy-year.json', 20000));
     if (!d) { energyYear = null; if (gen === envGen) toast(tr('err.noData')); return; }
     const iso3 = p => p.ISO_A3 && p.ISO_A3 !== '-99' ? p.ISO_A3 : p.ADM0_A3; // France, Norway: ISO_A3 is -99 in Natural Earth
-    await addCountryLayer(gen, p => { const r = d[iso3(p)]; return r && { ci: r[1], ren: r[2] }; }, [-180, -90, 180, 90], 11, 'Ember / Our World in Data', 4);
+    const val = p => { const r = d[iso3(p)]; return r && { ci: r[1], ren: r[2] }; };
+    // World at low resolution (labels outside Europe) + Europe sharp on top (room for all its small countries)
+    await addCountryLayer(gen, val, [-180, -90, 180, 90], 11, 'Ember / Our World in Data', 99, EUROPE_BOX);
+    await addCountryLayer(gen, val, EUROPE_BOX, 40, 'Ember / Our World in Data');
 }
 // Country choropleth by g CO2/kWh with value labels; valueOf(props) → { ci, ren } | null; labels only up to maxRank (NE LABELRANK)
-async function addCountryLayer(gen, valueOf, [W0, S0, E0, N0], K, credit, maxRank = 99) {
+async function addCountryLayer(gen, valueOf, [W0, S0, E0, N0], K, credit, maxRank = 99, noLabels = null) {
     const geo = await (euCountries ??= tryJson(NE_BASE + 'ne_50m_admin_0_countries.geojson', 30000));
     if (!geo?.features) { euCountries = null; if (gen === envGen) toast(tr('err.noData')); return; }
     if (gen !== envGen) return;
@@ -383,18 +412,18 @@ async function addCountryLayer(gen, valueOf, [W0, S0, E0, N0], K, credit, maxRan
         g.beginPath();
         for (const poly of polys) for (const ring of poly) ring.forEach(([lon, lat], i) => i ? g.lineTo(X(lon), Y(lat)) : g.moveTo(X(lon), Y(lat)));
         g.fill('evenodd');
-        if ((f.properties.LABELRANK ?? 9) <= maxRank) labels.push([f.properties.LABEL_X, f.properties.LABEL_Y, v]);
+        const rank = f.properties.LABELRANK ?? 9;
+        if (rank <= maxRank) labels.push([f.properties.LABEL_X, f.properties.LABEL_Y, v, countryName(f.properties) || f.properties.NAME || '', rank]);
     }
-    // Value per country: g CO2/kWh and renewable share (type size follows the resolution, but stays readable)
-    const big = Math.max(16, 34 * K / 40), small = big * 0.76;
-    g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.fillStyle = '#fff';
-    for (const [lon, lat, v] of labels) {
+    // Area covered by a sharper layer: leave empty (no double colour)
+    if (noLabels) g.clearRect(X(noLabels[0]), Y(noLabels[3]), (noLabels[2] - noLabels[0]) * K, (noLabels[3] - noLabels[1]) * K);
+    // Per country: name, g CO2/kWh and renewable share; drawn on the screen overlay (constant size, decluttered per frame)
+    for (const [lon, lat, v, name, rank] of labels) {
         if (!Number.isFinite(lon) || lon < W0 || lon > E0 || lat < S0 || lat > N0) continue;
-        const x = X(lon), y = Y(lat);
-        g.font = `bold ${big}px sans-serif`; g.lineWidth = big / 5.5;
-        g.strokeText(`${v.ci} g`, x, y); g.fillText(`${v.ci} g`, x, y);
-        if (v.ren != null) { g.font = `${small}px sans-serif`; g.lineWidth = small / 5.5; g.strokeText(`${v.ren}% ♻`, x, y + big * 0.95); g.fillText(`${v.ren}% ♻`, x, y + big * 0.95); }
+        if (noLabels && lon >= noLabels[0] && lon <= noLabels[2] && lat >= noLabels[1] && lat <= noLabels[3]) continue; // handled by the sharper layer
+        envLabels.push({ pos: Cz.Cartesian3.fromDegrees(lon, lat, 200), title: name.toUpperCase(), value: `${v.ci} g${v.ren != null ? ` · ${v.ren}% ♻` : ''}`, rank });
     }
+    envLabels.sort((a, b) => a.rank - b.rank); // important countries win overlaps
     const provider = await Cz.SingleTileImageryProvider.fromUrl(cv.toDataURL(), { rectangle: Cz.Rectangle.fromDegrees(W0, S0, E0, N0), credit });
     if (gen !== envGen) return;
     envLayer = envAdd(provider);
@@ -2528,6 +2557,7 @@ export function setLang(lang) {
     document.documentElement.lang = lang;
     relabelCountries();
     refreshNature();
+    if (S.envOverlay === 'power' || S.envOverlay === 'powerYear') addEnvLayer(); // country names are drawn into the image
     for (const l of LAYERS) if (lastStatus[l]) notify('OnLayerStatus', l, store[l].size, statusText(l));
     if (selected) pushInfo();
     else if (cityPick) cityPick.spot ? selectSpot(cityPick.lat, cityPick.lon) : cityPick.LABEL_X != null ? selectCountry(cityPick) : cityPick.rank != null && cityPick.pop == null ? selectRegion(cityPick) : selectCity(cityPick, false);
@@ -2616,6 +2646,7 @@ function drawLabels() {
     // Draw order: countries, nature, provinces, time zones, cities, telescopes (later = on top)
     for (const set of [countryLabels, natureLabels, regionLabels, tzLabels, cityLabels, telLabels]) {
         if (!set || set.show === false) continue;
+        if (set === countryLabels && envLabels.length) continue; // env labels carry the names
         for (let i = 0; i < set.length; i++) {
             const l = set.get(i), p = l.position;
             if (!l.show || !l.text || !p) continue;
@@ -2642,6 +2673,7 @@ function drawLabels() {
             }
         }
     }
+    drawEnvLabels(ctx, occ, toWin, w, h); // on top
     labelHits = hits;
 }
 function drawDetect() {

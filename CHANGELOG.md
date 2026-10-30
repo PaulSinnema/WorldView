@@ -2,6 +2,15 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.101] - 2026-10-30
+### Changed
+- Electricity layer labels are drawn on the screen text layer: constant size like other names, decluttered while zooming (small countries such as the Netherlands appear when there is room)
+
+## [1.0.100] - 2026-10-30
+
+### Changed
+- Electricity layers (year and now) show the country name above the values, in the chosen language.
+
 ## [1.0.99] - 2026-10-30
 
 ### Added
