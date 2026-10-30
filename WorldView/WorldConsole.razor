@@ -25,6 +25,10 @@ else if (error is not null)
         <div>POS @FormatLat(camLat) @FormatLon(camLon)</div>
         <div>ALT @FormatAlt(camAlt) · HDG @camHeading.ToString("000")°</div>
         <div>@T("hud.optics") @StyleLabel(style).ToUpperInvariant()@(detect ? " · " + T("hud.detect") : "")@(cockpit ? " · COCKPIT" : "")</div>
+        @if (!string.IsNullOrEmpty(envSource))
+        {
+            <div>@T("hud.layer") @T("env." + envOverlay).ToUpperInvariant() · @T("hud.source") @envSource</div>
+        }
         @if (selection is not null)
         {
             <div class="hud-target">@T("hud.target") @selection.Title</div>
@@ -433,10 +437,11 @@ else if (error is not null)
     private int nightLight = 60;
     private bool borders, regions = true, cities = true, coast, eez, nature, streets, timezones, envClick = true;
     private string envOverlay = "";
-    private static readonly string[] EnvLayers = ["tempAnom", "lstDay", "lstNight", "sst", "sstAnom", "coral", "seaIce", "no2", "so2", "nh3", "co2", "ch4", "power", "ozoneCams", "ozone", "aod", "rain", "ndvi", "snow"];
+    private static readonly string[] EnvLayers = ["tempAnom", "lstDay", "lstNight", "sst", "sstAnom", "coral", "seaIce", "no2", "so2", "nh3", "co2", "ch4", "powerYear", "power", "ozoneCams", "ozone", "aod", "rain", "ndvi", "snow"];
     private string envLegend = "";
     private HashSet<string> envMissing = [];
     private string? knmiImg;
+    private string envSource = "";
     // KNMI/TEMIS ozone analysis for today (GOME-2 METOP-C); hourly cache key
     private static string KnmiUrl(string view, bool small) =>
         $"https://d1qb6yzwaaq4he.cloudfront.net/protocols/o3field/gome2c/forecast/today_{view}{(small ? "_sm" : "")}.png?h={DateTime.UtcNow:yyyyMMddHH}";
@@ -521,6 +526,7 @@ else if (error is not null)
                 nature = st.Nature;
                 streets = st.Streets;
                 envOverlay = st.EnvOverlay;
+                envSource = await module.InvokeAsync<string>("getEnvSource");
                 envLegend = await module.InvokeAsync<string>("getEnvLegend");
                 envClick = st.EnvClick;
                 foreach (var (k, v) in st.Zoom) zoomOn[k] = v;
@@ -649,7 +655,9 @@ else if (error is not null)
     private async Task OnEnvOverlayChange(ChangeEventArgs e)
     {
         envOverlay = e.Value?.ToString() ?? "";
-        if (module is not null) envLegend = await module.InvokeAsync<string>("setEnvOverlay", envOverlay);
+        if (module is null) return;
+        envLegend = await module.InvokeAsync<string>("setEnvOverlay", envOverlay);
+        envSource = await module.InvokeAsync<string>("getEnvSource");
     }
 
     private async Task ToggleEnvClick()

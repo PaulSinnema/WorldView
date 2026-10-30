@@ -26,6 +26,8 @@ jobs:
           node tools/build-tz.mjs
           node tools/build-sea.mjs
           node tools/build-nature.mjs
+          node tools/build-energy.mjs
+          node tools/build-plants.mjs
           node --max-old-space-size=6000 tools/build-coast.mjs
           node --max-old-space-size=6000 tools/build-borders.mjs
 

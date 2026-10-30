@@ -2,6 +2,12 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.99] - 2026-10-30
+
+### Added
+- **Electricity CO₂ per kWh (year, world)**: latest yearly carbon intensity and renewable share for ~210 countries (Ember via Our World in Data, `tools/build-energy.mjs`, also in the monthly geo update). The live layer is now "(now, Europe)".
+- HUD shows the active environment layer and its source.
+
 ## [1.0.98] - 2026-10-30
 
 ### Fixed

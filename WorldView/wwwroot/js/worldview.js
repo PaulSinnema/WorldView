@@ -309,7 +309,7 @@ const nh3LegendUrl = () => gridLegendUrl(nh3Rgba, 45, [0, 5, 10, 20, 30, 45], 'N
 const anomLegendUrl = () => gridLegendUrl(anomRgba, 100, [[-100, '−10'], [-50, '−5'], [0, '0'], [50, '+5'], [100, '+10']], tr('env.anomUnit'), -100);
 const o3LegendUrl = () => gridLegendUrl(o3Rgba, 500, [150, 220, 300, 380, 450, 500], 'O₃ Dobson (DU)', 150);
 // Environment overlays with their own rendering (not GIBS or fetcher grids)
-const OWN_ENV = ['coral', 'power'];
+const OWN_ENV = ['coral', 'power', 'powerYear'];
 // NOAA Coral Reef Watch bleaching alert (7-day max), ERDDAP WMS; colours as ERDDAP draws levels 0–4 (checked against the data)
 const CRW_LEVELS = [['#0000ff', 'crw.watch'], ['#00ff00', 'crw.warning'], ['#ff9900', 'crw.alert1'], ['#800000', 'crw.alert2']];
 // Global image prepared by the fetcher (coral.png, from the ERDDAP WMS)
@@ -350,46 +350,62 @@ function ciRgba(v) {
     return CI_STOPS.at(-1)[1];
 }
 let euCountries = null;
+// Electricity now (Europe, fetcher power.json: ISO2 keys, Energy-Charts)
 async function addPowerLayer(gen) {
-    const [d, geo] = await Promise.all([loadGrid('power.json'), euCountries ??= tryJson(NE_BASE + 'ne_50m_admin_0_countries.geojson', 30000)]);
-    if (!geo?.features) euCountries = null; // retry next time
-    if (!d?.c || !geo?.features || gen !== envGen) { if (!d?.c) toast(tr('err.noData')); return; }
-    // Europe in plate carrée, 40 px per degree
-    const W0 = -25, E0 = 45, S0 = 34, N0 = 72, K = 40, cv = document.createElement('canvas');
+    const d = await loadGrid('power.json');
+    if (!d?.c) { if (gen === envGen) toast(tr('err.noData')); return; }
+    const iso2 = p => { const c = String(p.ISO_A2_EH && p.ISO_A2_EH !== '-99' ? p.ISO_A2_EH : p.ISO_A2).toLowerCase(); return c === 'gb' ? 'uk' : c; };
+    await addCountryLayer(gen, p => d.c[iso2(p)], [-25, 34, 45, 72], 40, 'Energy-Charts (Fraunhofer ISE)');
+}
+// Electricity per year (whole world, data/energy-year.json from Our World in Data / Ember: ISO3 → [year, g/kWh, renewable %])
+let energyYear = null;
+async function addPowerYearLayer(gen) {
+    const d = await (energyYear ??= tryJson('data/energy-year.json', 20000));
+    if (!d) { energyYear = null; if (gen === envGen) toast(tr('err.noData')); return; }
+    const iso3 = p => p.ISO_A3 && p.ISO_A3 !== '-99' ? p.ISO_A3 : p.ADM0_A3; // France, Norway: ISO_A3 is -99 in Natural Earth
+    await addCountryLayer(gen, p => { const r = d[iso3(p)]; return r && { ci: r[1], ren: r[2] }; }, [-180, -90, 180, 90], 11, 'Ember / Our World in Data', 4);
+}
+// Country choropleth by g CO2/kWh with value labels; valueOf(props) → { ci, ren } | null; labels only up to maxRank (NE LABELRANK)
+async function addCountryLayer(gen, valueOf, [W0, S0, E0, N0], K, credit, maxRank = 99) {
+    const geo = await (euCountries ??= tryJson(NE_BASE + 'ne_50m_admin_0_countries.geojson', 30000));
+    if (!geo?.features) { euCountries = null; if (gen === envGen) toast(tr('err.noData')); return; }
+    if (gen !== envGen) return;
+    const cv = document.createElement('canvas');
     cv.width = (E0 - W0) * K; cv.height = (N0 - S0) * K;
     const g = cv.getContext('2d'), X = lon => (lon - W0) * K, Y = lat => (N0 - lat) * K;
-    const code = p => { const c = String(p.ISO_A2_EH && p.ISO_A2_EH !== '-99' ? p.ISO_A2_EH : p.ISO_A2).toLowerCase(); return c === 'gb' ? 'uk' : c; };
     const labels = [];
     for (const f of geo.features) {
-        const v = d.c[code(f.properties)];
-        if (!v) continue;
+        const v = valueOf(f.properties);
+        if (!v || v.ci == null) continue;
         const [r, gg, b, a] = ciRgba(v.ci);
         g.fillStyle = `rgba(${r},${gg},${b},${a / 255})`;
         const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
         g.beginPath();
         for (const poly of polys) for (const ring of poly) ring.forEach(([lon, lat], i) => i ? g.lineTo(X(lon), Y(lat)) : g.moveTo(X(lon), Y(lat)));
         g.fill('evenodd');
-        labels.push([f.properties.LABEL_X, f.properties.LABEL_Y, v]);
+        if ((f.properties.LABELRANK ?? 9) <= maxRank) labels.push([f.properties.LABEL_X, f.properties.LABEL_Y, v]);
     }
-    // Value per country: g CO2/kWh and renewable share
-    g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+    // Value per country: g CO2/kWh and renewable share (type size follows the resolution, but stays readable)
+    const big = Math.max(16, 34 * K / 40), small = big * 0.76;
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.fillStyle = '#fff';
     for (const [lon, lat, v] of labels) {
         if (!Number.isFinite(lon) || lon < W0 || lon > E0 || lat < S0 || lat > N0) continue;
         const x = X(lon), y = Y(lat);
-        g.font = 'bold 34px sans-serif'; g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.75)'; g.fillStyle = '#fff';
+        g.font = `bold ${big}px sans-serif`; g.lineWidth = big / 5.5;
         g.strokeText(`${v.ci} g`, x, y); g.fillText(`${v.ci} g`, x, y);
-        if (v.ren != null) { g.font = '26px sans-serif'; g.lineWidth = 5; g.strokeText(`${v.ren}% ♻`, x, y + 32); g.fillText(`${v.ren}% ♻`, x, y + 32); }
+        if (v.ren != null) { g.font = `${small}px sans-serif`; g.lineWidth = small / 5.5; g.strokeText(`${v.ren}% ♻`, x, y + big * 0.95); g.fillText(`${v.ren}% ♻`, x, y + big * 0.95); }
     }
-    const provider = await Cz.SingleTileImageryProvider.fromUrl(cv.toDataURL(), { rectangle: Cz.Rectangle.fromDegrees(W0, S0, E0, N0), credit: 'Energy-Charts (Fraunhofer ISE)' });
+    const provider = await Cz.SingleTileImageryProvider.fromUrl(cv.toDataURL(), { rectangle: Cz.Rectangle.fromDegrees(W0, S0, E0, N0), credit });
     if (gen !== envGen) return;
     envLayer = envAdd(provider);
 }
-const powerLegendUrl = () => gridLegendUrl(ciRgba, 800, [0, 200, 400, 600, 800], tr('env.ciUnit'));
+const powerLegendUrl = () => gridLegendUrl(ciRgba, 800, [0, 200, 400, 600, 800], S.envOverlay === 'powerYear' ? 'g CO₂/kWh · ♻ %' : tr('env.ciUnit'));
 function addEnvLayer() {
     clearEnvLayers();
     const gen = ++envGen;
     if (S.envOverlay === 'coral') { addCoralLayer(gen); return; }
     if (S.envOverlay === 'power') { addPowerLayer(gen); return; }
+    if (S.envOverlay === 'powerYear') { addPowerYearLayer(gen); return; }
     if (GRID_LAYERS[S.envOverlay]) { addGridLayer(gen, GRID_LAYERS[S.envOverlay]); return; }
     const e = ENV_LAYERS[S.envOverlay];
     if (!e) return;
@@ -475,7 +491,7 @@ async function relLegendUrl([file, , , unit]) {
     const ticks = [0, 1, 2, 3, 4].map(i => +(lo + i * step).toFixed(dec));
     return gridLegendUrl(relRgba(lo, hi), hi, ticks, unit, lo);
 }
-const envLegend = async () => S.envOverlay === 'coral' ? coralLegendUrl() : S.envOverlay === 'power' ? powerLegendUrl()
+const envLegend = async () => S.envOverlay === 'coral' ? coralLegendUrl() : S.envOverlay === 'power' || S.envOverlay === 'powerYear' ? powerLegendUrl()
     : GRID_LAYERS[S.envOverlay]?.[3] ? relLegendUrl(GRID_LAYERS[S.envOverlay])
     : S.envOverlay === 'nh3' ? nh3LegendUrl() : S.envOverlay === 'ozoneCams' ? o3LegendUrl() : S.envOverlay === 'tempAnom' ? anomLegendUrl()
     : ENV_PALETTE[S.envOverlay] && ENV_LAYERS[S.envOverlay] ? gibsLegendUrl(S.envOverlay) : '';
@@ -486,6 +502,15 @@ export function setEnvOverlay(name) {
     return envLegend();
 }
 export const getEnvLegend = () => envLegend();
+// Source of the environment layer, shown in the HUD
+const ENV_SOURCE = {
+    tempAnom: 'Copernicus ERA5 (ECMWF)', lstDay: 'NASA GIBS · MODIS Terra', lstNight: 'NASA GIBS · MODIS Terra', sst: 'NASA GIBS · GHRSST MUR',
+    sstAnom: 'NASA GIBS · GHRSST MUR', coral: 'NOAA Coral Reef Watch', seaIce: 'NASA GIBS · GHRSST MUR', no2: 'NASA GIBS · Sentinel-5P TROPOMI',
+    so2: 'NASA GIBS · MERRA-2', nh3: 'Open-Meteo · CAMS Europe', co2: 'Copernicus CAMS (ECMWF)', ch4: 'Copernicus CAMS (ECMWF)',
+    powerYear: 'Ember · Our World in Data', power: 'Energy-Charts (Fraunhofer ISE)', ozoneCams: 'Copernicus CAMS (ECMWF)', ozone: 'NASA GIBS · OMPS',
+    aod: 'NASA GIBS · MODIS/VIIRS MAIAC', rain: 'NASA GIBS · GPM IMERG', ndvi: 'NASA GIBS · MODIS Terra', snow: 'NASA GIBS · SMAP L4'
+};
+export const getEnvSource = () => ENV_SOURCE[S.envOverlay] || '';
 // Layers that need a Copernicus key on the fetcher (status.json keys); unknown or missing key → listed as unavailable
 const ENV_KEY = { ozoneCams: 'ads', co2: 'ads', ch4: 'ads', tempAnom: 'cds' };
 export async function getEnvMissing() {
