@@ -15,7 +15,7 @@ import { fetchTempAnomaly } from './era5.js';
 import { fetchCoral } from './coral.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.11.2';
+const VERSION = '1.11.3';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;

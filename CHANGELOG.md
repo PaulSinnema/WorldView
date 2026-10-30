@@ -4,6 +4,9 @@ All notable changes to WorldView. Versions follow `<Version>` in `WorldView/Worl
 
 ## [1.0.98] - 2026-10-30
 
+### Fixed
+- Fetcher 1.11.3: electricity CO₂ showed only UK, Ireland and Portugal after midnight. Energy-Charts returns only the country's local "today" by default, which is empty just after midnight; the fetcher now asks for yesterday + today.
+
 ### Changed
 - All NASA legends are now drawn by WorldView from the GIBS colour maps: large readable type, layer name in the chosen language, Kelvin shown as °C, very large/small values as e.g. 5.0e15 (the small NASA images remain the fallback).
 

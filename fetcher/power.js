@@ -13,9 +13,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function country(c) {
     let r;
+    // Without dates the API returns the local "today" only: just after midnight that is still empty → ask yesterday + today
+    const day = ms => new Date(Date.now() - ms).toISOString().slice(0, 10);
+    const url = `https://api.energy-charts.info/v2/public_power?country=${c}&start=${day(86400000)}&end=${day(-86400000)}`;
     // Rate limited (429): wait and retry twice
     for (let i = 0; i < 3; i++) {
-        r = await fetch(`https://api.energy-charts.info/v2/public_power?country=${c}`, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(30000) });
+        r = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(30000) });
         if (r.status !== 429) break;
         await sleep(30000);
     }
@@ -36,14 +39,14 @@ async function country(c) {
     return { t: Math.round(Date.parse(row.timestamp) / 1000), ci: Math.round(g / mw), ren: ren == null ? null : Math.round(ren), mix };
 }
 
-// Countries that fail this round keep their previous value (max 6 h old)
+// Countries that fail this round keep their previous value (data max 12 h old)
 const last = {};
 export async function fetchPower() {
     for (const k of COUNTRIES) {
         try { const v = await country(k); if (v) last[k] = v; } catch { /* keep previous */ }
         await sleep(6000); // fair use: the API rate-limits bursts
     }
-    const c = Object.fromEntries(Object.entries(last).filter(([, v]) => Date.now() / 1000 - v.t < 6 * 3600));
+    const c = Object.fromEntries(Object.entries(last).filter(([, v]) => Date.now() / 1000 - v.t < 12 * 3600));
     if (!Object.keys(c).length) throw new Error('no countries');
     return { t: Math.round(Date.now() / 1000), c };
 }
