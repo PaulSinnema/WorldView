@@ -1,58 +1,24 @@
-﻿// Copernicus CAMS grids via the Atmosphere Data Store (ADS): total ozone (DU), XCO2 (ppm), XCH4 (ppb); whole Earth incl. polar night
-// Served as ozone.json / co2.json / ch4.json: { t, valid, w, s, step, nx, ny, v: [rows from south to north, west to east] }
-// Needs a free ADS account (personal access token) and the dataset licence accepted on its download page
-const ADS = 'https://ads.atmosphere.copernicus.eu/api/retrieve/v1';
-const DATASET = 'cams-global-atmospheric-composition-forecasts';
+﻿// Total ozone column (DU) from the NOAA GFS analysis via NOMADS (no key); whole Earth incl. polar night (model assimilates satellite data)
+// Served as ozone.json: { t, valid, w, s, step, nx, ny, v: [rows from south to north, west to east] }
+const NOMADS = 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_1p00.pl';
 const UA = 'WorldView-fetcher/1.0 (+https://flights.sinnema.ch)';
-const DU = 2.1415e-5; // kg/m² per Dobson unit
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// Yesterday's 00 UTC run, +24 h = today 00 UTC (runs are complete well within a day)
-const runDate = () => new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-const validOf = run => `${new Date(Date.parse(run) + 86400000).toISOString().slice(0, 10)}T00:00Z`;
-export async function fetchOzone(key) {
-    const run = runDate();
-    const g = await camsGrib(key, DATASET, { variable: ['total_column_ozone'], date: [`${run}/${run}`], time: ['00:00'], leadtime_hour: ['24'], type: ['forecast'], data_format: 'grib' });
-    return { t: Math.round(Date.now() / 1000), valid: validOf(run), ...toGrid(g, v => Math.round(v / DU)) };
-}
-// Greenhouse gases (CAMS global greenhouse gas forecasts): column-mean mole fraction, XCO2 in ppm and XCH4 in ppb
-const GHG = 'cams-global-greenhouse-gas-forecasts';
-// Unit check: the data may come as mole fraction (mol/mol) or already in ppm/ppb
-const toUnit = (g, expect) => { const s = [...g.values].filter(Number.isFinite).sort((a, b) => a - b); const med = s[s.length >> 1] || 0; let f = 1; while (med > 0 && med * f < expect / 30 && f < 1e12) f *= 1000; return f; };
-async function fetchGhg(key, variable, expect, round) {
-    const run = runDate();
-    const g = await camsGrib(key, GHG, { variable: [variable], date: [`${run}/${run}`], leadtime_hour: ['24'], data_format: 'grib' });
-    const f = toUnit(g, expect);
-    return { t: Math.round(Date.now() / 1000), valid: validOf(run), ...toGrid(g, v => round(v * f)) };
-}
-export const fetchCo2 = key => fetchGhg(key, 'co2_column_mean_molar_fraction', 420, v => Math.round(v * 10) / 10); // ppm
-export const fetchCh4 = key => fetchGhg(key, 'ch4_column_mean_molar_fraction', 1900, v => Math.round(v)); // ppb
-
-// Submit an ADS request, wait for the job, download the GRIB and decode it
-const camsGrib = async (key, dataset, inputs) => decodeGrib(await requestData(ADS, key, dataset, inputs));
-// Copernicus data store request (ADS and CDS share this API): submit, poll the job, download the result
-export async function requestData(base, key, dataset, inputs) {
-    const headers = { 'PRIVATE-TOKEN': key, 'User-Agent': UA, 'Content-Type': 'application/json', Accept: 'application/json' };
-    let r = await fetch(`${base}/processes/${dataset}/execution`, { method: 'POST', headers, body: JSON.stringify({ inputs }) });
-    if (!r.ok) throw new Error(`ADS submit HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
-    let job = await r.json();
-    const jobUrl = job.links?.find(l => l.rel === 'monitor')?.href || `${base}/jobs/${job.jobID}`;
-    // Queue: poll up to 30 min
-    for (let i = 0; i < 180 && job.status !== 'successful'; i++) {
-        if (['failed', 'rejected', 'dismissed', 'deleted'].includes(job.status)) throw new Error(`ADS job ${job.status}`);
-        await sleep(10000);
-        r = await fetch(jobUrl, { headers });
-        if (!r.ok) throw new Error(`ADS job HTTP ${r.status}`);
-        job = await r.json();
+// Latest GFS run that is on the server (runs every 6 h, published ≈ 4 h later): try newest first
+export async function fetchOzone() {
+    let err;
+    for (let back = 4; back <= 28; back += 6) {
+        const run = new Date(Date.now() - back * 3600000);
+        run.setUTCHours(Math.floor(run.getUTCHours() / 6) * 6, 0, 0, 0);
+        const ymd = run.toISOString().slice(0, 10).replace(/-/g, ''), hh = String(run.getUTCHours()).padStart(2, '0');
+        const url = `${NOMADS}?dir=%2Fgfs.${ymd}%2F${hh}%2Fatmos&file=gfs.t${hh}z.pgrb2.1p00.f000&var_TOZNE=on&all_lev=on`;
+        try {
+            const r = await fetch(url, { headers: { 'User-Agent': UA } });
+            if (!r.ok) throw new Error(`GFS ${ymd}/${hh} HTTP ${r.status}`);
+            const g = decodeGrib(Buffer.from(await r.arrayBuffer()));
+            return { t: Math.round(Date.now() / 1000), valid: run.toISOString().slice(0, 16) + 'Z', ...toGrid(g, v => Math.round(v)) };
+        } catch (e) { err = e; } // not published yet: previous run
     }
-    if (job.status !== 'successful') throw new Error('ADS job timeout');
-    r = await fetch(`${jobUrl}/results`, { headers });
-    if (!r.ok) throw new Error(`ADS results HTTP ${r.status}`);
-    const href = new URL((await r.json())?.asset?.value?.href, jobUrl).href;
-    // Download link points at storage: no token needed there
-    r = await fetch(href, { headers: { 'User-Agent': UA } });
-    if (!r.ok) throw new Error(`ADS download HTTP ${r.status}`);
-    return Buffer.from(await r.arrayBuffer());
+    throw err;
 }
 
 // Resample the model grid to 1° cell centres (nearest point), values converted by conv
@@ -67,9 +33,9 @@ export function toGrid(g, conv) {
     return { w, s, step: 1, nx, ny, v };
 }
 
-// Minimal GRIB decoder (edition 1 and 2, regular lat/lon, simple packing, no bitmap): first message only
-// Returns { ni, nj, la1, lo1, di, dj (signed: direction of rows), values }
-const sm = (v, bits) => (v & (1 << (bits - 1))) ? -(v & ((1 << (bits - 1)) - 1)) : v; // sign-magnitude
+// Minimal GRIB decoder (edition 1 and 2, regular lat/lon, simple or complex packing, no bitmap): first message from 'from'
+// Returns { ni, nj, la1, lo1, di, dj (signed: direction of rows), values, end }
+const sm = (v, bits) => v >= 2 ** (bits - 1) ? -(v - 2 ** (bits - 1)) : v; // sign-magnitude
 function ibmFloat(b, o) {
     const sign = b[o] & 0x80 ? -1 : 1, exp = (b[o] & 0x7f) - 64, mant = (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
     return sign * mant / 2 ** 24 * 16 ** exp;
@@ -83,6 +49,40 @@ function unpack(b, o, n, nbits, R, E, D) {
         out[k] = (R + x * f) / d;
     }
     return out;
+}
+// Bit stream reader (MSB first)
+function bits(b, o) {
+    let bit = o * 8;
+    return {
+        read(n) { let x = 0; for (let q = 0; q < n; q++, bit++) x = x * 2 + ((b[bit >> 3] >> (7 - (bit & 7))) & 1); return x; },
+        align() { bit = Math.ceil(bit / 8) * 8; }
+    };
+}
+// GRIB2 complex packing (template 5.2) and with spatial differencing (5.3); s5 = section 5 start, o = data start
+function unpackComplex(b, s5, o, n) {
+    const tmpl = b.readUInt16BE(s5 + 9), R = b.readFloatBE(s5 + 11), E = sm(b.readUInt16BE(s5 + 15), 16), D = sm(b.readUInt16BE(s5 + 17), 16), nb = b[s5 + 19];
+    if (b[s5 + 22]) throw new Error('GRIB2 missing values not supported');
+    const NG = b.readUInt32BE(s5 + 31), wRef = b[s5 + 35], wBits = b[s5 + 36], lRef = b.readUInt32BE(s5 + 37), lInc = b[s5 + 41], lLast = b.readUInt32BE(s5 + 42), lBits = b[s5 + 46];
+    const order = tmpl === 3 ? b[s5 + 47] : 0, oct = tmpl === 3 ? b[s5 + 48] : 0;
+    const r = bits(b, o), ext = [];
+    for (let k = 0; k < (order ? order + 1 : 0); k++) ext.push(sm(r.read(oct * 8), oct * 8)); // first values + minimum
+    const refs = new Array(NG), ws = new Array(NG), ls = new Array(NG);
+    for (let g = 0; g < NG; g++) refs[g] = r.read(nb);
+    r.align();
+    for (let g = 0; g < NG; g++) ws[g] = wRef + r.read(wBits);
+    r.align();
+    for (let g = 0; g < NG; g++) ls[g] = lRef + r.read(lBits) * lInc;
+    r.align();
+    ls[NG - 1] = lLast;
+    const X = new Float64Array(n);
+    let k = 0;
+    for (let g = 0; g < NG; g++) for (let j = 0; j < ls[g] && k < n; j++) X[k++] = refs[g] + (ws[g] ? r.read(ws[g]) : 0);
+    if (k !== n) throw new Error(`GRIB2 complex packing: ${k} of ${n} values`);
+    if (order === 1) { X[0] = ext[0]; for (let i = 1; i < n; i++) X[i] += ext[1] + X[i - 1]; }
+    if (order === 2) { X[0] = ext[0]; X[1] = ext[1]; for (let i = 2; i < n; i++) X[i] += ext[2] + 2 * X[i - 1] - X[i - 2]; }
+    const f = 2 ** E, d = 10 ** D;
+    for (let i = 0; i < n; i++) X[i] = (R + X[i] * f) / d;
+    return X;
 }
 export function decodeGrib(b, from = 0) {
     const start = b.indexOf('GRIB', from);
@@ -117,20 +117,16 @@ export function decodeGrib(b, from = 0) {
             const di = b.readUInt32BE(t + 49) / 1e6, dj = b.readUInt32BE(t + 53) / 1e6, scan = b[t + 57];
             grid = { ni, nj, la1, lo1, di, dj: scan & 0x40 ? dj : -dj };
         } else if (sec === 5) {
-            if (b.readUInt16BE(p + 9) !== 0) throw new Error('GRIB2 packing is not simple');
-            pack = { n: b.readUInt32BE(p + 5), R: b.readFloatBE(p + 11), E: sm(b.readUInt16BE(p + 15), 16), D: sm(b.readUInt16BE(p + 17), 16), nbits: b[p + 19] };
+            const tmpl = b.readUInt16BE(p + 9);
+            if (![0, 2, 3].includes(tmpl)) throw new Error(`GRIB2 packing template ${tmpl} not supported`);
+            pack = { s5: p, tmpl, n: b.readUInt32BE(p + 5), R: b.readFloatBE(p + 11), E: sm(b.readUInt16BE(p + 15), 16), D: sm(b.readUInt16BE(p + 17), 16), nbits: b[p + 19] };
         } else if (sec === 6 && b[p + 5] !== 255) throw new Error('GRIB2 bitmap not supported');
         else if (sec === 7) {
             if (!grid || !pack) throw new Error('GRIB2 sections missing');
-            return { ...grid, values: unpack(b, p + 5, pack.n, pack.nbits, pack.R, pack.E, pack.D), end };
+            const values = pack.tmpl ? unpackComplex(b, pack.s5, p + 5, pack.n) : unpack(b, p + 5, pack.n, pack.nbits, pack.R, pack.E, pack.D);
+            return { ...grid, values, end };
         }
         p += len;
     }
     throw new Error('GRIB2 data section missing');
-}
-// All messages in a file, one at a time (keeps memory low): fn(field) per message
-export function eachGrib(b, fn) {
-    let from = 0, n = 0;
-    while (b.indexOf('GRIB', from) >= 0) { const g = decodeGrib(b, from); fn(g); from = g.end; n++; }
-    return n;
 }

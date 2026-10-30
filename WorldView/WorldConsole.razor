@@ -58,6 +58,34 @@ else if (error is not null)
         }
     </select>
 
+    <h3>@T("sec.env")</h3>
+    <select value="@envOverlay" @onchange="OnEnvOverlayChange" aria-label="@T("sec.env")">
+        <option value="">@T("env.none")</option>
+        @foreach (var e in EnvLayers)
+        {
+            var missing = envMissing.Contains(e);
+            <option value="@e" disabled="@missing">@T("env." + e)@(missing ? " " + T("env.needsKey") : "")</option>
+        }
+    </select>
+    @if (!string.IsNullOrEmpty(envLegend))
+    {
+        @* Colour bar with units (NASA GIBS) *@
+        <img class="env-legend" src="@envLegend" alt="@T("env.legend")" />
+    }
+    @if (envOverlay.StartsWith("ozone"))
+    {
+        @* KNMI/TEMIS assimilated total ozone, polar views (images only) *@
+        <div class="hint">@T("env.knmi")</div>
+        <div class="knmi">
+            <img src="@KnmiUrl("np", true)" alt="KNMI N" @onclick='() => knmiImg = KnmiUrl("np", false)' />
+            <img src="@KnmiUrl("sp", true)" alt="KNMI S" @onclick='() => knmiImg = KnmiUrl("sp", false)' />
+        </div>
+    }
+    <div class="toggles" style="margin-top:4px; grid-template-columns: 1fr">
+        <button class="@(envClick ? "active" : "")" @onclick="ToggleEnvClick">@T("env.click")</button>
+    </div>
+    <div class="hint">@T("env.hint")</div>
+
     <h3>@T("sec.layers")</h3>
     @foreach (var l in LayerDefs)
     {
@@ -135,34 +163,6 @@ else if (error is not null)
     {
         <div class="hint">GPU: @gpu</div>
     }
-
-    <h3>@T("sec.env")</h3>
-    <select value="@envOverlay" @onchange="OnEnvOverlayChange" aria-label="@T("sec.env")">
-        <option value="">@T("env.none")</option>
-        @foreach (var e in EnvLayers)
-        {
-            var missing = envMissing.Contains(e);
-            <option value="@e" disabled="@missing">@T("env." + e)@(missing ? " " + T("env.needsKey") : "")</option>
-        }
-    </select>
-    @if (!string.IsNullOrEmpty(envLegend))
-    {
-        @* Colour bar with units (NASA GIBS) *@
-        <img class="env-legend" src="@envLegend" alt="@T("env.legend")" />
-    }
-    @if (envOverlay.StartsWith("ozone"))
-    {
-        @* KNMI/TEMIS assimilated total ozone, polar views (images only) *@
-        <div class="hint">@T("env.knmi")</div>
-        <div class="knmi">
-            <img src="@KnmiUrl("np", true)" alt="KNMI N" @onclick='() => knmiImg = KnmiUrl("np", false)' />
-            <img src="@KnmiUrl("sp", true)" alt="KNMI S" @onclick='() => knmiImg = KnmiUrl("sp", false)' />
-        </div>
-    }
-    <div class="toggles" style="margin-top:4px">
-        <button class="@(envClick ? "active" : "")" @onclick="ToggleEnvClick">@T("env.click")</button>
-    </div>
-    <div class="hint">@T("env.hint")</div>
 
     <h3>@T("sec.map")</h3>
     <select value="@basemap" @onchange="OnBasemapChange">
@@ -437,7 +437,7 @@ else if (error is not null)
     private int nightLight = 60;
     private bool borders, regions = true, cities = true, coast, eez, nature, streets, timezones, envClick = true;
     private string envOverlay = "";
-    private static readonly string[] EnvLayers = ["tempAnom", "lstDay", "lstNight", "sst", "sstAnom", "coral", "seaIce", "no2", "so2", "nh3", "co2", "ch4", "powerYear", "power", "ozoneCams", "ozone", "aod", "rain", "ndvi", "snow"];
+    private static readonly string[] EnvLayers = ["tempAnom", "lstDay", "lstNight", "sst", "sstAnom", "coral", "seaIce", "no2", "so2", "nh3", "powerYear", "power", "ozoneCams", "ozone", "aod", "rain", "ndvi", "snow"];
     private string envLegend = "";
     private HashSet<string> envMissing = [];
     private string? knmiImg;

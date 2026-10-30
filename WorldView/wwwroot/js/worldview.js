@@ -185,7 +185,8 @@ const ENV_LAYERS = {
     // polar areas only (e[5])
     seaIce: ['GHRSST_L4_MUR_Sea_Ice_Concentration', 6, 0, null, 0, [[-180, 40, 180, 90], [-180, -90, 180, -45]], '1km'],
     // TROPOMI: the latest day is still incomplete, so show the day before yesterday (3rd value = days back)
-    no2: ['TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column', 6, 2, '#ffee8c', 0.15],
+    // Per-pixel filter (e[7]): clean air (pale yellow) fades out, gaps between swath lines filled
+    no2: ['TROPOMI_L2_Nitrogen_Dioxide_Tropospheric_Column', 6, 2, null, 0, null, null, no2Alpha],
     // SO2: MERRA-2 monthly model field (gap-free); 4th value = palette colour made transparent (clean air)
     so2: ['MERRA2_SO2_Column_Mass_Density_Monthly', 6, 0, '#fff7bc'],
     // Ozone: OMPS daily total column (Dobson units); today is still incomplete, so yesterday
@@ -245,9 +246,8 @@ function anomRgba(v10) {
 }
 // Fetcher grids → smooth translucent image: [file, colour fn (or factory for relative scales), credit, unit for relative legend]
 const GRID_LAYERS = {
-    tempAnom: ['tempanom.json', anomRgba, 'Copernicus ERA5 (ECMWF)'],
-    nh3: ['nh3.json', nh3Rgba, 'Open-Meteo / CAMS Europe'], ozoneCams: ['ozone.json', o3Rgba, 'Copernicus CAMS (ECMWF)'],
-    co2: ['co2.json', null, 'Copernicus CAMS (ECMWF)', 'XCO₂ ppm'], ch4: ['ch4.json', null, 'Copernicus CAMS (ECMWF)', 'XCH₄ ppb']
+    tempAnom: ['tempanom.json', anomRgba, 'NASA GISTEMP v4'],
+    nh3: ['nh3.json', nh3Rgba, 'Open-Meteo / CAMS Europe'], ozoneCams: ['ozone.json', o3Rgba, 'NOAA GFS']
 };
 // Grid files cached for 10 minutes (layer + legend share one download)
 const gridCache = {};
@@ -279,6 +279,55 @@ async function addGridLayer(gen, [file, rgbaFn, credit]) {
     envLayer = envAdd(provider);
 }
 // Environment imagery is tagged, so switching always removes every earlier overlay (also late async ones)
+// NO2 palette pale yellow → orange → red: strength = how much redder than green/blue; pale (clean air) and grey (no retrieval) → transparent
+function no2Alpha(r, g, b) { return Math.max(0, Math.min(1, ((2 * r - g - b) / 510 - 0.3) / 0.2)); }
+// One source tile on a canvas: alpha per pixel, then fills 1–2 px gaps (L2 swath lines)
+function filterTile(img, alphaOf) {
+    const w = img.width, h = img.height, c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, w, h), a = d.data;
+    for (let i = 0; i < a.length; i += 4) if (a[i + 3]) a[i + 3] = Math.round(a[i + 3] * alphaOf(a[i], a[i + 1], a[i + 2]));
+    // Fill empty pixels from the nearest filled one above/below/left/right (two passes)
+    for (let pass = 0; pass < 2; pass++) {
+        const src = a.slice();
+        for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
+            const i = (yy * w + xx) * 4;
+            if (src[i + 3]) continue;
+            for (const j of [i - w * 4, i + w * 4, xx ? i - 4 : -1, xx < w - 1 ? i + 4 : -1]) {
+                if (j >= 0 && j < src.length && src[j + 3]) { a[i] = src[j]; a[i + 1] = src[j + 1]; a[i + 2] = src[j + 2]; a[i + 3] = src[j + 3]; break; }
+            }
+        }
+    }
+    g.putImageData(d, 0, 0);
+    return c;
+}
+// Every tile built from one fixed source level: GIBS samples L2 swaths differently per level, so the picture changed while zooming.
+// Lower levels = downscaled mosaic of source tiles, higher levels = Cesium enlarges the source level
+const FILTER_SRC_LEVEL = 4; // ≈ 6–10 km per pixel; whole world = 256 tiles
+function filteredProvider(opts, alphaOf) {
+    const p = new Cz.UrlTemplateImageryProvider({ ...opts, maximumLevel: FILTER_SRC_LEVEL });
+    const url = (x, y) => opts.url.replace('{z}', FILTER_SRC_LEVEL).replace('{y}', y).replace('{x}', x);
+    const cache = new Map(); // processed source tiles, LRU
+    const source = (x, y) => {
+        const k = `${x}/${y}`;
+        let pr = cache.get(k);
+        if (pr) { cache.delete(k); cache.set(k, pr); return pr; }
+        pr = fetch(url(x, y)).then(r => r.ok ? r.blob() : null).then(b => b && createImageBitmap(b)).then(img => img && filterTile(img, alphaOf)).catch(() => null);
+        cache.set(k, pr);
+        if (cache.size > 200) cache.delete(cache.keys().next().value);
+        return pr;
+    };
+    p.requestImage = async (x, y, level) => {
+        const n = 2 ** (FILTER_SRC_LEVEL - level), s = 256 / n, out = document.createElement('canvas'); out.width = out.height = 256;
+        const g = out.getContext('2d'); g.imageSmoothingQuality = 'high';
+        const parts = [];
+        for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) parts.push(source(x * n + i, y * n + j).then(c => { if (c) g.drawImage(c, i * s, j * s, s, s); }));
+        await Promise.all(parts);
+        return out;
+    };
+    return p;
+}
 function envAdd(provider) {
     const l = viewer.imageryLayers.addImageryProvider(provider);
     l._wvEnv = true;
@@ -446,9 +495,8 @@ function addEnvLayer() {
             url: `https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/${e[0]}/default/${time}/${e[6]}/{z}/{y}/{x}.png`, tileWidth: 512, tileHeight: 512,
             tilingScheme: new Cz.GeographicTilingScheme({ rectangle: Cz.Rectangle.fromDegrees(-180, -198, 396, 90), numberOfLevelZeroTilesX: 2, numberOfLevelZeroTilesY: 1 })
         } : { url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${e[0]}/default/${time}/GoogleMapsCompatible_Level${e[1]}/{z}/{y}/{x}.png` };
-        envLayer = envAdd(new Cz.UrlTemplateImageryProvider({
-            ...geo, maximumLevel: e[1], credit: 'NASA GIBS', ...(r ? { rectangle: Cz.Rectangle.fromDegrees(...r) } : {})
-        }));
+        const opts = { ...geo, maximumLevel: e[1], credit: 'NASA GIBS', ...(r ? { rectangle: Cz.Rectangle.fromDegrees(...r) } : {}) };
+        envLayer = envAdd(e[7] ? filteredProvider(opts, e[7]) : new Cz.UrlTemplateImageryProvider(opts));
         envLayer.alpha = 0.75;
         // Lowest (clean) values transparent, so only real concentrations show
         if (e[3]) { envLayer.colorToAlpha = Cz.Color.fromCssColorString(e[3]); envLayer.colorToAlphaThreshold = e[4] ?? 0.12; }
@@ -533,15 +581,15 @@ export function setEnvOverlay(name) {
 export const getEnvLegend = () => envLegend();
 // Source of the environment layer, shown in the HUD
 const ENV_SOURCE = {
-    tempAnom: 'Copernicus ERA5 (ECMWF)', lstDay: 'NASA GIBS · MODIS Terra', lstNight: 'NASA GIBS · MODIS Terra', sst: 'NASA GIBS · GHRSST MUR',
+    tempAnom: 'NASA GISTEMP v4', lstDay: 'NASA GIBS · MODIS Terra', lstNight: 'NASA GIBS · MODIS Terra', sst: 'NASA GIBS · GHRSST MUR',
     sstAnom: 'NASA GIBS · GHRSST MUR', coral: 'NOAA Coral Reef Watch', seaIce: 'NASA GIBS · GHRSST MUR', no2: 'NASA GIBS · Sentinel-5P TROPOMI',
-    so2: 'NASA GIBS · MERRA-2', nh3: 'Open-Meteo · CAMS Europe', co2: 'Copernicus CAMS (ECMWF)', ch4: 'Copernicus CAMS (ECMWF)',
-    powerYear: 'Ember · Our World in Data', power: 'Energy-Charts (Fraunhofer ISE)', ozoneCams: 'Copernicus CAMS (ECMWF)', ozone: 'NASA GIBS · OMPS',
+    so2: 'NASA GIBS · MERRA-2', nh3: 'Open-Meteo · CAMS Europe',
+    powerYear: 'Ember · Our World in Data', power: 'Energy-Charts (Fraunhofer ISE)', ozoneCams: 'NOAA GFS', ozone: 'NASA GIBS · OMPS',
     aod: 'NASA GIBS · MODIS/VIIRS MAIAC', rain: 'NASA GIBS · GPM IMERG', ndvi: 'NASA GIBS · MODIS Terra', snow: 'NASA GIBS · SMAP L4'
 };
 export const getEnvSource = () => ENV_SOURCE[S.envOverlay] || '';
-// Layers that need a Copernicus key on the fetcher (status.json keys); unknown or missing key → listed as unavailable
-const ENV_KEY = { ozoneCams: 'ads', co2: 'ads', ch4: 'ads', tempAnom: 'cds' };
+// Layers that need a key on the fetcher (status.json keys); unknown or missing key → listed as unavailable
+const ENV_KEY = {};
 export async function getEnvMissing() {
     const s = await tryJson(`${FEED_URL}/status.json?b=${Math.floor(Date.now() / 60000)}`, 10000);
     return Object.entries(ENV_KEY).filter(([, k]) => !s?.keys?.[k]).map(([layer]) => layer);

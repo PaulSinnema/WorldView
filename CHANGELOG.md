@@ -2,6 +2,27 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.105] - 2026-10-30
+### Changed
+- Side panel: the Environment section (layer, legend, KNMI images, "Air & weather on click") now sits right under Language; the "Air & weather on click" button spans the full width. Its heading is in capitals like the other sections.
+
+## [1.0.104] - 2026-10-30
+### Fixed
+- Side panel no longer scrolls horizontally: 20 px wider, legend and KNMI images include their border/padding in their width.
+
+## [1.0.103] - 2026-10-30
+### Fixed
+- NO₂ layer: no more white/grey striped blocks. Tiles are filtered per pixel: clean air (pale yellow) and grey no-retrieval pixels become transparent, strength fades in towards orange/red, and the gaps between TROPOMI swath lines are filled. Every zoom level is built from the same source level (GIBS level 4, ≈ 6–10 km/pixel), so the picture no longer changes while zooming.
+
+## [1.0.102] - 2026-10-30
+### Changed
+- Copernicus (ADS/CDS) removed: no account or key needed any more. Fetcher 1.12.0:
+  - **Ozone – whole Earth** now from the NOAA GFS analysis via NOMADS (`ozone.js`, every 6 h); GRIB decoder handles complex packing with spatial differencing.
+  - **Temperature anomaly** now from NASA GISTEMP v4 (`gistemp.js`, replaces `era5.js`): latest month on a 2° grid, rebased to 1991–2020, checked daily.
+  - `ADS_API_KEY` / `CDS_API_KEY` dropped from `.env`; `status.json` reports no keys.
+### Removed
+- CO₂ and methane layers (only source was Copernicus CAMS).
+
 ## [1.0.101] - 2026-10-30
 ### Changed
 - Electricity layer labels are drawn on the screen text layer: constant size like other names, decluttered while zooming (small countries such as the Netherlands appear when there is room)

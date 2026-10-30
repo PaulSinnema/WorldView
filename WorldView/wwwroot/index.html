@@ -39,7 +39,7 @@
         .topbar button { padding: 0 11px; background: var(--bg); border: 1px solid var(--line); cursor: pointer; }
         .search button { border: 0; border-left: 1px solid var(--line); background: transparent; }
         .mic.on { background: rgba(255, 60, 60, .55); }
-        .panel { position: fixed; top: calc(32px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); z-index: 20; width: 250px; max-height: calc(100% - 90px); overflow-y: auto; padding: 4px 12px 12px; background: var(--bg); border: 1px solid var(--line); }
+        .panel { position: fixed; top: calc(32px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); z-index: 20; width: 270px; max-height: calc(100% - 90px); overflow-y: auto; overflow-x: hidden; padding: 4px 12px 12px; background: var(--bg); border: 1px solid var(--line); }
         .panel.toggled { display: none; }
         .panel h3 { margin: 12px 0 6px; font-size: 11px; font-weight: normal; letter-spacing: 2px; color: var(--acc); }
         .layer-row { display: flex; align-items: center; gap: 6px; }
@@ -89,9 +89,9 @@
         .help-body td { padding: 4px 14px 4px 0; vertical-align: top; }
         .help-body footer { padding-top: 12px; opacity: .6; font-size: 12px; }
         @media (max-width: 640px) { .help-box { grid-template-columns: 1fr; } .help-box nav { display: none; } }
-        .env-legend { display: block; width: 100%; margin-top: 6px; background: #fff; border: 1px solid var(--line); padding: 2px; }
+        .env-legend { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; background: #fff; border: 1px solid var(--line); padding: 2px; }
         .knmi { display: flex; gap: 4px; margin-top: 4px; }
-        .knmi img { width: 50%; background: #fff; border: 1px solid var(--line); cursor: zoom-in; }
+        .knmi img { box-sizing: border-box; width: calc(50% - 2px); background: #fff; border: 1px solid var(--line); cursor: zoom-in; }
         .tz-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 3px; max-height: 170px; overflow-y: auto; margin-top: 4px; }
         .tz-legend button { display: flex; justify-content: space-between; gap: 6px; padding: 3px 6px; background: var(--bg); border: 1px solid var(--line); color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
         .tz-legend button b { color: #c080ff; font-weight: normal; }
