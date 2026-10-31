@@ -740,7 +740,8 @@ export async function init(containerId, ref) {
     scene.skyBox = new Cz.SkyBox({ sources: { positiveX: sky('px'), negativeX: sky('nx'), positiveY: sky('py'), negativeY: sky('ny'), positiveZ: sky('pz'), negativeZ: sky('nz') } });
     // Sharp text: FXAA blurs labels (MSAA handles edges); render at full device resolution
     scene.postProcessStages.fxaa.enabled = false;
-    viewer.useBrowserRecommendedResolution = false;
+    // iOS: CSS-pixel resolution (4× smaller GL buffers on Retina); labels stay sharp on their own canvas
+    viewer.useBrowserRecommendedResolution = LITE;
     scene.screenSpaceCameraController.minimumZoomDistance = 30;
     // Touch: two-finger drag tilted the view by accident (globe slid off the bottom); pinch only zooms now
     if (TOUCH) { scene.screenSpaceCameraController.tiltEventTypes = [Cz.CameraEventType.MIDDLE_DRAG]; addNavPad(); }
@@ -1288,7 +1289,7 @@ function tzFillPrimitive(d) {
             attributes: { color: Cz.ColorGeometryInstanceAttribute.fromColor(tzFillColor(d.lz[n])) }
         }));
     });
-    return new Cz.Primitive({ geometryInstances: instances, appearance: new Cz.PerInstanceColorAppearance({ translucent: true, flat: true }), allowPicking: false, asynchronous: true });
+    return new Cz.Primitive({ geometryInstances: instances, appearance: new Cz.PerInstanceColorAppearance({ translucent: true, flat: true }), allowPicking: false, asynchronous: !LITE }); // iOS: no geometry workers
 }
 // Highlight one zone (index into tzZones) or none (null)
 export function setTzSelected(i) {
@@ -1363,7 +1364,8 @@ function linePrimitive(data, color, width, maxStep = 0) {
         }));
     }
     const appearance = LITE ? new Cz.PerInstanceColorAppearance({ flat: true, translucent: true }) : new Cz.PolylineColorAppearance({ translucent: true });
-    return new Cz.Primitive({ geometryInstances: instances, appearance, asynchronous: true });
+    // iOS: build on the main thread; Cesium's geometry web workers cost too much memory there (tab killed)
+    return new Cz.Primitive({ geometryInstances: instances, appearance, asynchronous: !LITE });
 }
 
 // Provinces/states + cities: compact files built by tools/build-geo.mjs

@@ -2,6 +2,10 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.112] - 2026-10-31
+### Fixed
+- iPad/iPhone still crashed ~2 s after turning borders on (crash report: only the 389 KB border file, no JS error → tab killed for memory). The first line overlay starts Cesium's geometry web workers, each loading its own copy of the Cesium worker code. On iOS line/fill overlays are now built on the main thread (no workers), and the globe renders at CSS-pixel resolution (4× smaller GL buffers on Retina; labels stay sharp on their own canvas).
+
 ## [1.0.111] - 2026-10-31
 ### Fixed
 - Nav pad was hidden behind the side panel: while the panel is open it now sits left of it; on narrow screens it is drawn on top.
