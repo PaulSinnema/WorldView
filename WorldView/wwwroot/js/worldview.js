@@ -104,8 +104,82 @@ function markRisky() {
     bootTimer = setTimeout(() => { try { localStorage.removeItem(BOOT_KEY); } catch { } }, 20000);
 }
 function crashedLastTime() { try { return localStorage.getItem(BOOT_KEY) === '1'; } catch { return false; } }
+
+// Crash report, kept on this device only: events + state every 3 s in localStorage.
+// Previous session ended while visible without pagehide = crash → report in wv-crash, shown via the ⚠ button or #crash
+const CRUMB_KEY = 'wv-crumbs', SNAP_KEY = 'wv-snap', CRASH_KEY = 'wv-crash';
+const APP_VER = new URL(import.meta.url).searchParams.get('v') || '?';
+const T0 = Date.now(), crumbs = [];
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { } };
+function crumb(m) {
+    crumbs.push(`${((Date.now() - T0) / 1000).toFixed(1)}s ${m}`);
+    if (crumbs.length > 80) crumbs.shift();
+}
+function stateSnap(extra) {
+    const c = viewer?.camera.positionCartographic;
+    const on = o => Object.entries(o).filter(([, v]) => v).map(([k]) => k).join(' ');
+    return {
+        v: APP_VER, t: new Date().toISOString(), up: Math.round((Date.now() - T0) / 1000), visible: document.visibilityState === 'visible',
+        layers: LAYERS.filter(l => S.layers[l]).map(l => `${l}:${store[l].size}`).join(' '),
+        overlays: on({ borders: S.borders, coast: S.coast, cities: S.cities, regions: S.regions, eez: S.eez, timezones: S.timezones, nature: S.nature, streets: S.streets, daynight: S.daynight, detect: S.detect }),
+        env: S.envOverlay, basemap: S.basemap, style: S.style, cockpit: S.cockpit,
+        cam: c ? `${toDeg(c.latitude).toFixed(2)},${toDeg(c.longitude).toFixed(2)} ${Math.round(c.height)} m` : null,
+        prims: viewer?.scene.primitives.length, imagery: viewer?.imageryLayers.length, entities: viewer?.entities.values.length,
+        heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : null,
+        screen: `${innerWidth}x${innerHeight}@${devicePixelRatio}`, selected: selected ? `${selected.layer}:${selected.key}` : null, ...extra
+    };
+}
+function saveCrashState(extra) { lsSet(SNAP_KEY, stateSnap(extra)); lsSet(CRUMB_KEY, crumbs); }
+// At start: did the previous session crash? Then keep its state + events as the report
+function checkCrash() {
+    const prev = lsGet(SNAP_KEY);
+    if (!prev || !prev.visible || prev.exit) return false;
+    lsSet(CRASH_KEY, { detected: new Date().toISOString(), ua: navigator.userAgent, lite: LITE, last: prev, crumbs: lsGet(CRUMB_KEY) || [] });
+    return true;
+}
+export function crashReportText() {
+    const r = lsGet(CRASH_KEY);
+    if (!r) return 'No crash report on this device.';
+    return ['WorldView crash report', `detected: ${r.detected}`, `ua: ${r.ua}`, `lite: ${r.lite}`, '', 'Last state:',
+        ...Object.entries(r.last).map(([k, v]) => `  ${k}: ${v}`), '', 'Last events:', ...r.crumbs.map(c => '  ' + c)].join('\n');
+}
+// ⚠ button (after a crash or with #crash) → overlay with the report, Copy / Share / Delete
+function showCrashButton() {
+    const b = document.createElement('button');
+    b.className = 'crash-btn'; b.textContent = '⚠ Crash report';
+    b.addEventListener('click', () => { b.remove(); showCrashReport(); });
+    document.body.appendChild(b);
+}
+function showCrashReport() {
+    const text = crashReportText();
+    const ov = document.createElement('div');
+    ov.className = 'crash-report';
+    const pre = document.createElement('pre'); pre.textContent = text;
+    const bar = document.createElement('div');
+    const btn = (label, fn) => { const x = document.createElement('button'); x.textContent = label; x.addEventListener('click', fn); bar.appendChild(x); return x; };
+    const copy = btn('Copy', async () => { try { await navigator.clipboard.writeText(text); copy.textContent = 'Copied ✓'; } catch { copy.textContent = 'Copy failed'; } });
+    if (navigator.share) btn('Share', () => navigator.share({ title: 'WorldView crash report', text }).catch(() => { }));
+    btn('Delete', () => { try { localStorage.removeItem(CRASH_KEY); } catch { } ov.remove(); });
+    btn('Close', () => ov.remove());
+    ov.append(bar, pre);
+    document.body.appendChild(ov);
+}
+let lastSettings = null;
 function saveSettings() {
-    try { const { cockpit, ...rest } = S; localStorage.setItem(SETTINGS_KEY, JSON.stringify(rest)); } catch { }
+    try {
+        const { cockpit, ...rest } = S;
+        // Event log: which settings changed (token value left out)
+        if (lastSettings) for (const k of Object.keys(rest)) {
+            const a = lastSettings[k], b = rest[k];
+            if (JSON.stringify(a) === JSON.stringify(b)) continue;
+            if (k === 'ionToken') crumb('ionToken changed');
+            else if (b && typeof b === 'object') crumb(`${k} ${Object.keys(b).filter(x => a?.[x] !== b[x]).map(x => `${x}=${b[x]}`).join(' ')}`);
+            else crumb(`${k}=${String(b).slice(0, 40)}`);
+        }
+        lastSettings = JSON.parse(JSON.stringify(rest));
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(rest));
+    } catch { }
 }
 function parseHash() {
     const h = new URLSearchParams(location.hash.slice(1));
@@ -636,6 +710,9 @@ export function setIonToken(token) {
 export async function init(containerId, ref) {
     dotnet = ref;
     loadSettings();
+    const crashed = checkCrash();
+    crumb(`start v${APP_VER}${crashed ? ' (previous session crashed)' : ''}`);
+    saveCrashState(); // a crash during start-up is caught too
     // Previous start crashed (iOS reloads the page after running out of memory): heavy overlays off, else it loops
     const safe = crashedLastTime();
     if (safe) { S.borders = false; S.timezones = false; S.nature = false; S.streets = false; S.envOverlay = ''; saveSettings(); }
@@ -740,6 +817,18 @@ export async function init(containerId, ref) {
         if (S.layers.flights) startLayer('flights'); // load the tiles for the new view
     });
     window.addEventListener('blur', () => navHeld.clear());
+    // Crash report: state every 3 s; normal unload/background is not a crash
+    { const { cockpit, ...rest } = S; lastSettings = JSON.parse(JSON.stringify(rest)); }
+    setInterval(() => saveCrashState(), 3000);
+    window.addEventListener('pagehide', () => { try { localStorage.removeItem(BOOT_KEY); } catch { } crumb('pagehide'); saveCrashState({ exit: true }); });
+    document.addEventListener('visibilitychange', () => { crumb(`visibility ${document.visibilityState}`); saveCrashState(); });
+    window.addEventListener('error', e => crumb(`error ${e.message} @${(e.filename || '').split('/').pop()}:${e.lineno}`));
+    window.addEventListener('unhandledrejection', e => crumb(`rejection ${e.reason?.message || e.reason}`));
+    scene.canvas.addEventListener('webglcontextlost', () => { crumb('webgl context lost'); saveCrashState(); });
+    scene.renderError.addEventListener((s, e) => { crumb(`render error ${e?.message || e}`); saveCrashState(); });
+    viewer.camera.moveEnd.addEventListener(() => crumb(`camera ${Math.round(camHeight() / 1000)} km`));
+    saveCrashState();
+    if (crashed || location.hash.includes('crash')) showCrashButton();
     scene.preRender.addEventListener(onPreRender);
     scene.postRender.addEventListener(onPostRender);
     setInterval(tick, 250);
@@ -2318,7 +2407,7 @@ function select(layer, key, fly) {
     const r = store[layer]?.get(key);
     if (!r) return;
     clearSelection(false);
-    selected = { layer, key }; trail = [];
+    selected = { layer, key }; trail = []; crumb(`select ${layer}:${key}`);
     const moving = MOVERS.includes(layer) || ORBITERS.includes(layer);
     const posFn = () => currentCartesian();
     const glow = Cz.Color.fromCssColorString('#7dffb0');

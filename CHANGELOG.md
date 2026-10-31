@@ -2,6 +2,16 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.111] - 2026-10-31
+### Fixed
+- Nav pad was hidden behind the side panel: while the panel is open it now sits left of it; on narrow screens it is drawn on top.
+
+## [1.0.110] - 2026-10-31
+### Added
+- Crash report, kept on the device only (nothing is sent): every 3 s the state (layers + counts, overlays, environment layer, camera, primitives, imagery layers, screen, selection) and the last 80 events (setting changes, selections, camera moves, JS errors, WebGL context loss, render errors, visibility) go to localStorage. A session that ended while visible without a normal unload counts as a crash; the next start shows a ⚠ Crash report button (also via `#crash` in the URL) with Copy, Share, Delete and Close.
+### Fixed
+- Reloading or closing the page within 20 s of start no longer counts as a crash (crash guard flag is cleared on `pagehide`).
+
 ## [1.0.109] - 2026-10-31
 ### Changed
 - Touch screens (iPad/iPhone): a two-finger drag no longer tilts the view by accident (the globe used to slide off the bottom); pinch only zooms.
