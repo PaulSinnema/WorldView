@@ -58,7 +58,7 @@ const icons = {};
 let telLabels = null, telOrbits = null, lastTelOrbit = 0;
 let selected = null, trackEntity = null, orbitEntity = null, trail = [];
 let styleStage = null, googleTiles = null;
-let detectCanvas = null, detectCtx = null, lastDetect = 0, lastCam = 0, lastInfo = 0, lastTrail = 0, lastOrbit = 0;
+let detectCanvas = null, detectCtx = null, lastDetect = 0, lastCam = 0, lastInfo = 0, lastTrail = 0, lastOrbit = 0, lastTick = 0;
 let audio = null;
 
 const toDeg = r => Cz.Math.toDegrees(r);
@@ -91,6 +91,19 @@ function loadSettings() {
     // One-off reset: zoom now defaults to off for every layer
     if (S.zoomV !== 2) { S.zoom = { ...ZOOM_DEFAULT }; S.zoomV = 2; }
 }
+// iPhone/iPad (iPadOS reports as Mac with touch): tight memory limit → lighter geometry, no MSAA
+const LITE = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Touch screen: no accidental tilt, on-screen nav pad instead
+const TOUCH = navigator.maxTouchPoints > 0 && matchMedia('(any-pointer: coarse)').matches;
+// Crash guard: a flag set while starting or loading heavy overlays; still set at the next start = the page crashed → start without overlays
+const BOOT_KEY = 'wv-boot';
+let bootTimer = null;
+function markRisky() {
+    try { localStorage.setItem(BOOT_KEY, '1'); } catch { }
+    clearTimeout(bootTimer);
+    bootTimer = setTimeout(() => { try { localStorage.removeItem(BOOT_KEY); } catch { } }, 20000);
+}
+function crashedLastTime() { try { return localStorage.getItem(BOOT_KEY) === '1'; } catch { return false; } }
 function saveSettings() {
     try { const { cockpit, ...rest } = S; localStorage.setItem(SETTINGS_KEY, JSON.stringify(rest)); } catch { }
 }
@@ -623,6 +636,10 @@ export function setIonToken(token) {
 export async function init(containerId, ref) {
     dotnet = ref;
     loadSettings();
+    // Previous start crashed (iOS reloads the page after running out of memory): heavy overlays off, else it loops
+    const safe = crashedLastTime();
+    if (safe) { S.borders = false; S.timezones = false; S.nature = false; S.streets = false; S.envOverlay = ''; saveSettings(); }
+    markRisky();
     document.documentElement.lang = S.lang;
     if (!Cz) throw new Error(tr('err.cesium'));
     const cam = parseHash();
@@ -636,8 +653,9 @@ export async function init(containerId, ref) {
         selectionIndicator: false, shouldAnimate: true,
         // Prefer the dedicated GPU (laptops with hybrid graphics), WebGL2 + MSAA
         contextOptions: { requestWebgl1: false, webgl: { powerPreference: 'high-performance', alpha: false } },
-        msaaSamples: 4
+        msaaSamples: LITE ? 1 : 4
     });
+    if (safe) setTimeout(() => toast(tr('toast.safeMode')), 3000);
     checkGpu();
     const scene = viewer.scene;
     // Star sky: NASA SVS Deep Star Maps 2020 (Gaia/Hipparcos/Tycho) as cube faces (tools/build-sky.py)
@@ -647,6 +665,8 @@ export async function init(containerId, ref) {
     scene.postProcessStages.fxaa.enabled = false;
     viewer.useBrowserRecommendedResolution = false;
     scene.screenSpaceCameraController.minimumZoomDistance = 30;
+    // Touch: two-finger drag tilted the view by accident (globe slid off the bottom); pinch only zooms now
+    if (TOUCH) { scene.screenSpaceCameraController.tiltEventTypes = [Cz.CameraEventType.MIDDLE_DRAG]; addNavPad(); }
     // Keep sun lighting at every zoom level (default lights everything below 10,000 km)
     const globe = scene.globe;
     globe.lightingFadeOutDistance = 1; globe.lightingFadeInDistance = 2;
@@ -952,6 +972,7 @@ function merge(layer, list, kind, color) {
             Object.assign(r, f);
         }
         r.t = Math.min(f.t || now, now); r.seen = now;
+        if (AIR_DELAY[layer]) { r.delayTarget = AIR_DELAY[layer]; r.delay ??= r.delayTarget; addFix(r, r); }
         r.bb.rotation = -toRad(r.track || 0);
         // Dead-reckoned position, same as tick(): no jump back on refresh
         const [la, lo, al] = posAt(r, now);
@@ -960,7 +981,56 @@ function merge(layer, list, kind, color) {
     for (const [k, r] of m) if (now - r.seen > 120000) { col.remove(r.bb); m.delete(k); }
     validateSel(layer);
 }
+// Aircraft are shown DELAY behind real time and move along a smooth curve between received fixes (Hermite: position + velocity at both ends);
+// past the newest fix they continue along their turn. Feed intervals: OpenSky 90 s (+ polling), adsb.lol 20 s
+const AIR_DELAY = { flights: 140000, military: 45000 }, LIVE_DELAY = 12000, LIVE_POLL = 5000;
+function addFix(r, f) {
+    const fx = r.fixes ??= [], last = fx[fx.length - 1];
+    if (last && f.t <= last.t) return false;
+    fx.push({ t: f.t, lat: f.lat, lon: f.lon, alt: f.alt, gs: f.gs || 0, track: f.track || 0, ground: !!f.ground });
+    while (fx.length > 2 && (fx[0].t < f.t - 900000 || fx.length > 80)) fx.shift();
+    return true;
+}
+// Metres east/north after t s at speed v, heading h, turn rate w (turn limited to 45°, then straight on)
+function arc(v, h, w, t) {
+    if (Math.abs(w) < 1e-4 || t <= 0) return [v * Math.sin(h) * t, v * Math.cos(h) * t];
+    const tt = Math.min(t, Math.PI / 4 / Math.abs(w)), h1 = h + w * tt, rest = t - tt;
+    return [v / w * (Math.cos(h) - Math.cos(h1)) + v * Math.sin(h1) * rest, v / w * (Math.sin(h1) - Math.sin(h)) + v * Math.cos(h1) * rest];
+}
+const lonScale = lat => R_EARTH * Math.max(0.05, Math.cos(toRad(lat)));
+// From fix a (turn rate from the fix before) to time td; negative times run backwards along a straight line
+function extrapolate(a, prev, td) {
+    if (a.ground || !a.gs) return [a.lat, a.lon, a.alt];
+    const dt = Math.max(-300, Math.min(300, (td - a.t) / 1000));
+    let w = 0;
+    if (prev && !prev.ground && a.t > prev.t && a.t - prev.t <= 180000) w = Math.max(-0.05, Math.min(0.05, toRad(((a.track - prev.track + 540) % 360) - 180) / ((a.t - prev.t) / 1000)));
+    const [e, n] = arc(a.gs, toRad(a.track), w, dt);
+    return [a.lat + toDeg(n / R_EARTH), a.lon + toDeg(e / lonScale(a.lat)), a.alt];
+}
+function hermite(a, b, td) {
+    const T = (b.t - a.t) / 1000, s = (td - a.t) / (b.t - a.t), dLon = ((b.lon - a.lon + 540) % 360) - 180;
+    const alt = a.alt + (b.alt - a.alt) * s, lin = [a.lat + (b.lat - a.lat) * s, a.lon + dLon * s, alt];
+    if (a.ground || b.ground || T > 600) return lin;
+    const kx = lonScale(a.lat), x1 = toRad(dLon) * kx, y1 = toRad(b.lat - a.lat) * R_EARTH;
+    // Reported speed must roughly match the distance flown, else straight (avoids loops)
+    const dist = Math.hypot(x1, y1), avg = (a.gs + b.gs) / 2 * T;
+    if (!avg || dist < avg * 0.5 || dist > avg * 1.5) return lin;
+    const ha = toRad(a.track), hb = toRad(b.track), s2 = s * s, s3 = s2 * s;
+    const h10 = (s3 - 2 * s2 + s) * T, h01 = -2 * s3 + 3 * s2, h11 = (s3 - s2) * T;
+    const x = h10 * a.gs * Math.sin(ha) + h01 * x1 + h11 * b.gs * Math.sin(hb);
+    const y = h10 * a.gs * Math.cos(ha) + h01 * y1 + h11 * b.gs * Math.cos(hb);
+    return [a.lat + toDeg(y / R_EARTH), a.lon + toDeg(x / kx), alt];
+}
+function airPos(r, td) {
+    const fx = r.fixes, n = fx.length;
+    if (td >= fx[n - 1].t) return extrapolate(fx[n - 1], fx[n - 2], td);
+    if (td <= fx[0].t) return extrapolate(fx[0], null, td);
+    let i = n - 1;
+    while (fx[i - 1].t > td) i--;
+    return hermite(fx[i - 1], fx[i], td);
+}
 function posAt(r, now) {
+    if (r.fixes?.length) return airPos(r, now - (r.delay ?? 0));
     if (!r.gs || r.ground || r.noPredict) return [r.lat, r.lon, r.alt];
     const dt = Math.min(300, (now - r.t) / 1000), d = r.gs * dt, tr = toRad(r.track || 0);
     const lat = r.lat + toDeg(d * Math.cos(tr) / R_EARTH);
@@ -1045,6 +1115,7 @@ function relabelCountries() {
 }
 export async function setBorders(on, fromEngine = false) {
     S.borders = !!on; saveSettings();
+    if (S.borders) markRisky();
     if (fromEngine) notify('OnToggle', 'borders', S.borders);
     if (S.borders && !borderLines) await loadBorders();
     if (countryLabels) countryLabels.show = S.borders;
@@ -1195,12 +1266,15 @@ function linePrimitive(data, color, width, maxStep = 0) {
             px = lon; py = lat;
         }
         if (flat.length < 4) continue;
+        const positions = Cz.Cartesian3.fromDegreesArray(flat);
         instances.push(new Cz.GeometryInstance({
-            geometry: new Cz.PolylineGeometry({ positions: Cz.Cartesian3.fromDegreesArray(flat), width, arcType: Cz.ArcType.NONE }),
+            // iOS: 1 px GL lines (wide polylines need ~8× the memory)
+            geometry: LITE ? new Cz.SimplePolylineGeometry({ positions, arcType: Cz.ArcType.NONE }) : new Cz.PolylineGeometry({ positions, width, arcType: Cz.ArcType.NONE }),
             attributes: { color: attr }
         }));
     }
-    return new Cz.Primitive({ geometryInstances: instances, appearance: new Cz.PolylineColorAppearance({ translucent: true }), asynchronous: true });
+    const appearance = LITE ? new Cz.PerInstanceColorAppearance({ flat: true, translucent: true }) : new Cz.PolylineColorAppearance({ translucent: true });
+    return new Cz.Primitive({ geometryInstances: instances, appearance, asynchronous: true });
 }
 
 // Provinces/states + cities: compact files built by tools/build-geo.mjs
@@ -1213,17 +1287,17 @@ const labelStyle = (size, color) => ({
     style: Cz.LabelStyle.FILL_AND_OUTLINE, disableDepthTestDistance: 2e6
 });
 export async function setRegions(on) {
-    S.regions = !!on; saveSettings();
+    S.regions = !!on; saveSettings(); if (S.regions) markRisky();
     await applyOverlays();
 }
 export async function setCities(on) {
-    S.cities = !!on; saveSettings();
+    S.cities = !!on; saveSettings(); if (S.cities) markRisky();
     await applyOverlays();
 }
 // Coastlines and maritime boundaries (tools/build-sea.mjs), also under the borders switch
 let coastLines = null, eezLines = null, seaLoading = {};
 const EEZ_STYLE = { agreed: ['#3fd0ff', 0.75, 1.5], limit: ['#3fd0ff', 0.35, 1.0], disputed: ['#ff9f40', 0.85, 1.5] };
-export async function setCoast(on) { S.coast = !!on; saveSettings(); await applySea(); }
+export async function setCoast(on) { S.coast = !!on; saveSettings(); if (S.coast) markRisky(); await applySea(); }
 export async function setEez(on) { S.eez = !!on; saveSettings(); await applySea(); }
 async function applySea() {
     const showCoast = S.borders && S.coast, showEez = S.borders && S.eez;
@@ -2259,7 +2333,30 @@ function select(layer, key, fly) {
     if (moving) { if (zoom) viewer.trackedEntity = trackEntity; }
     else if (fly && zoom) flyTo(r.lon, r.lat, layer === 'cameras' ? 1500 : layer === 'radio' ? 150000 : 400000);
     if (layer === 'radio' && radioCurrent !== key) radioPlay(key, false);
+    if (AIR_DELAY[layer]) startLive(layer, key);
     pushInfo();
+}
+// Selected aircraft: own position every 5 s (adsb.lol via the fetcher, /live/{hex}), shown only LIVE_DELAY behind
+let liveTimer = null, liveRec = null;
+function startLive(layer, key) {
+    const poll = async () => {
+        if (selected?.key !== key) return;
+        const j = await tryJson(`${FEED_URL}/live/${encodeURIComponent(key)}?b=${Math.floor(Date.now() / 1000)}`, 8000);
+        const r = store[layer].get(key), a = j?.ac?.[0];
+        if (r && a && selected?.key === key) {
+            const f = fromFeedMil(a, j.t);
+            if (addFix(r, f)) Object.assign(r, { lat: f.lat, lon: f.lon, alt: f.alt, gs: f.gs, track: f.track, ground: f.ground, t: f.t });
+            if (r.delay > LIVE_DELAY) { r.delay = LIVE_DELAY; trail = []; } // jump to live once, trail restarts there
+            r.liveUntil = Date.now() + 3 * LIVE_POLL; liveRec = r;
+        }
+        if (selected?.key === key) liveTimer = setTimeout(poll, LIVE_POLL);
+    };
+    poll();
+}
+function stopLive() {
+    clearTimeout(liveTimer); liveTimer = null;
+    if (liveRec) liveRec.liveUntil = 0;
+    liveRec = null;
 }
 export function clearSelection(notifyUi = true) {
     if (S.cockpit) setCockpit(false);
@@ -2267,6 +2364,7 @@ export function clearSelection(notifyUi = true) {
     if (trackEntity) viewer.entities.remove(trackEntity);
     if (orbitEntity) viewer.entities.remove(orbitEntity);
     trackEntity = orbitEntity = null; selected = null; trail = []; cityPick = null;
+    stopLive();
     if (notifyUi) notify('OnSelect', null);
 }
 function fmtPos(lat, lon) {
@@ -2633,8 +2731,17 @@ function tick() {
     const now = Date.now();
     for (const l of MOVERS) {
         if (!S.layers[l]) continue;
-        for (const r of store[l].values()) { const [la, lo, al] = posAt(r, now); r.bb.position = Cz.Cartesian3.fromDegrees(lo, la, al); }
+        for (const r of store[l].values()) {
+            if (r.fixes && r.delay < r.delayTarget && !(r.liveUntil > now)) r.delay = Math.min(r.delayTarget, r.delay + (now - (lastTick || now)) * 0.25); // back from live: catch up slowly
+            const [la, lo, al] = posAt(r, now);
+            r.bb.position = Cz.Cartesian3.fromDegrees(lo, la, al);
+            if (r.fixes) { // icon points along the curve
+                const [la2, lo2] = posAt(r, now + 2000), dx = (lo2 - lo) * Math.cos(toRad(la)), dy = la2 - la;
+                if (Math.abs(dx) + Math.abs(dy) > 1e-6) { r.hdg = (toDeg(Math.atan2(dx, dy)) + 360) % 360; r.bb.rotation = -toRad(r.hdg); }
+            }
+        }
     }
+    lastTick = now;
     if (S.layers.satellites && now % 1000 < 250) propagateSats();
     updateTzLabels();
     if (selected && now - lastTrail > 1000) {
@@ -2658,7 +2765,7 @@ function onPreRender() {
     const r = store[selected.layer].get(selected.key);
     if (!r) return;
     const [la, lo, al] = posAt(r, Date.now());
-    viewer.camera.setView({ destination: Cz.Cartesian3.fromDegrees(lo, la, Math.max(al, 50) + 15), orientation: { heading: toRad(r.track || 0), pitch: toRad(-7), roll: 0 } });
+    viewer.camera.setView({ destination: Cz.Cartesian3.fromDegrees(lo, la, Math.max(al, 50) + 15), orientation: { heading: toRad(r.hdg ?? r.track ?? 0), pitch: toRad(-7), roll: 0 } });
 }
 function onPostRender() {
     const now = performance.now();
@@ -2792,6 +2899,10 @@ function navStep() {
     navVel.x += (tx - navVel.x) * k; navVel.y += (ty - navVel.y) * k; navVel.z += (tz - navVel.z) * k;
     // Come to rest once nearly stopped
     for (const a of ['x', 'y', 'z']) if (Math.abs(navVel[a]) < 0.01 && !(a === 'x' ? tx : a === 'y' ? ty : tz)) navVel[a] = 0;
+    // Nav pad: tilt/turn around the screen centre
+    const tilt = (navHeld.has('tiltup') ? 1 : 0) - (navHeld.has('tiltdown') ? 1 : 0);
+    const turn = (navHeld.has('turnr') ? 1 : 0) - (navHeld.has('turnl') ? 1 : 0);
+    if (tilt || turn) orbit(turn * 1.2 * dt, tilt * 0.8 * dt);
     if (!navVel.x && !navVel.y && !navVel.z) return;
     const cam = viewer.camera, h = camHeight();
     // Move over the globe relative to the screen (heading-aware), keeping height and view angle
@@ -2807,6 +2918,53 @@ function navStep() {
     }
     if (navVel.z > 0 && h > 50) cam.zoomIn(h * 0.7 * navVel.z * dt);
     if (navVel.z < 0 && h < 6e7) cam.zoomOut(h * 0.7 * -navVel.z * dt);
+}
+// Turn/tilt around the point in the screen centre; looking past the globe: tilt back down
+function orbit(dHeading, dPitch) {
+    const cam = viewer.camera, cv = viewer.scene.canvas;
+    if (viewer.trackedEntity) viewer.trackedEntity = undefined;
+    const target = cam.pickEllipsoid(new Cz.Cartesian2(cv.clientWidth / 2, cv.clientHeight / 2));
+    if (!target) {
+        cam.setView({ orientation: { heading: cam.heading + dHeading, pitch: Math.max(toRad(-90), cam.pitch - Math.abs(dPitch) - 0.02), roll: 0 } });
+        return;
+    }
+    const enu = Cz.Transforms.eastNorthUpToFixedFrame(target);
+    const local = Cz.Matrix4.multiplyByPoint(Cz.Matrix4.inverseTransformation(enu, new Cz.Matrix4()), cam.positionWC, new Cz.Cartesian3());
+    const range = Cz.Cartesian3.magnitude(local), flat = Math.hypot(local.x, local.y);
+    const heading = (flat > range * 1e-3 ? Math.atan2(-local.x, -local.y) : cam.heading) + dHeading;
+    const pitch = Cz.Math.clamp(Math.asin(-local.z / range) + dPitch, toRad(-90), toRad(-8));
+    cam.lookAt(target, new Cz.HeadingPitchRange(heading, pitch, range));
+    cam.lookAtTransform(Cz.Matrix4.IDENTITY);
+}
+// Straight down, north up, over the current centre
+function northDown() {
+    if (S.cockpit) return;
+    const c = viewCenter();
+    viewer.trackedEntity = undefined;
+    viewer.camera.flyTo({ destination: Cz.Cartesian3.fromDegrees(c.lon, c.lat, Math.min(2.2e7, camHeight())), orientation: { heading: 0, pitch: toRad(-90), roll: 0 }, duration: 0.8 });
+}
+// On-screen nav pad (touch): hold a button to turn, tilt or zoom
+function addNavPad() {
+    const pad = document.createElement('div');
+    pad.className = 'navpad';
+    const cells = [['turnl', '⟲'], ['tiltup', '▲'], ['turnr', '⟳'], ['-', '−'], ['north', 'N'], ['+', '+'], [null], ['tiltdown', '▼'], [null]];
+    for (const [k, txt] of cells) {
+        const b = document.createElement(k ? 'button' : 'span');
+        pad.appendChild(b);
+        if (!k) continue;
+        b.textContent = txt;
+        if (k === 'north') { b.addEventListener('click', northDown); continue; }
+        const stop = () => { navHeld.delete(k); b.classList.remove('held'); };
+        b.addEventListener('pointerdown', e => {
+            e.preventDefault();
+            if (!navHeld.size) navLast = performance.now();
+            navHeld.add(k); b.classList.add('held');
+            try { b.setPointerCapture(e.pointerId); } catch { }
+        });
+        for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, stop);
+    }
+    pad.addEventListener('contextmenu', e => e.preventDefault());
+    document.body.appendChild(pad);
 }
 function onKeyUp(e) { navHeld.delete(e.key.toLowerCase()); }
 function onKey(e) {

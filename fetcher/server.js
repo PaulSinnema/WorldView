@@ -15,7 +15,7 @@ import { fetchTempAnomaly } from './gistemp.js';
 import { fetchCoral } from './coral.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.12.0';
+const VERSION = '1.13.1';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;

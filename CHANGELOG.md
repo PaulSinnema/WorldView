@@ -2,6 +2,26 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.109] - 2026-10-31
+### Changed
+- Touch screens (iPad/iPhone): a two-finger drag no longer tilts the view by accident (the globe used to slide off the bottom); pinch only zooms.
+- Touch screens: on-screen nav pad bottom right — hold ⟲/⟳ to turn, ▲/▼ to tilt (around the screen centre, max 8° above the horizon), −/+ to zoom; N = straight down, north up. Tilting while looking past the globe brings it back into view.
+
+## [1.0.108] - 2026-10-31
+### Fixed
+- Fetcher 1.13.1: NS trains were almost all gone (only Arriva left). NS now reports a meaningless `horizontaleNauwkeurigheid` for source `OBIS` (e.g. 140 km for a correct position), so the 5 km filter dropped them; it now ignores that field for `OBIS`.
+
+## [1.0.107] - 2026-10-31
+### Fixed
+- iPad/iPhone crashed (and kept reloading) with borders, coastlines or cities on: on iOS lines are drawn as light 1 px GL lines (wide polylines need ~8× the memory) and MSAA is off.
+- Crash guard: if the page died while starting or loading borders/coast/cities/provinces (flag not cleared within 20 s), the next start turns borders, time zones, nature/street names and the environment layer off and says so, instead of crashing again.
+
+## [1.0.106] - 2026-10-31
+### Changed
+- Aircraft move smoothly along their real path: shown a fixed delay behind real time (civil 140 s, military 45 s) and moved along a Hermite curve between received positions (position + speed/heading at both ends), so turns are curves instead of straight lines with jumps. Past the newest position they continue along their current turn (max 45°). The icon points along the curve.
+- Selected aircraft is tracked live: every 5 s its own position from adsb.lol via the fetcher (`/live/{hex}`), shown only 12 s behind; the trail restarts at the live position. After deselecting it slowly falls back to the normal delay.
+- Fetcher 1.13.0: `/live/{hex}` endpoint (adsb.lol `/v2/hex`, cached 3 s); Caddy proxies `/live/*` to the fetcher.
+
 ## [1.0.105] - 2026-10-30
 ### Changed
 - Side panel: the Environment section (layer, legend, KNMI images, "Air & weather on click") now sits right under Language; the "Air & weather on click" button spans the full width. Its heading is in capitals like the other sections.

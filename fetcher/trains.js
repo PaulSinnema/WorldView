@@ -18,7 +18,8 @@ export async function fetchNs(key) {
     const rows = list
         .filter(t => Number.isFinite(t.lat) && Number.isFinite(t.lng))
         // horizontaleNauwkeurigheid (m) grows while NS has no fresh fix: skip positions off by more than 5 km
-        .filter(t => !(t.horizontaleNauwkeurigheid > NS_MAX_ERROR_M))
+        // (OBIS reports a meaningless accuracy, e.g. 140 km for a correct position: ignore it there)
+        .filter(t => t.bron === 'OBIS' || !(t.horizontaleNauwkeurigheid > NS_MAX_ERROR_M))
         .map(t => {
             const nr = t.treinNummer ?? t.ritId ?? '', id = `ns-${nr || `${t.lat},${t.lng}`}`, lat = r5(t.lat), lon = r5(t.lng);
             // Position time: NS often repeats an unchanged position; keep the time it was first seen,

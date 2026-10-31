@@ -1,9 +1,12 @@
-﻿// On-demand NS train composition + images: GET /ns/train/{nr} (via Caddy), cached 5 min
+﻿// On-demand API via Caddy: NS train composition + images GET /ns/train/{nr} (cached 5 min),
+// live position of one aircraft GET /live/{hex} (adsb.lol, cached 3 s so many viewers make one request)
 import { createServer } from 'node:http';
+import { fetchHex } from './core.js';
 
 const UA = 'WorldView-fetcher/1.0 (+https://flights.sinnema.ch)';
 const TTL = 5 * 60000;
 const cache = new Map(); // nr -> { t, body }
+const LIVE_TTL = 3000, live = new Map(); // hex -> { t, p }
 
 const imgOf = a => typeof a === 'string' ? a : a?.url || null;
 
@@ -32,11 +35,20 @@ async function trainInfo(key, nr) {
 
 export function startNsApi(key, port = 8080) {
     createServer(async (req, res) => {
-        const m = /^\/ns\/train\/(\d{1,6})$/.exec(req.url.split('?')[0]);
-        const send = (code, body) => {
-            res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
+        const path = req.url.split('?')[0], m = /^\/ns\/train\/(\d{1,6})$/.exec(path);
+        const send = (code, body, maxAge = 300) => {
+            res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${maxAge}` });
             res.end(JSON.stringify(body));
         };
+        const lm = /^\/live\/(~?[0-9a-f]{6})$/i.exec(path);
+        if (lm) {
+            const hex = lm[1].toLowerCase(), c = live.get(hex);
+            if (c && Date.now() - c.t < LIVE_TTL) return send(200, await c.p, 2);
+            const p = fetchHex(hex).catch(e => { console.log(new Date().toISOString(), `live ${hex}: ${e.message}`); return { ac: [] }; });
+            if (live.size > 500) live.clear();
+            live.set(hex, { t: Date.now(), p });
+            return send(200, await p, 2);
+        }
         if (!m || !key) return send(404, { error: 'not found' });
         const nr = m[1], c = cache.get(nr);
         if (c && Date.now() - c.t < TTL) return send(200, c.body);

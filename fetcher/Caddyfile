@@ -14,6 +14,10 @@
 	handle /ns/* {
 		reverse_proxy fetcher:8080
 	}
+	# Live position of the selected aircraft (adsb.lol)
+	handle /live/* {
+		reverse_proxy fetcher:8080
+	}
 	handle {
 		file_server
 	}

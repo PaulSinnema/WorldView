@@ -32,13 +32,19 @@ export async function fetchMilitary() {
     if (!r.ok) throw new Error(`adsb.lol HTTP ${r.status}`);
     const j = await r.json();
     const now = Math.round((j.now ?? Date.now()) / 1000);
-    const ac = (j.ac || [])
-        .filter(a => a.lat != null && a.lon != null)
-        .map(a => {
-            const ground = a.alt_baro === 'ground';
-            return [a.hex, (a.flight || '').trim(), r4(a.lat), r4(a.lon), ground ? 0 : Math.round((Number(a.alt_baro) || Number(a.alt_geom) || 0) * FT),
-                Math.round((a.gs || 0) * KN * 10) / 10, Math.round(a.track ?? a.true_heading ?? 0), ground ? 1 : 0,
-                a.r || '', a.t || '', a.squawk || '', Math.round(now - (a.seen_pos || 0))];
-        });
-    return { t: now, src: 'adsb.lol (ODbL)', ac };
+    return { t: now, src: 'adsb.lol (ODbL)', ac: (j.ac || []).filter(a => a.lat != null && a.lon != null).map(a => adsbRow(a, now)) };
+}
+function adsbRow(a, now) {
+    const ground = a.alt_baro === 'ground';
+    return [a.hex, (a.flight || '').trim(), r4(a.lat), r4(a.lon), ground ? 0 : Math.round((Number(a.alt_baro) || Number(a.alt_geom) || 0) * FT),
+        Math.round((a.gs || 0) * KN * 10) / 10, Math.round(a.track ?? a.true_heading ?? 0), ground ? 1 : 0,
+        a.r || '', a.t || '', a.squawk || '', Math.round(now - (a.seen_pos || 0))];
+}
+// One aircraft by hex (live tracking of the selected aircraft), military row format
+export async function fetchHex(hex) {
+    const r = await fetch(`https://api.adsb.lol/v2/hex/${hex}`, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
+    if (!r.ok) throw new Error(`adsb.lol HTTP ${r.status}`);
+    const j = await r.json();
+    const now = Math.round((j.now ?? Date.now()) / 1000);
+    return { t: now, src: 'adsb.lol (ODbL)', ac: (j.ac || []).filter(a => a.lat != null && a.lon != null).map(a => adsbRow(a, now)) };
 }
