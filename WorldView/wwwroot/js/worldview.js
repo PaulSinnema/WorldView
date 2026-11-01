@@ -744,8 +744,7 @@ export async function init(containerId, ref) {
     viewer.useBrowserRecommendedResolution = LITE;
     scene.screenSpaceCameraController.minimumZoomDistance = 30;
     // Touch: two-finger drag tilted the view by accident (globe slid off the bottom); pinch only zooms now
-    if (TOUCH) scene.screenSpaceCameraController.tiltEventTypes = [Cz.CameraEventType.MIDDLE_DRAG];
-    addNavPad(); // TEMP: also on PC for testing; was touch-only
+    if (TOUCH) { scene.screenSpaceCameraController.tiltEventTypes = [Cz.CameraEventType.MIDDLE_DRAG]; addNavPad(); }
     // Keep sun lighting at every zoom level (default lights everything below 10,000 km)
     const globe = scene.globe;
     globe.lightingFadeOutDistance = 1; globe.lightingFadeInDistance = 2;

@@ -2,6 +2,10 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.115] - 2026-11-01
+### Changed
+- Nav pad touch-only again (hidden on PC).
+
 ## [1.0.114] - 2026-11-01
 ### Changed
 - Nav pad temporarily shown on PC too (testing); tilt gesture on PC unchanged.
