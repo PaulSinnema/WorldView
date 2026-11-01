@@ -26,11 +26,15 @@ export async function loadAircraftDb() {
     return m.size;
 }
 
-// ICAO type code -> model name, e.g. B738 -> "BOEING 737-800"
+// ICAO type code -> model name, e.g. B738 -> "BOEING 737-800"; _H: helicopter type codes (ICAO description starts with H, e.g. "H2T")
 export async function loadTypes() {
     const j = JSON.parse(await getGz(TYPES_URL));
-    const out = {};
-    for (const [code, v] of Object.entries(j)) if (v?.[0]) out[code] = v[0];
+    const out = {}, heli = [];
+    for (const [code, v] of Object.entries(j)) {
+        if (v?.[0]) out[code] = v[0];
+        if (typeof v?.[1] === 'string' && v[1][0] === 'H') heli.push(code);
+    }
+    out._H = heli;
     return out;
 }
 

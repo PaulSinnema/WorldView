@@ -40,6 +40,14 @@ function adsbRow(a, now) {
         Math.round((a.gs || 0) * KN * 10) / 10, Math.round(a.track ?? a.true_heading ?? 0), ground ? 1 : 0,
         a.r || '', a.t || '', a.squawk || '', Math.round(now - (a.seen_pos || 0))];
 }
+// All aircraft within radius (nautical miles, max 250) of a point (zoomed-in view), military row format
+export async function fetchPoint(lat, lon, nm) {
+    const r = await fetch(`https://api.adsb.lol/v2/point/${lat}/${lon}/${nm}`, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
+    if (!r.ok) throw new Error(`adsb.lol HTTP ${r.status}`);
+    const j = await r.json();
+    const now = Math.round((j.now ?? Date.now()) / 1000);
+    return { t: now, src: 'adsb.lol (ODbL)', ac: (j.ac || []).filter(a => a.lat != null && a.lon != null).map(a => adsbRow(a, now)) };
+}
 // One aircraft by hex (live tracking of the selected aircraft), military row format
 export async function fetchHex(hex) {
     const r = await fetch(`https://api.adsb.lol/v2/hex/${hex}`, { headers: { 'User-Agent': UA, Accept: 'application/json' } });

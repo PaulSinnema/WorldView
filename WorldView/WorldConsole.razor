@@ -258,6 +258,7 @@ else if (error is not null)
             @if (selection.CanCockpit)
             {
                 <button class="@(cockpit ? "active" : "")" @onclick="ToggleCockpit">C · Cockpit</button>
+                <button class="@(follow ? "active" : "")" @onclick="ToggleFollow" title="@T("hint.follow")">⌖ @T("btn.follow")</button>
                 <button @onclick="LoadContacts">@T("btn.contacts")</button>
             }
             @if (selection.IsRadio)
@@ -738,6 +739,14 @@ else if (error is not null)
         if (module is not null) await module.InvokeVoidAsync("setZoom", key, on);
     }
 
+    private bool follow;
+
+    private async Task ToggleFollow()
+    {
+        follow = !follow;
+        if (module is not null) await module.InvokeVoidAsync("setFollow", follow);
+    }
+
     private async Task ToggleCockpit()
     {
         // Engine reports the resulting state via OnToggle
@@ -917,7 +926,7 @@ else if (error is not null)
     {
         var prevKey = selection?.Key;
         selection = string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<SelectionInfo>(json, JsonOpts);
-        if (selection?.Key != prevKey) { contacts = null; enlarged = false; }
+        if (selection?.Key != prevKey) { contacts = null; enlarged = false; follow = false; } // engine drops follow on a new selection
         StateHasChanged();
     }
 

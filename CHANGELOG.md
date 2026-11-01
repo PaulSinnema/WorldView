@@ -2,6 +2,54 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.133] - 2026-11-01
+### Changed
+- Aircraft trails stay visible until their tail has left the view too: aircraft up to 50 km outside the view are considered, and a trail is kept as long as any of its points is in view.
+
+## [1.0.132] - 2026-11-01
+### Added
+- "Follow" button in the info box of aircraft: keeps the selected aircraft in the screen centre every frame at the current height, heading and tilt (zoom and the nav pad keep working). Off on a new selection, when the selection is cleared and in cockpit view.
+
+## [1.0.131] - 2026-11-01
+### Changed
+- Selecting an aircraft keeps its normal trail (fetcher history) instead of replacing it with a new glow trail that starts at the moment of selection; the selected aircraft always gets a trail, also beyond the device budget. Other moving objects (satellites, trains, …) keep the glow trail.
+
+## [1.0.130] - 2026-11-01
+### Added
+- Helicopters get a helicopter icon (top view: cabin, tail boom, crossed rotor blades), in the layer colour. Fetcher 1.15.1: `types.json` gets `_H`, the ICAO type codes whose description starts with H (tar1090-db). The app loads the type names as soon as an aircraft layer has data (was: on first selection) and switches aircraft already on screen when they arrive.
+
+## [1.0.129] - 2026-11-01
+### Fixed
+- `/near` kept being requested every 8 s when the fetcher has no such endpoint yet (404, shown by Chrome as a CORS error): after a failed request the app now waits 5 minutes before trying again.
+
+## [1.0.128] - 2026-11-01
+### Fixed
+- Nav pad sat behind the settings panel in landscape: it is now always drawn above panels; with the panel open it moves bottom left on smaller/short screens (left of the panel on screens ≥ 900 × 600); phones portrait still hide it while the full-width panel is open.
+
+## [1.0.127] - 2026-11-01
+### Changed
+- Nav pad temporarily shown on PC too (review); tilt gesture on PC unchanged.
+
+## [1.0.126] - 2026-11-01
+### Fixed
+- White globe on phones (DPR > 1) since 1.0.125: the label/detection canvases had `inset: 0` without width/height, so they took their own pixel size, which the app sets to screen size × DPR every frame → the canvas grew ×DPR per frame. Now explicit 100 % width/height.
+
+## [1.0.125] - 2026-11-01
+### Fixed
+- Phones portrait (≤ 760 px): top bar on two rows (search full width, buttons below at 38 px), so all buttons are visible; search text 16 px (no iOS zoom on focus); version moved to bottom right; panel, HUD, toast and crash button start below the bar; info box full width, max 45 % high.
+- Phone landscape and tablets (761–1299 px): the centred top bar ran under the side panel; the panel now starts below the bar.
+- Nav pad: bottom right with less margin; left of the open panel only on big screens (≥ 900 × 600), hidden while the panel is open on smaller or short screens (it sat in the middle of a landscape phone screen); smaller pad on short landscape screens.
+- Short landscape (≤ 500 px high): more compact HUD, info box uses the height.
+- Touch screens: bigger top-bar buttons.
+- Label and detection canvases now cover exactly the globe area instead of 100vh (taller than the visible area on iOS/Android with toolbars, which shifted labels).
+
+## [1.0.124] - 2026-11-01
+### Added
+- Fetcher 1.15.0: `GET /near/{lat}/{lon}/{nm}` (0.5° grid, radius 25/50/100/150/250 nm) → adsb.lol `/v2/point`, military row format. Cached 8 s per area, at most 6 upstream calls per 10 s, 60 s pause after a 429 (then the last answer or an empty list). Caddy proxies `/near/*`.
+- App: below 300 km the civil aircraft around the view centre come from `/near` every 8 s (iOS 10 s). Known aircraft get the extra fixes, new ones are added; they are shown ~15 s behind instead of 140 s (catching up at double speed). When the near feed stops for 30 s they fall back to the OpenSky delay. Landings now follow real positions down to the runway.
+### Fixed
+- Landing fallback: past the last fix an aircraft that was low (< 600 m) and descending no longer flies on at approach speed for kilometres; it descends to the ground at its sink rate and brakes to a stop (2 m/s²). Altitudes are above sea level, so at high airports this is approximate.
+
 ## [1.0.123] - 2026-11-01
 ### Added
 - Fetcher 1.14.0: keeps a track history per airborne aircraft (`history.js`), only as much as a 50 km trail behind the delayed icon needs (50 km + delay distance, plus one fix beyond for the curve; reset on the ground, after a 10-min gap or 5 min unseen). Sent as `[ageS, lat, lon, alt, gs, track] × n`: element 13 of civil rows in the tiles (not in the `flights.json` overview), element 12 of military rows.

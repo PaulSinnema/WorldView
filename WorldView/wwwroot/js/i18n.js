@@ -61,6 +61,8 @@ const S = {
     // display
     'btn.detect': ['Detection', 'Detectie', 'Erkennung', 'Détection', '检测'],
     'btn.daynight': ['Day/night', 'Dag/nacht', 'Tag/Nacht', 'Jour/nuit', '昼夜'],
+    'btn.follow': ['Follow', 'Volgen', 'Folgen', 'Suivre', '跟随'],
+    'hint.follow': ['Keep this aircraft in the centre; height, heading and tilt stay as they are', 'Houd dit toestel in het midden; hoogte, richting en kanteling blijven gelijk', 'Dieses Flugzeug in der Mitte halten; Höhe, Richtung und Neigung bleiben', 'Garder cet avion au centre ; altitude, cap et inclinaison restent inchangés', '保持该飞机在屏幕中央；高度、方向和倾斜不变'],
     'btn.trails': ['Trails', 'Sporen', 'Spuren', 'Traînées', '航迹'],
     'hint.trails': ['Trail behind aircraft below 400 km altitude (max 50 km)', 'Spoor achter vliegtuigen onder 400 km hoogte (max 50 km)', 'Spur hinter Flugzeugen unter 400 km Höhe (max. 50 km)', 'Traînée derrière les avions sous 400 km d’altitude (max 50 km)', '高度400公里以下显示飞机航迹（最长50公里）'],
     'btn.borders': ['Borders', 'Grenzen', 'Grenzen', 'Frontières', '边界'],

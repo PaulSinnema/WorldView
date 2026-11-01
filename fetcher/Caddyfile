@@ -18,6 +18,10 @@
 	handle /live/* {
 		reverse_proxy fetcher:8080
 	}
+	# Aircraft near a point when zoomed in (adsb.lol, cached per area)
+	handle /near/* {
+		reverse_proxy fetcher:8080
+	}
 	handle {
 		file_server
 	}

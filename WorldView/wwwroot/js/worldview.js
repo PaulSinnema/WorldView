@@ -198,6 +198,10 @@ function makeIcon(kind, color) {
     if (kind === 'plane') {
         const p = [[0, -14], [3, -4], [13, 2], [13, 5], [3, 2], [2, 10], [6, 13], [6, 15], [0, 13], [-6, 15], [-6, 13], [-2, 10], [-3, 2], [-13, 5], [-13, 2], [-3, -4]];
         p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
+    } else if (kind === 'heli') {
+        // Top view: cabin, tail boom with fin (rotor drawn after the fill)
+        g.ellipse(0, -2, 5, 8, 0, 0, Math.PI * 2);
+        g.moveTo(1.5, 5); g.lineTo(1.2, 12); g.lineTo(4, 13); g.lineTo(4, 15); g.lineTo(-4, 15); g.lineTo(-4, 13); g.lineTo(-1.2, 12); g.lineTo(-1.5, 5); g.closePath();
     } else if (kind === 'train') {
         // Top view of a locomotive, nose up
         const p = [[0, -14], [6, -8], [6, 14], [-6, 14], [-6, -8]];
@@ -223,6 +227,12 @@ function makeIcon(kind, color) {
         g.rect(-11, -7, 16, 14); g.moveTo(5, -3); g.lineTo(12, -8); g.lineTo(12, 8); g.lineTo(5, 3); g.closePath();
     }
     g.fill(); g.stroke();
+    if (kind === 'heli') {
+        // Main rotor: two crossed blades through the rotor hub, dark edge
+        g.beginPath(); g.moveTo(-11, -13); g.lineTo(11, 9); g.moveTo(11, -13); g.lineTo(-11, 9);
+        g.lineCap = 'round'; g.lineWidth = 4; g.strokeStyle = 'rgba(0,0,0,0.85)'; g.stroke();
+        g.lineWidth = 2; g.strokeStyle = color; g.stroke();
+    }
     // Letter marks tram/metro (readable at a glance)
     const mark = { tram: 'T', metro: 'M' }[kind];
     if (mark) { g.fillStyle = 'rgba(0,0,0,0.8)'; g.font = 'bold 10px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(mark, 0, kind === 'tram' ? -6 : 0); }
@@ -745,7 +755,8 @@ export async function init(containerId, ref) {
     viewer.useBrowserRecommendedResolution = LITE;
     scene.screenSpaceCameraController.minimumZoomDistance = 30;
     // Touch: two-finger drag tilted the view by accident (globe slid off the bottom); pinch only zooms now
-    if (TOUCH) { scene.screenSpaceCameraController.tiltEventTypes = [Cz.CameraEventType.MIDDLE_DRAG]; addNavPad(); }
+    if (TOUCH) scene.screenSpaceCameraController.tiltEventTypes = [Cz.CameraEventType.MIDDLE_DRAG];
+    addNavPad(); // TEMP: also on PC for review; was touch-only
     // Keep sun lighting at every zoom level (default lights everything below 10,000 km)
     const globe = scene.globe;
     globe.lightingFadeOutDistance = 1; globe.lightingFadeInDistance = 2;
@@ -929,7 +940,7 @@ function fromFeedCivil(a, t) {
     const type = a[12] || '';
     return {
         key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: false, t: (a[10] || t) * 1000, hist: a[13],
-        label: a[1] || a[11] || a[0], type,
+        label: a[1] || a[11] || a[0], type, img: airIcon(type, '#3fd0ff'),
         info: [['callsign', a[1] || '—'], ['registration', a[11] || '—'], ['type', () => typeText(type)], ['country', a[8] || '—'], ['icao', a[0]], ['squawk', a[9] || '—']]
     };
 }
@@ -938,17 +949,26 @@ function fromFeedMil(a, t) {
     const type = a[9] || '';
     return {
         key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: true, t: (a[11] || t) * 1000, hist: a[12],
-        label: a[1] || a[8] || a[0], type,
+        label: a[1] || a[8] || a[0], type, img: airIcon(type, '#ffb020'),
         info: [['callsign', a[1] || '—'], ['registration', a[8] || '—'], ['type', () => typeText(type)], ['icao', a[0]], ['squawk', a[10] || '—']]
     };
 }
 
 // Aircraft type names (types.json from the fetcher): B738 -> "BOEING 737-800"
-let typeNames = null, typesLoading = null;
+let typeNames = null, typesLoading = null, heliTypes = new Set();
 function loadTypeNames() {
-    typesLoading ??= tryJson(`${FEED_URL}/types.json`, 20000).then(j => { typeNames = j || {}; if (selected) pushInfo(); });
+    typesLoading ??= tryJson(`${FEED_URL}/types.json`, 20000).then(j => {
+        typeNames = j || {};
+        // Helicopter type codes (_H): give aircraft already on screen their helicopter icon
+        heliTypes = new Set(Array.isArray(typeNames._H) ? typeNames._H : []);
+        for (const [l, color] of [['flights', '#3fd0ff'], ['military', '#ffb020']])
+            for (const r of store[l].values()) { const img = airIcon(r.type, color); if (img && r.img !== img) { r.img = img; r.bb.image = img; } }
+        if (selected) pushInfo();
+    });
     return typesLoading;
 }
+// Helicopter icon for helicopter types, else the layer's default (undefined)
+const airIcon = (type, color) => type && heliTypes.has(type) ? icon('heli', color) : undefined;
 // "BOEING 737-800" -> "Boeing 737-800" (short acronyms like ATR stay upper case)
 const prettyModel = n => n.replace(/\b[A-Z]{4,}\b/g, w => w[0] + w.slice(1).toLowerCase());
 function typeText(code) {
@@ -1060,6 +1080,7 @@ async function loadOv() {
 }
 function merge(layer, list, kind, color) {
     const m = store[layer], col = coll[layer], now = Date.now(), img = icon(kind, color);
+    if (AIR_DELAY[layer] && !typesLoading) loadTypeNames(); // type names + helicopter types, for the icons
     for (const f of list) {
         let r = m.get(f.key);
         if (!r) {
@@ -1071,7 +1092,7 @@ function merge(layer, list, kind, color) {
             Object.assign(r, f);
         }
         r.t = Math.min(f.t || now, now); r.seen = now;
-        if (AIR_DELAY[layer]) { r.delayTarget = AIR_DELAY[layer]; r.delay ??= r.delayTarget; addHistory(r, f); addFix(r, r); }
+        if (AIR_DELAY[layer]) { r.delayTarget = r.near > now - 30000 ? NEAR_DELAY : AIR_DELAY[layer]; r.delay ??= r.delayTarget; addHistory(r, f); addFix(r, r); }
         r.bb.rotation = -toRad(r.track || 0);
         // Dead-reckoned position, same as tick(): no jump back on refresh
         const [la, lo, al] = posAt(r, now);
@@ -1083,6 +1104,35 @@ function merge(layer, list, kind, color) {
 // Aircraft are shown DELAY behind real time and move along a smooth curve between received fixes (Hermite: position + velocity at both ends);
 // past the newest fix they continue along their turn. Feed intervals: OpenSky 90 s (+ polling), adsb.lol 20 s
 const AIR_DELAY = { flights: 140000, military: 45000 }, LIVE_DELAY = 12000, LIVE_POLL = 5000;
+// Zoomed in (< 300 km): aircraft around the view centre from adsb.lol via the fetcher every 8 s, shown ~15 s behind instead of 140 s
+const NEAR_H = 3e5, NEAR_DELAY = 15000, NEAR_EVERY = LITE ? 10000 : 8000;
+let lastNear = 0, nearBusy = false, nearOffUntil = 0;
+async function loadNear() {
+    const h = camHeight(), now = Date.now();
+    if (nearBusy || !S.layers.flights || h > NEAR_H || now < nearOffUntil) return;
+    nearBusy = true;
+    try {
+        const c = viewCenter(), g = v => (Math.round(v * 2) / 2) || 0; // 0.5° grid (no -0)
+        const nm = h < 3e4 ? 25 : h < 6e4 ? 50 : h < 1.2e5 ? 100 : h < 2e5 ? 150 : 250;
+        const j = await tryJson(`${FEED_URL}/near/${g(c.lat)}/${g(c.lon)}/${nm}`, 8000);
+        if (!j) { nearOffUntil = now + 300000; return; } // fetcher without /near or down: retry in 5 min
+        if (j.ac?.length) mergeNear(j.ac, j.t);
+    } finally { nearBusy = false; }
+}
+// Rows in military format; known aircraft only get a new fix (keep their OpenSky info), new ones are added
+function mergeNear(rows, t) {
+    const m = store.flights, now = Date.now(), fresh = [];
+    for (const a of rows) {
+        if (store.military.has(a[0])) continue; // military layer has its own feed
+        const f = { t: Math.min((a[11] || t) * 1000, now), lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7] };
+        const r = m.get(a[0]);
+        if (r) {
+            r.near = r.seen = now; r.delayTarget = NEAR_DELAY;
+            if (addFix(r, f)) Object.assign(r, f);
+        } else fresh.push(Object.assign(fromFeedMil(a, t), { mil: false, hist: undefined, near: now, img: airIcon(a[9], '#3fd0ff') }));
+    }
+    if (fresh.length) merge('flights', fresh, 'plane', '#3fd0ff');
+}
 function addFix(r, f) {
     const fx = r.fixes ??= [], last = fx[fx.length - 1];
     if (last && f.t <= last.t) return false;
@@ -1112,6 +1162,14 @@ const lonScale = lat => R_EARTH * Math.max(0.05, Math.cos(toRad(lat)));
 function extrapolate(a, prev, td) {
     if (a.ground || !a.gs) return [a.lat, a.lon, a.alt];
     const dt = Math.max(-300, Math.min(300, (td - a.t) / 1000));
+    // Landing fallback: low and descending at the last fix → down to the runway at the current descent rate, then brake (2 m/s²) to a stop; no flying on
+    const sink = prev && a.t > prev.t ? (prev.alt - a.alt) / ((a.t - prev.t) / 1000) : 0;
+    if (dt > 0 && a.alt < 600 && (sink > 0.5 || (!prev && a.alt < 150))) {
+        const rate = Math.max(2, sink), tTouch = a.alt / rate, tAir = Math.min(dt, tTouch);
+        const tRoll = Math.min(Math.max(0, dt - tTouch), a.gs / 2), s = a.gs * tAir + a.gs * tRoll - tRoll * tRoll;
+        const hd = toRad(a.track);
+        return [a.lat + toDeg(s * Math.cos(hd) / R_EARTH), a.lon + toDeg(s * Math.sin(hd) / lonScale(a.lat)), Math.max(0, a.alt - rate * tAir)];
+    }
     let w = 0;
     if (prev && !prev.ground && a.t > prev.t && a.t - prev.t <= 180000) w = Math.max(-0.05, Math.min(0.05, toRad(((a.track - prev.track + 540) % 360) - 180) / ((a.t - prev.t) / 1000)));
     const [e, n] = arc(a.gs, toRad(a.track), w, dt);
@@ -2436,7 +2494,8 @@ function select(layer, key, fly) {
     trackEntity = viewer.entities.add({
         position: Cz.CallbackPositionProperty ? new Cz.CallbackPositionProperty(posFn, false) : new Cz.CallbackProperty(posFn, false),
         point: { pixelSize: 20, color: Cz.Color.TRANSPARENT, outlineColor: glow, outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY },
-        polyline: moving ? { positions: new Cz.CallbackProperty(() => trail, false), width: 3, material: new Cz.PolylineGlowMaterialProperty({ glowPower: 0.25, color: glow }) } : undefined,
+        // Aircraft keep their normal trail (fetcher history); others get the glow trail
+        polyline: moving && !AIR_DELAY[layer] ? { positions: new Cz.CallbackProperty(() => trail, false), width: 3, material: new Cz.PolylineGlowMaterialProperty({ glowPower: 0.25, color: glow }) } : undefined,
         viewFrom: r.l2 ? new Cz.Cartesian3(0, -6e8, 4e8) : ORBITERS.includes(layer) ? new Cz.Cartesian3(0, -1.6e6, 1.2e6) : new Cz.Cartesian3(0, -30000, 20000)
     });
     if (layer === 'satellites') { drawOrbit(r); lastOrbit = Date.now(); }
@@ -2469,7 +2528,25 @@ function stopLive() {
     if (liveRec) liveRec.liveUntil = 0;
     liveRec = null;
 }
+// Follow: keep the selected aircraft in the screen centre at the current height, heading and tilt
+let follow = false;
+export function setFollow(on) {
+    follow = !!on && !!selected;
+    if (follow && viewer.trackedEntity) viewer.trackedEntity = undefined;
+}
+function followStep() {
+    if (!follow || !selected || S.cockpit) return;
+    const p = currentCartesian();
+    if (!p) return;
+    const cam = viewer.camera, cv = viewer.scene.canvas;
+    const g = Cz.Cartographic.fromCartesian(p), target = Cz.Cartesian3.fromRadians(g.longitude, g.latitude, 0);
+    const ctr = cam.pickEllipsoid(new Cz.Cartesian2(cv.clientWidth / 2, cv.clientHeight / 2));
+    const range = ctr ? Cz.Cartesian3.distance(cam.positionWC, ctr) : cam.positionCartographic.height;
+    cam.lookAt(target, new Cz.HeadingPitchRange(cam.heading, Math.min(cam.pitch, toRad(-5)), range));
+    cam.lookAtTransform(Cz.Matrix4.IDENTITY);
+}
 export function clearSelection(notifyUi = true) {
+    follow = false;
     if (S.cockpit) setCockpit(false);
     if (viewer) viewer.trackedEntity = undefined;
     if (trackEntity) viewer.entities.remove(trackEntity);
@@ -2854,17 +2931,25 @@ function updateAirTrails(now) {
     airTrails ??= viewer.scene.primitives.add(new Cz.PolylineCollection());
     const step = h < 5e4 ? 5000 : h < 2e5 ? 10000 : 15000;
     const rect = viewer.camera.computeViewRectangle(), ctr = viewCenter(), c = new Cz.Cartographic();
-    // Candidates in view, nearest the centre first
+    // View rectangle widened by the trail length (50 km ≈ 0.45° latitude)
+    let wide = null;
+    if (rect) {
+        const dLat = AIR_TRAIL_M / R_EARTH, dLon = dLat / Math.max(0.1, Math.cos(Math.max(Math.abs(rect.north), Math.abs(rect.south))));
+        wide = new Cz.Rectangle(rect.west - dLon, Math.max(-Math.PI / 2, rect.south - dLat), rect.east + dLon, Math.min(Math.PI / 2, rect.north + dLat));
+    }
+    // Candidates in (widened) view, nearest the centre first
     const cand = [];
     for (const l of Object.keys(AIR_DELAY)) {
         if (!S.layers[l]) continue;
         for (const r of store[l].values()) {
             const fx = r.fixes;
-            if (!fx || fx.length < 2 || r.ground || (selected?.layer === l && selected.key === r.key)) continue;
+            if (!fx || fx.length < 2 || r.ground) continue;
             const td = now - (r.delay ?? 0), p = airPos(r, td);
-            if (rect && !Cz.Rectangle.contains(rect, Cz.Cartographic.fromDegrees(p[1], p[0], 0, c))) continue;
+            // Icon up to 50 km outside the view: its trail may still be in view (checked per point below)
+            if (wide && !Cz.Rectangle.contains(wide, Cz.Cartographic.fromDegrees(p[1], p[0], 0, c))) continue;
             const dx = (p[1] - ctr.lon) * Math.cos(toRad(p[0])), dy = p[0] - ctr.lat;
-            cand.push({ l, r, td, p, d: dx * dx + dy * dy });
+            const sel = selected?.layer === l && selected.key === r.key;
+            cand.push({ l, r, td, p, d: sel ? -1 : dx * dx + dy * dy }); // selected always gets a trail
         }
     }
     cand.sort((a, b) => a.d - b.d);
@@ -2882,6 +2967,8 @@ function updateAirTrails(now) {
             if (tt === t0fix) break;
         }
         if (pts.length < 2) continue;
+        // Keep the trail until its tail has left the view too
+        if (rect && !pts.some(q => Cz.Rectangle.contains(rect, Cz.Cartographic.fromCartesian(q, undefined, c)))) continue;
         const k = l + ':' + r.key;
         seen.add(k);
         const line = airTrailLines.get(k);
@@ -2901,7 +2988,9 @@ function tick() {
     for (const l of MOVERS) {
         if (!S.layers[l]) continue;
         for (const r of store[l].values()) {
+            if (r.delayTarget === NEAR_DELAY && !(r.near > now - 30000)) r.delayTarget = AIR_DELAY[l]; // near feed stopped
             if (r.fixes && r.delay < r.delayTarget && !(r.liveUntil > now)) r.delay = Math.min(r.delayTarget, r.delay + (now - (lastTick || now)) * 0.25); // back from live: catch up slowly
+            else if (r.fixes && r.delay > r.delayTarget && !(r.liveUntil > now)) r.delay = Math.max(r.delayTarget, r.delay - (now - (lastTick || now)) * 1.0); // near feed: run 2× until ~15 s behind
             const [la, lo, al] = posAt(r, now);
             r.bb.position = Cz.Cartesian3.fromDegrees(lo, la, al);
             if (r.fixes) { // icon points along the curve
@@ -2912,6 +3001,7 @@ function tick() {
     }
     lastTick = now;
     if (now - lastAirTrails > AIR_TRAIL_EVERY) { lastAirTrails = now; updateAirTrails(now); }
+    if (now - lastNear > NEAR_EVERY) { lastNear = now; loadNear().catch(() => { }); }
     if (S.layers.satellites && now % 1000 < 250) propagateSats();
     updateTzLabels();
     if (selected && now - lastTrail > 1000) {
@@ -2931,6 +3021,7 @@ function tick() {
 }
 function onPreRender() {
     navStep();
+    followStep();
     if (!S.cockpit || !selected) return;
     const r = store[selected.layer].get(selected.key);
     if (!r) return;

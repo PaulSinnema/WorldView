@@ -16,7 +16,7 @@ import { fetchCoral } from './coral.js';
 import { makeHistory, trackHistory } from './history.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.14.0';
+const VERSION = '1.15.1';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
