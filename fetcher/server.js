@@ -13,9 +13,10 @@ import { fetchOzone } from './ozone.js';
 import { fetchPower } from './power.js';
 import { fetchTempAnomaly } from './gistemp.js';
 import { fetchCoral } from './coral.js';
+import { makeHistory, trackHistory } from './history.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.13.1';
+const VERSION = '1.14.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -32,13 +33,19 @@ async function put(rel, obj) {
     await rename(tmp, file);
 }
 
+// Track history for trails, same delay as the app (civil 140 s, military 45 s)
+const civHist = makeHistory(140), milHist = makeHistory(45);
+
 // Split civil snapshot into 10° tiles: {t, src, tile, keys}, flights/x_y.json
+// Tile rows get the track history as element 13; flights.json (overview) stays without
 async function writeFlights(snap) {
+    const hist = trackHistory(civHist, snap.ac, 10, snap.t);
     const tiles = new Map();
     for (const a of snap.ac) {
         const k = `${Math.floor(a[3] / TILE)}_${Math.floor(a[2] / TILE)}`;
         if (!tiles.has(k)) tiles.set(k, []);
-        tiles.get(k).push(a);
+        const hh = hist.get(a[0]);
+        tiles.get(k).push(hh ? [...a.slice(0, 13), ...Array(Math.max(0, 13 - a.length)).fill(null), hh] : a);
     }
     await mkdir(join(DATA, 'flights'), { recursive: true });
     for (const [k, ac] of tiles) await put(`flights/${k}.json`, { t: snap.t, src: snap.src, ac });
@@ -140,6 +147,9 @@ async function updateFlights() {
 }
 async function updateMilitary() {
     const m = await fetchMilitary();
+    // Track history as element 12 of each row
+    const hist = trackHistory(milHist, m.ac, 11, m.t);
+    m.ac = m.ac.map(a => hist.has(a[0]) ? [...a.slice(0, 12), ...Array(Math.max(0, 12 - a.length)).fill(null), hist.get(a[0])] : a);
     await put('military.json', m);
     log(`military: ${m.ac.length}`);
 }

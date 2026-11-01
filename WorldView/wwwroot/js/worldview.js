@@ -924,20 +924,20 @@ function viewCenter() {
     return { lat: toDeg(c.latitude), lon: toDeg(c.longitude) };
 }
 // flights: one shared snapshot served via CDN (see fetcher/)
-// civil: [icao, call, lat, lon, altM, gsMs, track, ground, country, squawk, tPos, reg, type]
+// civil: [icao, call, lat, lon, altM, gsMs, track, ground, country, squawk, tPos, reg, type, history (tiles only)]
 function fromFeedCivil(a, t) {
     const type = a[12] || '';
     return {
-        key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: false, t: (a[10] || t) * 1000,
+        key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: false, t: (a[10] || t) * 1000, hist: a[13],
         label: a[1] || a[11] || a[0], type,
         info: [['callsign', a[1] || '—'], ['registration', a[11] || '—'], ['type', () => typeText(type)], ['country', a[8] || '—'], ['icao', a[0]], ['squawk', a[9] || '—']]
     };
 }
-// military: [hex, call, lat, lon, altM, gsMs, track, ground, reg, type, squawk, tPos]
+// military: [hex, call, lat, lon, altM, gsMs, track, ground, reg, type, squawk, tPos, history]
 function fromFeedMil(a, t) {
     const type = a[9] || '';
     return {
-        key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: true, t: (a[11] || t) * 1000,
+        key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: true, t: (a[11] || t) * 1000, hist: a[12],
         label: a[1] || a[8] || a[0], type,
         info: [['callsign', a[1] || '—'], ['registration', a[8] || '—'], ['type', () => typeText(type)], ['icao', a[0]], ['squawk', a[10] || '—']]
     };
@@ -1071,7 +1071,7 @@ function merge(layer, list, kind, color) {
             Object.assign(r, f);
         }
         r.t = Math.min(f.t || now, now); r.seen = now;
-        if (AIR_DELAY[layer]) { r.delayTarget = AIR_DELAY[layer]; r.delay ??= r.delayTarget; addFix(r, r); }
+        if (AIR_DELAY[layer]) { r.delayTarget = AIR_DELAY[layer]; r.delay ??= r.delayTarget; addHistory(r, f); addFix(r, r); }
         r.bb.rotation = -toRad(r.track || 0);
         // Dead-reckoned position, same as tick(): no jump back on refresh
         const [la, lo, al] = posAt(r, now);
@@ -1089,6 +1089,17 @@ function addFix(r, f) {
     fx.push({ t: f.t, lat: f.lat, lon: f.lon, alt: f.alt, gs: f.gs || 0, track: f.track || 0, ground: !!f.ground });
     while (fx.length > 2 && (fx[0].t < f.t - 900000 || fx.length > 80)) fx.shift();
     return true;
+}
+// Earlier fixes kept by the fetcher (flat [ageS, lat, lon, alt, gs, track] × n, age before this row): trail at once
+function addHistory(r, f) {
+    const h = f.hist;
+    if (!Array.isArray(h) || f.ground) return;
+    const fx = r.fixes ??= [], have = new Set(fx.map(x => x.t));
+    for (let i = 0; i + 5 < h.length; i += 6) {
+        const t = f.t - h[i] * 1000;
+        if (!have.has(t)) fx.push({ t, lat: h[i + 1], lon: h[i + 2], alt: h[i + 3], gs: h[i + 4] || 0, track: h[i + 5] || 0, ground: false });
+    }
+    fx.sort((a, b) => a.t - b.t);
 }
 // Metres east/north after t s at speed v, heading h, turn rate w (turn limited to 45°, then straight on)
 function arc(v, h, w, t) {

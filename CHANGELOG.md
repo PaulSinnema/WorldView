@@ -2,6 +2,11 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.123] - 2026-11-01
+### Added
+- Fetcher 1.14.0: keeps a track history per airborne aircraft (`history.js`), only as much as a 50 km trail behind the delayed icon needs (50 km + delay distance, plus one fix beyond for the curve; reset on the ground, after a 10-min gap or 5 min unseen). Sent as `[ageS, lat, lon, alt, gs, track] × n`: element 13 of civil rows in the tiles (not in the `flights.json` overview), element 12 of military rows.
+- App: these earlier fixes are merged into each aircraft, so trails appear as soon as an aircraft comes into view instead of after the next updates.
+
 ## [1.0.122] - 2026-11-01
 ### Added
 - Aircraft trails can be switched on/off: "Trails" button under Display (on by default, remembered).
