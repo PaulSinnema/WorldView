@@ -2,6 +2,14 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.114] - 2026-11-01
+### Changed
+- Nav pad temporarily shown on PC too (testing); tilt gesture on PC unchanged.
+
+## [1.0.113] - 2026-11-01
+### Fixed
+- Nav pad: tilt used the wrong axis and turning jumped instead of starting from the current view. Turn and tilt now use Cesium's own `rotateRight`/`rotateDown` in the east-north-up frame of the point in the screen centre, so they start exactly at the current view; tilt stops 8° above the horizon and at straight down.
+
 ## [1.0.112] - 2026-10-31
 ### Fixed
 - iPad/iPhone still crashed ~2 s after turning borders on (crash report: only the 389 KB border file, no JS error → tab killed for memory). The first line overlay starts Cesium's geometry web workers, each loading its own copy of the Cesium worker code. On iOS line/fill overlays are now built on the main thread (no workers), and the globe renders at CSS-pixel resolution (4× smaller GL buffers on Retina; labels stay sharp on their own canvas).

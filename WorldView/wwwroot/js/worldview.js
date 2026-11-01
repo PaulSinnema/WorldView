@@ -744,7 +744,8 @@ export async function init(containerId, ref) {
     viewer.useBrowserRecommendedResolution = LITE;
     scene.screenSpaceCameraController.minimumZoomDistance = 30;
     // Touch: two-finger drag tilted the view by accident (globe slid off the bottom); pinch only zooms now
-    if (TOUCH) { scene.screenSpaceCameraController.tiltEventTypes = [Cz.CameraEventType.MIDDLE_DRAG]; addNavPad(); }
+    if (TOUCH) scene.screenSpaceCameraController.tiltEventTypes = [Cz.CameraEventType.MIDDLE_DRAG];
+    addNavPad(); // TEMP: also on PC for testing; was touch-only
     // Keep sun lighting at every zoom level (default lights everything below 10,000 km)
     const globe = scene.globe;
     globe.lightingFadeOutDistance = 1; globe.lightingFadeInDistance = 2;
@@ -3019,13 +3020,22 @@ function orbit(dHeading, dPitch) {
         cam.setView({ orientation: { heading: cam.heading + dHeading, pitch: Math.max(toRad(-90), cam.pitch - Math.abs(dPitch) - 0.02), roll: 0 } });
         return;
     }
-    const enu = Cz.Transforms.eastNorthUpToFixedFrame(target);
-    const local = Cz.Matrix4.multiplyByPoint(Cz.Matrix4.inverseTransformation(enu, new Cz.Matrix4()), cam.positionWC, new Cz.Cartesian3());
-    const range = Cz.Cartesian3.magnitude(local), flat = Math.hypot(local.x, local.y);
-    const heading = (flat > range * 1e-3 ? Math.atan2(-local.x, -local.y) : cam.heading) + dHeading;
-    const pitch = Cz.Math.clamp(Math.asin(-local.z / range) + dPitch, toRad(-90), toRad(-8));
-    cam.lookAt(target, new Cz.HeadingPitchRange(heading, pitch, range));
+    // Rotate in the target's east-north-up frame with Cesium's own rotate: starts exactly at the current view
+    const axis = cam.constrainedAxis;
+    cam.lookAtTransform(Cz.Transforms.eastNorthUpToFixedFrame(target));
+    cam.constrainedAxis = Cz.Cartesian3.UNIT_Z; // local up: no passing over the top
+    if (dHeading) cam.rotateRight(dHeading);
+    if (dPitch) {
+        const pos = cam.position.clone(), dir = cam.direction.clone(), up = cam.up.clone(), right = cam.right.clone();
+        cam.rotateDown(dPitch);
+        // Keep the camera at least 8° above the horizon of the target
+        if (Math.asin(cam.position.z / Cz.Cartesian3.magnitude(cam.position)) < toRad(8)) {
+            Cz.Cartesian3.clone(pos, cam.position); Cz.Cartesian3.clone(dir, cam.direction);
+            Cz.Cartesian3.clone(up, cam.up); Cz.Cartesian3.clone(right, cam.right);
+        }
+    }
     cam.lookAtTransform(Cz.Matrix4.IDENTITY);
+    cam.constrainedAxis = axis;
 }
 // Straight down, north up, over the current centre
 function northDown() {
