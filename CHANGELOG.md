@@ -2,6 +2,34 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.122] - 2026-11-01
+### Added
+- Aircraft trails can be switched on/off: "Trails" button under Display (on by default, remembered).
+
+## [1.0.121] - 2026-11-01
+### Added
+- WorldView reopens at the last view on this device (position, height, heading, pitch; saved after every camera move, not in cockpit view). A link with `#c=…` still wins.
+
+## [1.0.120] - 2026-11-01
+### Changed
+- Aircraft trails are at most 50 km long (was 5 minutes): traced back from the icon along its curve and cut off at exactly 50 km, or shorter when the oldest received fix is nearer.
+
+## [1.0.119] - 2026-11-01
+### Changed
+- Aircraft trails respect slower computers and tablets: only the aircraft nearest the screen centre get one (start 150, iOS 40); if an update takes > 8 ms that number drops by a quarter (min 15), under 3 ms it grows again (max 300, iOS 80). Coarser points when zoomed out (5 s below 50 km, 10 s below 200 km, else 15 s). iOS updates every 2 s instead of every second.
+
+## [1.0.118] - 2026-11-01
+### Changed
+- Aircraft trails now appear below 400 km altitude (was 100 km).
+
+## [1.0.117] - 2026-11-01
+### Changed
+- Aircraft trails now appear below 100 km altitude (was 50 km).
+
+## [1.0.116] - 2026-11-01
+### Added
+- Below 50 km altitude every airborne aircraft in view (flights and military) gets a thin trail of its last 5 minutes, drawn through the same smooth curve the icon follows (from the received fixes, ending at the icon). Updated every second; hidden above 50 km and in cockpit view. The selected aircraft keeps its own glow trail.
+
 ## [1.0.115] - 2026-11-01
 ### Changed
 - Nav pad touch-only again (hidden on PC).

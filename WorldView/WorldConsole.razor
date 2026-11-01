@@ -122,6 +122,7 @@ else if (error is not null)
         <button class="@(hud ? "active" : "")" @onclick="ToggleHud">H · HUD</button>
         <button class="@(detect ? "active" : "")" @onclick="ToggleDetect">D · @T("btn.detect")</button>
         <button class="@(dayNight ? "active" : "")" @onclick="ToggleDayNight">N · @T("btn.daynight")</button>
+        <button class="@(trails ? "active" : "")" @onclick="ToggleTrails" title="@T("hint.trails")">@T("btn.trails")</button>
         <button class="@(borders ? "active" : "")" @onclick="ToggleBorders">B · @T("btn.borders")</button>
     </div>
     @if (borders)
@@ -446,7 +447,7 @@ else if (error is not null)
     private static string KnmiUrl(string view, bool small) =>
         $"https://d1qb6yzwaaq4he.cloudfront.net/protocols/o3field/gome2c/forecast/today_{view}{(small ? "_sm" : "")}.png?h={DateTime.UtcNow:yyyyMMddHH}";
     private readonly Dictionary<string, bool> zoomOn = new();
-    private bool hud = true, dayNight = true, detect, cockpit, panelToggled, listening, loading = true;
+    private bool hud = true, dayNight = true, trails = true, detect, cockpit, panelToggled, listening, loading = true;
     private string? error, toast;
     private double camLat, camLon, camAlt, camHeading;
     private SelectionInfo? selection;
@@ -516,6 +517,7 @@ else if (error is not null)
                 hud = st.Hud;
                 detect = st.Detect;
                 dayNight = st.DayNight;
+                trails = st.Trails;
                 nightLight = st.NightLight;
                 borders = st.Borders;
                 regions = st.Regions;
@@ -594,6 +596,12 @@ else if (error is not null)
     {
         dayNight = !dayNight;
         if (module is not null) await module.InvokeVoidAsync("setDayNight", dayNight, false);
+    }
+
+    private async Task ToggleTrails()
+    {
+        trails = !trails;
+        if (module is not null) await module.InvokeVoidAsync("setTrails", trails);
     }
 
     private async Task SetNightLight(ChangeEventArgs e)
@@ -987,6 +995,7 @@ else if (error is not null)
         public bool Hud { get; set; } = true;
         public bool Detect { get; set; }
         public bool DayNight { get; set; } = true;
+    public bool Trails { get; set; } = true;
         public int NightLight { get; set; } = 60;
         public bool Borders { get; set; }
         public bool Regions { get; set; } = true;

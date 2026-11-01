@@ -61,6 +61,8 @@ const S = {
     // display
     'btn.detect': ['Detection', 'Detectie', 'Erkennung', 'Détection', '检测'],
     'btn.daynight': ['Day/night', 'Dag/nacht', 'Tag/Nacht', 'Jour/nuit', '昼夜'],
+    'btn.trails': ['Trails', 'Sporen', 'Spuren', 'Traînées', '航迹'],
+    'hint.trails': ['Trail behind aircraft below 400 km altitude (max 50 km)', 'Spoor achter vliegtuigen onder 400 km hoogte (max 50 km)', 'Spur hinter Flugzeugen unter 400 km Höhe (max. 50 km)', 'Traînée derrière les avions sous 400 km d’altitude (max 50 km)', '高度400公里以下显示飞机航迹（最长50公里）'],
     'btn.borders': ['Borders', 'Grenzen', 'Grenzen', 'Frontières', '边界'],
     'btn.regions': ['Provinces/states', 'Provincies/staten', 'Bundesländer/Regionen', 'Provinces/États', '省/州'],
     'btn.cities': ['Cities', 'Steden', 'Städte', 'Villes', '城市'],

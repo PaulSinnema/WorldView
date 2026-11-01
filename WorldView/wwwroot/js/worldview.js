@@ -74,6 +74,7 @@ function loadSettings() {
     for (const l of LAYERS) if (typeof S.layers[l] !== 'boolean') S.layers[l] = l === 'flights' || l === 'satellites';
     if (!STYLE_KEYS.includes(S.style)) S.style = 'normal';
     if (typeof S.daynight !== 'boolean') S.daynight = true;
+    if (typeof S.trails !== 'boolean') S.trails = true;
     if (!Number.isFinite(S.nightLight)) S.nightLight = 60;
     if (typeof S.regions !== 'boolean') S.regions = true;
     if (typeof S.cities !== 'boolean') S.cities = true;
@@ -107,7 +108,7 @@ function crashedLastTime() { try { return localStorage.getItem(BOOT_KEY) === '1'
 
 // Crash report, kept on this device only: events + state every 3 s in localStorage.
 // Previous session ended while visible without pagehide = crash → report in wv-crash, shown via the ⚠ button or #crash
-const CRUMB_KEY = 'wv-crumbs', SNAP_KEY = 'wv-snap', CRASH_KEY = 'wv-crash';
+const CRUMB_KEY = 'wv-crumbs', SNAP_KEY = 'wv-snap', CRASH_KEY = 'wv-crash', VIEW_KEY = 'wv-view';
 const APP_VER = new URL(import.meta.url).searchParams.get('v') || '?';
 const T0 = Date.now(), crumbs = [];
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
@@ -834,8 +835,16 @@ export async function init(containerId, ref) {
     scene.postRender.addEventListener(onPostRender);
     setInterval(tick, 250);
 
-    if (cam) viewer.camera.setView({ destination: Cz.Cartesian3.fromDegrees(cam[1], cam[0], cam[2]), orientation: { heading: toRad(cam[3] || 0), pitch: toRad(cam[4] ?? -90), roll: 0 } });
+    // Start view: link (#c=…) > last view on this device > whole globe
+    const view = cam || lsGet(VIEW_KEY);
+    if (view?.length >= 3 && view.every(Number.isFinite)) viewer.camera.setView({ destination: Cz.Cartesian3.fromDegrees(view[1], view[0], view[2]), orientation: { heading: toRad(view[3] || 0), pitch: toRad(view[4] ?? -90), roll: 0 } });
     else viewer.camera.setView({ destination: Cz.Cartesian3.fromDegrees(8, 38, 2.2e7) });
+    // Remember the view after every camera move
+    viewer.camera.moveEnd.addEventListener(() => {
+        if (S.cockpit) return;
+        const cm = viewer.camera, c = cm.positionCartographic;
+        lsSet(VIEW_KEY, [+toDeg(c.latitude).toFixed(5), +toDeg(c.longitude).toFixed(5), Math.round(c.height), +toDeg(cm.heading).toFixed(1), +toDeg(cm.pitch).toFixed(1)]);
+    });
 
     setStyle(S.style);
     if (S.borders) setBorders(true);
@@ -844,7 +853,7 @@ export async function init(containerId, ref) {
     if (S.streets) setStreets(true);
     for (const l of LAYERS) if (S.layers[l]) startLayer(l);
 
-    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, coast: S.coast, eez: S.eez, nature: S.nature, streets: S.streets, timezones: S.timezones, envOverlay: S.envOverlay, envClick: S.envClick, zoom: S.zoom, gpu: gpuName });
+    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, trails: S.trails, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, coast: S.coast, eez: S.eez, nature: S.nature, streets: S.streets, timezones: S.timezones, envOverlay: S.envOverlay, envClick: S.envClick, zoom: S.zoom, gpu: gpuName });
 }
 
 // Warn when the browser renders in software (hardware acceleration off or no GPU)
@@ -2817,6 +2826,64 @@ export function setCockpit(on) {
     notify('OnToggle', 'cockpit', on);
 }
 
+// Aircraft trails on/off (panel button "Trails")
+export function setTrails(on) { S.trails = !!on; saveSettings(); updateAirTrails(Date.now()); }
+// Below 400 km: trail (max 50 km, from the received fixes) behind the aircraft in view nearest the screen centre.
+// Budget for slow devices: fewer trails when an update takes too long, coarser steps when zoomed out, iOS less often
+const AIR_TRAIL_H = 4e5, AIR_TRAIL_M = 50000, AIR_TRAIL_CAP = LITE ? 80 : 300, AIR_TRAIL_EVERY = LITE ? 2000 : 1000;
+let airTrails = null, lastAirTrails = 0, airTrailMax = LITE ? 40 : 150;
+const airTrailLines = new Map(); // layer:key -> polyline
+function updateAirTrails(now) {
+    const h = camHeight(), on = S.trails && !S.cockpit && h < AIR_TRAIL_H && (S.layers.flights || S.layers.military);
+    if (!on) {
+        if (airTrailLines.size) { airTrails.removeAll(); airTrailLines.clear(); }
+        return;
+    }
+    const t0 = performance.now();
+    airTrails ??= viewer.scene.primitives.add(new Cz.PolylineCollection());
+    const step = h < 5e4 ? 5000 : h < 2e5 ? 10000 : 15000;
+    const rect = viewer.camera.computeViewRectangle(), ctr = viewCenter(), c = new Cz.Cartographic();
+    // Candidates in view, nearest the centre first
+    const cand = [];
+    for (const l of Object.keys(AIR_DELAY)) {
+        if (!S.layers[l]) continue;
+        for (const r of store[l].values()) {
+            const fx = r.fixes;
+            if (!fx || fx.length < 2 || r.ground || (selected?.layer === l && selected.key === r.key)) continue;
+            const td = now - (r.delay ?? 0), p = airPos(r, td);
+            if (rect && !Cz.Rectangle.contains(rect, Cz.Cartographic.fromDegrees(p[1], p[0], 0, c))) continue;
+            const dx = (p[1] - ctr.lon) * Math.cos(toRad(p[0])), dy = p[0] - ctr.lat;
+            cand.push({ l, r, td, p, d: dx * dx + dy * dy });
+        }
+    }
+    cand.sort((a, b) => a.d - b.d);
+    const seen = new Set();
+    for (const { l, r, td, p } of cand.slice(0, Math.round(airTrailMax))) {
+        // Back from the icon along the curve it flew, until 50 km or the oldest fix
+        const pts = [Cz.Cartesian3.fromDegrees(p[1], p[0], p[2])], t0fix = r.fixes[0].t;
+        let len = 0;
+        for (let t = td - step; len < AIR_TRAIL_M; t -= step) {
+            const tt = Math.max(t, t0fix), [a, b, al] = airPos(r, tt);
+            const q = Cz.Cartesian3.fromDegrees(b, a, al), prev = pts[pts.length - 1], d = Cz.Cartesian3.distance(prev, q);
+            if (len + d > AIR_TRAIL_M) { Cz.Cartesian3.lerp(prev, q, (AIR_TRAIL_M - len) / d, q); len = AIR_TRAIL_M; } // cut at exactly 50 km
+            else len += d;
+            pts.push(q);
+            if (tt === t0fix) break;
+        }
+        if (pts.length < 2) continue;
+        const k = l + ':' + r.key;
+        seen.add(k);
+        const line = airTrailLines.get(k);
+        if (line) line.positions = pts;
+        else airTrailLines.set(k, airTrails.add({ positions: pts, width: LITE ? 1 : 1.5, material: Cz.Material.fromType('Color', { color: Cz.Color.fromCssColorString(DETECT_COLORS[l]).withAlpha(0.6) }) }));
+    }
+    for (const [k, line] of airTrailLines) if (!seen.has(k)) { airTrails.remove(line); airTrailLines.delete(k); }
+    // Adapt to the device: > 8 ms → fewer trails, < 3 ms → more (up to the cap)
+    const ms = performance.now() - t0;
+    if (ms > 8) airTrailMax = Math.max(15, airTrailMax * 0.75);
+    else if (ms < 3 && cand.length > airTrailMax) airTrailMax = Math.min(AIR_TRAIL_CAP, airTrailMax * 1.15);
+}
+
 // ---------- loop ----------
 function tick() {
     const now = Date.now();
@@ -2833,6 +2900,7 @@ function tick() {
         }
     }
     lastTick = now;
+    if (now - lastAirTrails > AIR_TRAIL_EVERY) { lastAirTrails = now; updateAirTrails(now); }
     if (S.layers.satellites && now % 1000 < 250) propagateSats();
     updateTzLabels();
     if (selected && now - lastTrail > 1000) {
