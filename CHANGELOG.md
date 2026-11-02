@@ -2,6 +2,22 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.137] - 2026-11-02
+### Changed
+- Search: addresses now fly to 300 m height (was 3 km); other places still at least 3 km.
+
+## [1.0.136] - 2026-11-02
+### Changed
+- Search: an address (text with a number, or a Nominatim result of type house/building/road, e.g. "Ooiweg 6, Apeldoorn") flies to 3 km height; other places never go lower than 3 km (was 2.5 km).
+
+## [1.0.135] - 2026-11-02
+### Changed
+- Museums now come from the fetcher instead of a manual build script. Fetcher 1.16.0 (`museums.js`): queries Overpass worldwide every 30 days in the background (≈ 10–30 min; skipped at start while `museums-index.json` is younger than 30 days), writes `museums/{x}_{y}.json` tiles, removes stale ones and writes the index last; a result under 1,000 museums keeps the old files. The app loads `museums-index.json` and the tiles from `flights.sinnema.ch`. `tools/build-museums.mjs` is obsolete.
+
+## [1.0.134] - 2026-11-02
+### Added
+- **Museums** layer from OpenStreetMap (`tourism=museum`, ODbL), built with `tools/build-museums.mjs` (Overpass, dense areas split automatically) into `data/museums-index.json` + 5° tiles in `data/museums/`. Zoomed out: well-known museums (with a Wikipedia article, max 6,000); below 2,000 km all museums in view (tiles loaded on demand). Info box: kind (`museum:type`), opening hours and website as in OSM, position, and the Wikipedia summary + photo via the Wikidata id in the UI language. Voice keyword "museum", help text in 5 languages.
+
 ## [1.0.133] - 2026-11-01
 ### Changed
 - Aircraft trails stay visible until their tail has left the view too: aircraft up to 50 km outside the view are considered, and a trail is kept as long as any of its points is in view.

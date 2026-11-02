@@ -1,5 +1,5 @@
 ﻿// WorldView fetcher for a VPS (netcup): writes snapshots + 10° tiles to /data, served by Caddy
-import { mkdir, writeFile, rename, readdir, unlink } from 'node:fs/promises';
+import { mkdir, writeFile, rename, readdir, unlink, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openskyToken, fetchOpensky, fetchMilitary } from './core.js';
 import { loadAircraftDb, loadTypes, lookup } from './aircraftdb.js';
@@ -14,9 +14,10 @@ import { fetchPower } from './power.js';
 import { fetchTempAnomaly } from './gistemp.js';
 import { fetchCoral } from './coral.js';
 import { makeHistory, trackHistory } from './history.js';
+import { fetchMuseums } from './museums.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.15.1';
+const VERSION = '1.16.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -122,6 +123,29 @@ function refreshNh3() {
         .finally(() => { nh3Busy = false; });
 }
 
+// Museums (OSM via Overpass) every 30 days, in the background (≈ 10–30 min); skipped at start while the files are fresh
+const MUSEUMS_EVERY = 30 * 86400000;
+let museumsBusy = false, museumsChecked = false;
+async function refreshMuseums() {
+    if (museumsBusy) return;
+    if (!museumsChecked) {
+        museumsChecked = true;
+        const s = await stat(join(DATA, 'museums-index.json')).catch(() => null);
+        if (s && Date.now() - s.mtimeMs < MUSEUMS_EVERY) { due.museums = s.mtimeMs + MUSEUMS_EVERY; return; }
+    }
+    museumsBusy = true;
+    try {
+        const m = await fetchMuseums();
+        await mkdir(join(DATA, 'museums'), { recursive: true });
+        for (const [k, rows] of m.tiles) await put(`museums/${k}.json`, rows);
+        for (const f of await readdir(join(DATA, 'museums'))) {
+            if (f.endsWith('.json') && !m.tiles.has(f.slice(0, -5))) await unlink(join(DATA, 'museums', f)).catch(() => { });
+        }
+        await put('museums-index.json', m.index); // last: the app only sees complete sets
+        log(`museums: ${m.count} in ${m.tiles.size} tiles, overview ${m.index.top.length}`);
+    } finally { museumsBusy = false; }
+}
+
 // Each feed on its own schedule; a slow one never delays the others
 const due = {}, busy = {};
 function every(name, ms, fn) {
@@ -198,6 +222,7 @@ function tick() {
     // Total ozone (NOAA GFS) every 6 hours, temperature anomaly (NASA GISTEMP, monthly) checked daily
     every('ozone', 6 * 3600000, async () => { const d = await fetchOzone(); await put('ozone.json', d); log(`ozone: ${d.valid}`); });
     every('tempanom', 24 * 3600000, async () => { const d = await fetchTempAnomaly(); await put('tempanom.json', d); log(`tempanom: ${d.month}`); });
+    every('museums', MUSEUMS_EVERY, refreshMuseums);
     every('power', 30 * 60000, async () => { const d = await fetchPower(); await put('power.json', d); log(`power: ${Object.keys(d.c).length} countries`); });
 }
 

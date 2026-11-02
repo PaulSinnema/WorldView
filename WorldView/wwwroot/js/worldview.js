@@ -1,7 +1,7 @@
 ﻿// WorldView globe engine: CesiumJS + keyless public feeds
 const Cz = window.Cesium;
 const SETTINGS_KEY = 'wv-settings';
-const LAYERS = ['flights', 'military', 'trains', 'ov', 'air', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras', 'plants'];
+const LAYERS = ['flights', 'military', 'trains', 'ov', 'air', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras', 'plants', 'museums'];
 const ORBITERS = ['satellites', 'telescopes'];
 const TEL_COLOR = '#00e5ff';
 // Earth-orbiting space telescopes (NORAD id, name)
@@ -21,7 +21,7 @@ const TRAIN_COLOR = '#9dff3a', OV_COLOR = '#ffd23f';
 const OV_ICONS = { bus: ['bus', OV_COLOR], tram: ['tram', '#ff6b5a'], metro: ['metro', '#4da6ff'], ferry: ['ferry', '#5af0ff'] };
 const FT = 0.3048, R_EARTH = 6371000;
 const FEED_URL = 'https://flights.sinnema.ch'; // netcup VPS, see fetcher/README.md
-const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, air: '#50f0e6', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff', plants: '#ffd23f' };
+const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, air: '#50f0e6', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff', plants: '#ffd23f', museums: '#ff8fa3' };
 // Translations (same cache-busting version as this module)
 const { LANGS, LOCALES, pickLang, t, strings } = await import(`./i18n.js${new URL(import.meta.url).search}`);
 const tr = (key, params) => t(S.lang, key, params);
@@ -42,7 +42,7 @@ const CITIES = {
 let viewer = null, dotnet = null, sat = null;
 const S = { layers: {}, style: 'normal', basemap: 'esri', ionToken: '', hud: true, detect: false, daynight: true, nightLight: 60, borders: false, regions: true, cities: true, zoom: {}, cockpit: false };
 // Per layer: zoom/follow on click
-const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, ov: false, air: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false, plants: false };
+const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, ov: false, air: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false, plants: false, museums: false };
 const NIGHT_URL = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png';
 let nightLayer = null;
 // Night brightness 0..100 → city-lights blend 0.8..0.05 (60 ≈ 0.35)
@@ -828,6 +828,7 @@ export async function init(containerId, ref) {
     viewer.camera.moveEnd.addEventListener(() => {
         if (radioQuery.inView && S.layers.radio) runRadioSearch();
         if (S.layers.flights) startLayer('flights'); // load the tiles for the new view
+        if (S.layers.museums) refreshMuseums();
     });
     window.addEventListener('blur', () => navHeld.clear());
     // Crash report: state every 3 s; normal unload/background is not a crash
@@ -883,7 +884,7 @@ function checkGpu() {
 export const getGpu = () => gpuName;
 
 // ---------- layers ----------
-const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, ov: loadOv, air: loadAir, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras, plants: loadPlants };
+const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, ov: loadOv, air: loadAir, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras, plants: loadPlants, museums: loadMuseums };
 
 export function setLayer(name, on) { applyLayer(name, on, false); }
 function applyLayer(name, on, fromEngine) {
@@ -2267,6 +2268,61 @@ async function loadPlants() {
     report('plants', 'st.plants');
     return 0;
 }
+// Museums (OpenStreetMap via the fetcher, refreshed monthly): overview (with Wikipedia article) at once, all museums per 5° tile when zoomed in
+// row: [id, lon, lat, name, typeIndex, wikidata, website, openingHours]
+const MUSEUM_TILE_H = 2e6; // below this height the tiles in view are loaded and shown
+let museumIdx = null;
+const museumTiles = new Map(); // key -> 'loading' | true
+function addMuseum([id, lon, lat, name, ti, qid, web, hours], top) {
+    if (store.museums.has(id)) return;
+    const type = museumIdx.types[ti] || 'other';
+    const info = [['museumType', () => tr('mus.' + type)]];
+    if (hours) info.push(['openingHours', hours]);
+    if (web) info.push(['website', web]);
+    info.push(['position', fmtPos(lat, lon)]);
+    const r = { key: id, lat, lon, label: name, qid, info, top };
+    r.pos = Cz.Cartesian3.fromDegrees(lon, lat, 0);
+    r.pt = coll.museums.add({ position: r.pos, pixelSize: top ? 6 : 5, color: Cz.Color.fromCssColorString(DETECT_COLORS.museums), outlineColor: Cz.Color.BLACK.withAlpha(0.6), outlineWidth: 1,
+        disableDepthTestDistance: 1.5e6, distanceDisplayCondition: top ? undefined : new Cz.DistanceDisplayCondition(0, MUSEUM_TILE_H * 1.2), id: { wv: { layer: 'museums', key: id } } });
+    store.museums.set(id, r);
+}
+async function loadMuseums() {
+    if (!museumIdx) {
+        const d = await tryJson(`${FEED_URL}/museums-index.json?b=${Math.floor(Date.now() / 3600000)}`, 30000);
+        if (!d?.tiles) { report('museums', 'st.sourceDown'); return 120000; }
+        museumIdx = { t: d.t, tile: d.tile, tiles: new Set(d.tiles), types: d.types || [] };
+        for (const row of d.top || []) addMuseum(row, true);
+    }
+    refreshMuseums();
+    return 0;
+}
+function refreshMuseums() {
+    if (!museumIdx) return;
+    if (camHeight() < MUSEUM_TILE_H) {
+        for (const k of tilesInView(viewer.camera.computeViewRectangle(), museumIdx.tile, 8)) {
+            if (!museumIdx.tiles.has(k) || museumTiles.has(k)) continue;
+            museumTiles.set(k, 'loading');
+            tryJson(`${FEED_URL}/museums/${k}.json?b=${museumIdx.t || 0}`, 20000).then(rows => {
+                if (!rows) { museumTiles.delete(k); return; }
+                museumTiles.set(k, true);
+                for (const row of rows) addMuseum(row, false);
+                report('museums', 'st.museums');
+            });
+        }
+    }
+    report('museums', 'st.museums');
+}
+// Wikipedia summary + photo of a Wikidata item (museums), cached per language
+async function loadQidWiki(r) {
+    const lang = S.lang;
+    if (r.qwLoading === lang) return;
+    r.qwLoading = lang;
+    const w = await wikidataWiki(r.qid);
+    if (r.qwLoading !== lang) return;
+    r.qwLoading = null;
+    r.qw = { lang, extract: w?.extract || null, thumb: w?.thumb || null, url: w?.url || null };
+    if (selected?.key === r.key) pushInfo();
+}
 async function loadQuakes() {
     const j = await tryJson('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson');
     if (!j) { report('quakes', 'st.sourceDown'); return 120000; }
@@ -2501,7 +2557,7 @@ function select(layer, key, fly) {
     if (layer === 'satellites') { drawOrbit(r); lastOrbit = Date.now(); }
     const zoom = S.zoom[layer] === true;
     if (moving) { if (zoom) viewer.trackedEntity = trackEntity; }
-    else if (fly && zoom) flyTo(r.lon, r.lat, layer === 'cameras' ? 1500 : layer === 'radio' ? 150000 : 400000);
+    else if (fly && zoom) flyTo(r.lon, r.lat, layer === 'cameras' ? 1500 : layer === 'museums' ? 3000 : layer === 'radio' ? 150000 : 400000);
     if (layer === 'radio' && radioCurrent !== key) radioPlay(key, false);
     if (AIR_DELAY[layer]) startLive(layer, key);
     pushInfo();
@@ -2594,6 +2650,11 @@ function pushInfo() {
         const w = ws.wiki?.lang === S.lang ? ws.wiki : null;
         if (!w) loadWiki(ws);
         img = w?.thumb || null; summary = w ? w.extract : tr('v.wikiLoading'); link = w?.url || null;
+    } else if (r.qid) {
+        // Wikidata item (museums): Wikipedia in the UI language, else English
+        const w = r.qw?.lang === S.lang ? r.qw : null;
+        if (!w) loadQidWiki(r);
+        img = w?.thumb || img; summary = w ? w.extract : tr('v.wikiLoading'); link = w?.url || null;
     }
     if (PLANES.includes(L)) photo = aircraftPhoto(r.key);
     if (L === 'trains') {
@@ -2805,7 +2866,9 @@ export async function search(q) {
     if (j?.length) {
         const r = j[0], bb = (r.boundingbox || []).map(Number);
         const span = bb.length === 4 ? Math.max(Math.abs(bb[1] - bb[0]), Math.abs(bb[3] - bb[2])) : 0.1;
-        flyTo(Number(r.lon), Number(r.lat), Math.min(2e7, Math.max(2500, span * 111000 * 1.4)));
+        // Addresses (house number, building, road): 300 m height
+        const addr = /\d/.test(q) || ['house', 'building', 'road'].includes(r.addresstype);
+        flyTo(Number(r.lon), Number(r.lat), addr ? 300 : Math.min(2e7, Math.max(3000, span * 111000 * 1.4)));
         return r.display_name;
     }
     return null;
@@ -3101,10 +3164,11 @@ function drawDetect() {
     const occ = new Cz.EllipsoidalOccluder(Cz.Ellipsoid.WGS84, viewer.camera.positionWC);
     const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
     // One candidate per screen cell: spreads labels over the whole view (also after zooming out)
-    const cells = new Map();
+    const cells = new Map(), museumsFar = camHeight() > MUSEUM_TILE_H * 1.2;
     for (const l of LAYERS) {
         if (!S.layers[l]) continue;
         for (const r of store[l].values()) {
+            if (museumsFar && l === 'museums' && !r.top) continue; // hidden by distance
             const p = r.bb ? r.bb.position : r.pos;
             if (!p || !occ.isPointVisible(p)) continue;
             const s = toWin(viewer.scene, p);
@@ -3265,6 +3329,7 @@ function onKey(e) {
 const VOICE_LAYERS = [
     ['milit', 'military'], ['军', 'military'],
     ['vlucht', 'flights'], ['vliegtuig', 'flights'], ['flight', 'flights'], ['plane', 'flights'], ['flug', 'flights'], ['avion', 'flights'], ['vol ', 'flights'], ['航班', 'flights'], ['飞机', 'flights'],
+    ['muse', 'museums'], ['musée', 'museums'], ['博物馆', 'museums'],
     ['telescop', 'telescopes'], ['teleskop', 'telescopes'], ['télescope', 'telescopes'], ['望远镜', 'telescopes'],
     ['satel', 'satellites'], ['卫星', 'satellites'],
     ['aardbeving', 'quakes'], ['earthquake', 'quakes'], ['erdbeben', 'quakes'], ['séisme', 'quakes'], ['seisme', 'quakes'], ['地震', 'quakes'],

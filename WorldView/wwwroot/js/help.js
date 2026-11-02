@@ -14,7 +14,7 @@ const en = [
         <li><b>Bus, tram, metro</b>: all Dutch public transport.</li>
         <li><b>Satellites</b> and <b>Space telescopes</b> (Hubble, JWST, …) with their orbits.</li>
         <li><b>Earthquakes</b>, <b>Wildfires</b>, <b>Launches</b>, <b>Radio</b> and <b>Traffic cameras</b>.</li>
-<li><b>Power plants</b>: about 35,000 plants worldwide, colour per energy source, size per capacity (WRI database, ≈ 2021).</li></ul>
+<li><b>Power plants</b>: about 35,000 plants worldwide, colour per energy source, size per capacity (WRI database, ≈ 2021).</li><li><b>Museums</b>: museums from OpenStreetMap; well-known ones when zoomed out, all of them when zoomed in. Click for kind, opening hours, website and Wikipedia.</li></ul>
         <p>The <b>⌖</b> button next to a layer sets whether the globe zooms in when you click an object of that layer.</p>`],
     ['ℹ️', 'Info box', `<p>Click an object, a city or a country name for details, usually with a photo and a Wikipedia summary. Click a photo or camera image to enlarge it; zoom with the wheel, buttons or pinch and drag to pan. Click beside the info box to close it.</p>
         <p>For aircraft: <b>Cockpit</b> (${K('C')}) rides along, <b>Nearby</b> lists traffic around it.</p>`],
@@ -54,7 +54,7 @@ const nl = [
         <li><b>Bus, tram, metro</b>: al het Nederlandse openbaar vervoer.</li>
         <li><b>Satellieten</b> en <b>Ruimtetelescopen</b> (Hubble, JWST, …) met hun banen.</li>
         <li><b>Aardbevingen</b>, <b>Bosbranden</b>, <b>Lanceringen</b>, <b>Radio</b> en <b>Verkeerscamera's</b>.</li>
-<li><b>Energiecentrales</b>: zo'n 35.000 centrales wereldwijd, kleur per energiebron, grootte naar vermogen (WRI-database, ± 2021).</li></ul>
+<li><b>Energiecentrales</b>: zo'n 35.000 centrales wereldwijd, kleur per energiebron, grootte naar vermogen (WRI-database, ± 2021).</li><li><b>Musea</b>: musea uit OpenStreetMap; uitgezoomd de bekende, ingezoomd allemaal. Klik voor soort, openingstijden, website en Wikipedia.</li></ul>
         <p>Met de knop <b>⌖</b> naast een laag stel je in of de globe inzoomt als je een object van die laag aanklikt.</p>`],
     ['ℹ️', 'Infovenster', `<p>Klik op een object, een stad of een landnaam voor details, meestal met een foto en een samenvatting van Wikipedia. Klik op een foto of camerabeeld om te vergroten; zoom met het wiel, de knoppen of knijpen en sleep om te verschuiven. Klik naast het infovenster om het te sluiten.</p>
         <p>Bij vliegtuigen: <b>Cockpit</b> (${K('C')}) vliegt mee, <b>In de buurt</b> toont het verkeer eromheen.</p>`],
@@ -89,7 +89,7 @@ const de = [
         <li><b>Flüge</b> und <b>Militärflüge</b> mit Typ, Kennzeichen und Foto.</li><li><b>Züge</b>: Niederlande (NS), Finnland, USA und Kanada.</li>
         <li><b>Bus, Tram, U-Bahn</b>: der gesamte niederländische ÖPNV.</li><li><b>Satelliten</b> und <b>Weltraumteleskope</b> mit Bahnen.</li>
         <li><b>Erdbeben</b>, <b>Waldbrände</b>, <b>Raketenstarts</b>, <b>Radio</b> und <b>Verkehrskameras</b>.</li>
-        <li><b>Kraftwerke</b>: rund 35.000 Kraftwerke weltweit, Farbe nach Energieträger, Größe nach Leistung (WRI-Datenbank, ≈ 2021).</li></ul>
+        <li><b>Kraftwerke</b>: rund 35.000 Kraftwerke weltweit, Farbe nach Energieträger, Größe nach Leistung (WRI-Datenbank, ≈ 2021).</li><li><b>Museen</b>: Museen aus OpenStreetMap; herausgezoomt die bekannten, hineingezoomt alle. Klick für Art, Öffnungszeiten, Website und Wikipedia.</li></ul>
         <p><b>⌖</b> neben einer Ebene: zoomen beim Anklicken ein/aus.</p>`],
     ['ℹ️', 'Infofenster', `<p>Objekt, Stadt oder Ländername anklicken für Details mit Foto und Wikipedia-Text. Bilder vergrößern per Klick, zoomen mit Rad oder Fingern, verschieben durch Ziehen. Klick daneben schließt das Fenster. Bei Flugzeugen: <b>Cockpit</b> (${K('C')}) und <b>Umgebung</b>.</p>`],
     ['🎨', 'Optik', `<p>Sieben Ansichten, Tasten ${K('1')}–${K('7')}: Normal, CRT, Nachtsicht, FLIR, Ironbow, Noir und Schnee.</p>`],
@@ -114,7 +114,7 @@ const fr = [
     ['🛰️', 'Couches', `<p>Activez les couches dans le panneau latéral ; le nombre indique les objets chargés, avec la source et l'âge.</p><ul>
         <li><b>Vols</b> et <b>Vols militaires</b> avec type, immatriculation et photo.</li><li><b>Trains</b> : Pays-Bas (NS), Finlande, États-Unis et Canada.</li>
         <li><b>Bus, tram, métro</b> : tous les transports publics néerlandais.</li><li><b>Satellites</b> et <b>télescopes spatiaux</b> avec leurs orbites.</li>
-        <li><b>Séismes</b>, <b>feux</b>, <b>lancements</b>, <b>radio</b> et <b>caméras</b>.</li><li><b>Centrales électriques</b> : environ 35 000 dans le monde, couleur selon la source, taille selon la puissance (base WRI, ≈ 2021).</li></ul><p><b>⌖</b> à côté d'une couche : zoom au clic activé ou non.</p>`],
+        <li><b>Séismes</b>, <b>feux</b>, <b>lancements</b>, <b>radio</b> et <b>caméras</b>.</li><li><b>Centrales électriques</b> : environ 35 000 dans le monde, couleur selon la source, taille selon la puissance (base WRI, ≈ 2021).</li><li><b>Musées</b> : musées d'OpenStreetMap ; les plus connus en vue éloignée, tous en vue rapprochée. Clic : genre, horaires, site web et Wikipédia.</li></ul><p><b>⌖</b> à côté d'une couche : zoom au clic activé ou non.</p>`],
     ['ℹ️', "Fenêtre d'info", `<p>Cliquez sur un objet, une ville ou un pays pour les détails, avec photo et résumé Wikipédia. Cliquez sur une image pour l'agrandir, zoomez à la molette ou aux doigts et faites glisser. Cliquez à côté pour fermer. Avions : <b>Cockpit</b> (${K('C')}) et <b>À proximité</b>.</p>`],
     ['🎨', 'Optique', `<p>Sept vues, touches ${K('1')}–${K('7')} : Normal, CRT, vision nocturne, FLIR, Ironbow, Noir et Neige.</p>`],
     ['👁️', 'Affichage', `<ul><li><b>HUD</b> (${K('H')}), <b>Détection</b> (${K('D')}) avec noms et vitesses.</li><li><b>Jour/nuit</b> (${K('N')}) avec réglage de luminosité.</li>
@@ -135,7 +135,7 @@ const zh = [
         <li><b>搜索</b>（顶部）：地名或坐标，例如 <code>52.21, 5.97</code>。</li><li><b>重置地球</b>回到全景；<b>分享链接</b>复制当前视图的链接。</li></ul>`],
     ['🛰️', '数据图层', `<p>在侧边栏开关图层；数字为已加载对象数量，下方为来源和数据时间。</p><ul><li><b>航班</b>和<b>军用航班</b>：机型、注册号和照片。</li>
         <li><b>火车</b>：荷兰（NS）、芬兰、美国和加拿大。</li><li><b>公交、电车、地铁</b>：荷兰全部公共交通。</li><li><b>卫星</b>和<b>太空望远镜</b>及其轨道。</li>
-        <li><b>地震</b>、<b>山火</b>、<b>发射</b>、<b>电台</b>和<b>交通摄像头</b>。</li><li><b>发电厂</b>：全球约 35,000 座，颜色表示能源，大小表示装机容量（WRI 数据库，约 2021）。</li></ul><p>图层旁的 <b>⌖</b>：点击对象时是否缩放。</p>`],
+        <li><b>地震</b>、<b>山火</b>、<b>发射</b>、<b>电台</b>和<b>交通摄像头</b>。</li><li><b>发电厂</b>：全球约 35,000 座，颜色表示能源，大小表示装机容量（WRI 数据库，约 2021）。</li><li><b>博物馆</b>：来自 OpenStreetMap；缩小时显示知名博物馆，放大后显示全部。点击查看类型、开放时间、网站和维基百科。</li></ul><p>图层旁的 <b>⌖</b>：点击对象时是否缩放。</p>`],
     ['ℹ️', '信息窗口', `<p>点击对象、城市或国家名称查看详情，含照片和维基百科摘要。点击图片放大，可用滚轮或手指缩放并拖动。点击窗口外关闭。飞机：<b>驾驶舱</b>（${K('C')}）和<b>附近</b>。</p>`],
     ['🎨', '光学', `<p>七种视图，按键 ${K('1')}–${K('7')}：正常、CRT、夜视、FLIR 热成像、Ironbow、黑白和雪。</p>`],
     ['👁️', '显示', `<ul><li><b>HUD</b>（${K('H')}）、<b>检测</b>（${K('D')}）显示名称和速度。</li><li><b>昼夜</b>（${K('N')}）及亮度滑块。</li>
