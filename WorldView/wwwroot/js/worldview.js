@@ -2287,7 +2287,7 @@ function addMuseum([id, lon, lat, name, ti, qid, web, hours, wiki, cc], top) {
     const info = [['museumType', () => tr('mus.' + type)]];
     if (cc) info.push(['country', () => regionName(cc) || cc]);
     if (hours) info.push(['openingHours', hours]);
-    if (web) info.push(['website', web]);
+    if (web) { const u = web.split(';')[0].trim(); info.push(['website', /^https?:\/\//i.test(u) ? u.replace(/^https?/i, s => s.toLowerCase()) : 'https://' + u]); } // OSM often omits the scheme
     info.push(['position', fmtPos(lat, lon)]);
     const r = { key: id, lat, lon, label: name, qid, info, top, type, cc: cc || '', wiki: !!wiki };
     r.pos = Cz.Cartesian3.fromDegrees(lon, lat, 0);

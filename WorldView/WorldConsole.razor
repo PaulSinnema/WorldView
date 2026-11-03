@@ -243,7 +243,15 @@ else if (error is not null)
             @foreach (var f in selection.Fields)
             {
                 if (f.Length < 2) continue;
-                <tr><th>@f[0]</th><td>@f[1]</td></tr>
+                @if (f[1].StartsWith("https://") || f[1].StartsWith("http://"))
+                {
+                    @* Web address: opens in a new tab *@
+                    <tr><th>@f[0]</th><td><a href="@f[1]" target="_blank" rel="noopener noreferrer">@f[1]</a></td></tr>
+                }
+                else
+                {
+                    <tr><th>@f[0]</th><td>@f[1]</td></tr>
+                }
             }
         </table>
         @if (!string.IsNullOrEmpty(selection.Summary))

@@ -2,6 +2,10 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.146] - 2026-11-03
+### Changed
+- Info box: field values that are web addresses (http/https) are links that open in a new tab. Museum websites without a scheme get `https://`; of several (`;`-separated) only the first is used.
+
 ## [1.0.145] - 2026-11-03
 ### Changed
 - Radio: for a station without coordinates the info box now says "no own location – centre of {country} shown" when the camera flew to the country (zoom on); otherwise "no location" as before.
