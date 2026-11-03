@@ -220,7 +220,12 @@ else if (error is not null)
 {
     <section class="info @(DockOpen ? "dock-open" : "")">
         <header><span>@selection.Title</span><button class="x" title="@T("info.close")" @onclick="ClearSelection">✕</button></header>
-        @if (!string.IsNullOrEmpty(selection.Video))
+        @if (!string.IsNullOrEmpty(selection.Embed))
+        {
+            @* YouTube player: own play, sound and fullscreen controls *@
+            <iframe class="embed" src="@selection.Embed" title="@selection.Title" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+        }
+        else if (!string.IsNullOrEmpty(selection.Video))
         {
             <video class="media" src="@selection.Video" autoplay muted loop playsinline title="@T("info.enlarge")" @onclick="ToggleEnlarge"></video>
         }
@@ -360,10 +365,57 @@ else if (error is not null)
     </div>
 }
 
-@* Bottom dock: museum and radio panels stacked; lists shrink when both are open *@
-@if (layers.GetValueOrDefault("radio") || layers.GetValueOrDefault("museums"))
+@* Bottom dock: airport, museum and radio panels stacked; lists shrink when more are open *@
+@if (layers.GetValueOrDefault("radio") || layers.GetValueOrDefault("museums") || layers.GetValueOrDefault("airports"))
 {
 <div class="dock @(DockBoth ? "both" : "")">
+@if (layers.GetValueOrDefault("airports"))
+{
+    <section class="radio airport @(airportCollapsed ? "collapsed" : "")">
+        <div class="radio-head" title="@T("radio.collapse")" @onclick="() => airportCollapsed = !airportCollapsed">
+            <span class="radio-now">
+                <b>@T("layer.airports")</b>
+                <span>@AirportSummary</span>
+            </span>
+        </div>
+        @if (!airportCollapsed)
+        {
+            <div class="radio-filters">
+                <input type="search" value="@airportText" @oninput="OnAirportText" placeholder="@T("apt.search")" aria-label="@T("apt.search")" />
+                <Combo Items="CountryItems(airportCountries)" Value="@airportCountry" ValueChanged="OnAirportCountry" Placeholder="@T("radio.allCountries")" />
+                <Combo Items="AirportPlaceItems" Value="@airportCity" ValueChanged="OnAirportCity" Placeholder="@T("mus.place")" FreeText="true" Max="500" />
+                <Combo Items="AirportTypeItems" Value="@airportType" ValueChanged="OnAirportType" Placeholder="@T("apt.allTypes")" />
+                <button class="@(airportInView ? "active" : "")" @onclick="ToggleAirportInView">@T("radio.inView")</button>
+                <button class="@(airportAtcOnly ? "active" : "")" @onclick="ToggleAirportAtc">🎧 @T("apt.atc")</button>
+                @if (airportTotal > airportList.Count)
+                {
+                    <span class="pager">
+                        <button disabled="@(airportOffset == 0)" @onclick='() => RadioCall("airportPage", -1)'>◀</button>
+                        <span>@((airportOffset + 1).ToString("N0"))–@((airportOffset + airportList.Count).ToString("N0"))</span>
+                        <button disabled="@(airportOffset + airportList.Count >= airportTotal)" @onclick='() => RadioCall("airportPage", 1)'>▶</button>
+                    </span>
+                }
+            </div>
+            <ul class="radio-list" @key="airportOffset">
+                @foreach (var a in airportList)
+                {
+                    <li data-key="@a.Key" class="@(IsRowSel(a.Key) ? "sel" : "")" @onclick='() => RowClick("airportGo", "airportDetails", a.Key)'>
+                        <span class="noicon">@(a.Atc ? "🎧" : "✈")</span>
+                        <span class="rs-main">
+                            <b>@a.Name</b>
+                            <span>@string.Join(" · ", new[] { a.Codes, a.City, a.Country, a.Type }.Where(x => !string.IsNullOrEmpty(x)))</span>
+                        </span>
+                        <button class="fold @(rowOpen == a.Key ? "on" : "")" title="@T("row.details")" @onclick='() => ToggleRow("airportDetails", a.Key)' @onclick:stopPropagation="true">@(rowOpen == a.Key ? "▾" : "▸")</button>
+                    </li>
+                    @if (rowOpen == a.Key)
+                    {
+                        @RowDetailsBox()
+                    }
+                }
+            </ul>
+        }
+    </section>
+}
 @if (layers.GetValueOrDefault("museums"))
 {
     <section class="radio museum @(museumCollapsed ? "collapsed" : "")">
@@ -501,6 +553,7 @@ else if (error is not null)
     private static readonly LayerDef[] LayerDefs =
     [
         new("flights", "#3fd0ff"),
+        new("airports", "#c8d2ff"),
         new("military", "#ffb020"),
         new("trains", "#9dff3a"),
         new("ov", "#ffd23f"),
@@ -550,7 +603,7 @@ else if (error is not null)
     private string T(string key, string name, string value) => T(key).Replace("{" + name + "}", value);
 
     private bool enlarged;
-    private bool HasMedia => !string.IsNullOrEmpty(selection?.Video) || !string.IsNullOrEmpty(selection?.Image);
+    private bool HasMedia => string.IsNullOrEmpty(selection?.Embed) && (!string.IsNullOrEmpty(selection?.Video) || !string.IsNullOrEmpty(selection?.Image));
 
     private ImageInfo? imgInfo;
 
@@ -640,6 +693,7 @@ else if (error is not null)
         await RestorePanelFilters();
         if (layers.GetValueOrDefault("radio")) await LoadRadioCountries();
         if (layers.GetValueOrDefault("museums")) await LoadMuseumCountries();
+        if (layers.GetValueOrDefault("airports")) await LoadAirportCountries();
         try
         {
             if (module is not null) { envMissing = [.. await module.InvokeAsync<string[]>("getEnvMissing")]; StateHasChanged(); }
@@ -661,6 +715,7 @@ else if (error is not null)
         ApplyStrings(await module.InvokeAsync<string>("setLang", langCode));
         if (radioCountries.Count > 0) await LoadRadioCountries();
         if (museumCountries.Count > 0) { await LoadMuseumCountries(); await SendMuseumQuery(); } // names + list in the new language
+        if (airportCountries.Count > 0) { await LoadAirportCountries(); await SendAirportQuery(); }
         if (showHelp) await OpenHelp();
     }
 
@@ -670,6 +725,7 @@ else if (error is not null)
         if (module is not null) await module.InvokeVoidAsync("setLayer", key, on);
         if (key == "radio" && on && radioCountries.Count == 0) await LoadRadioCountries();
         if (key == "museums" && on) await LoadMuseumCountries(); // index may have grown since
+        if (key == "airports" && on) await LoadAirportCountries();
     }
 
     private async Task SetStyle(string key)
@@ -1019,7 +1075,7 @@ else if (error is not null)
     private async Task OpenRow(string fn, string key)
     {
         rowOpen = rowScroll = key;
-        rowIsMuseum = fn == "museumDetails";
+        rowIsMuseum = fn is "museumDetails" or "airportDetails"; // photo left, enlargeable
         rowDetails = null; // shows "loading" until the details arrive
         if (module is null) return;
         var json = await module.InvokeAsync<string?>(fn, key);
@@ -1085,6 +1141,8 @@ else if (error is not null)
             radioText = r.Q; radioCountry = r.Cc; radioGenre = r.Tag; radioInView = r.InView; radioFavOnly = r.Fav;
             var m = JsonSerializer.Deserialize<PanelFilter>(await module.InvokeAsync<string>("getPanelFilter", "museums"), JsonOpts) ?? new();
             museumText = m.Q; museumCountry = m.Cc; museumType = m.Type; museumCity = m.City; museumInView = m.InView; museumWikiOnly = m.Wiki;
+            var a = JsonSerializer.Deserialize<PanelFilter>(await module.InvokeAsync<string>("getPanelFilter", "airports"), JsonOpts) ?? new();
+            airportText = a.Q; airportCountry = a.Cc; airportType = a.Type; airportCity = a.City; airportInView = a.InView; airportAtcOnly = a.Atc;
             StateHasChanged();
         }
         catch { /* no saved filter: defaults */ }
@@ -1100,9 +1158,11 @@ else if (error is not null)
     private bool museumInView, museumWikiOnly, museumCollapsed = true; // starts collapsed
     private CancellationTokenSource? museumTextCts;
 
-    // A museum/radio list is open: on phones the info box gives way (details fold open in the row)
-    private bool DockOpen => (layers.GetValueOrDefault("museums") && !museumCollapsed) || (layers.GetValueOrDefault("radio") && !radioCollapsed);
-    private bool DockBoth => layers.GetValueOrDefault("radio") && layers.GetValueOrDefault("museums") && !radioCollapsed && !museumCollapsed;
+    // A museum/radio/airport list is open: on phones the info box gives way (details fold open in the row)
+    private int DockOpenCount => (layers.GetValueOrDefault("museums") && !museumCollapsed ? 1 : 0) + (layers.GetValueOrDefault("radio") && !radioCollapsed ? 1 : 0)
+        + (layers.GetValueOrDefault("airports") && !airportCollapsed ? 1 : 0);
+    private bool DockOpen => DockOpenCount > 0;
+    private bool DockBoth => DockOpenCount > 1;
     private bool MuseumFiltered => museumText != "" || museumCountry != "" || museumType != "" || museumCity != "" || museumInView || museumWikiOnly;
     private string MuseumSummary
     {
@@ -1148,6 +1208,68 @@ else if (error is not null)
     private Task OnMuseumType(string v) { museumType = v; return SendMuseumQuery(); }
     private Task ToggleMuseumInView() { museumInView = !museumInView; return SendMuseumQuery(); }
     private Task ToggleMuseumWiki() { museumWikiOnly = !museumWikiOnly; return SendMuseumQuery(); }
+
+    // ---------- airport panel ----------
+    private static readonly string[] AirportTypes = ["large", "medium"];
+    private List<AirportItem> airportList = new();
+    private List<RadioCountry> airportCountries = new();
+    private int airportTotal, airportOffset;
+    private string airportText = "", airportCountry = "", airportType = "", airportCity = "";
+    private List<string> airportPlaces = new();
+    private bool airportInView, airportAtcOnly, airportCollapsed = true; // starts collapsed
+    private CancellationTokenSource? airportTextCts;
+    private bool AirportFiltered => airportText != "" || airportCountry != "" || airportType != "" || airportCity != "" || airportInView || airportAtcOnly;
+    private string AirportSummary
+    {
+        get
+        {
+            var count = airportTotal > 0 ? T("apt.count", "n", airportTotal.ToString("N0")) : AirportFiltered ? T("apt.none") : "";
+            var country = airportCountries.FirstOrDefault(c => c.Cc == airportCountry)?.Name;
+            var type = airportType != "" ? T("apt." + airportType) : null;
+            var atc = airportAtcOnly ? T("apt.atc") : null;
+            return string.Join(" · ", new[] { airportCity, country, type, atc, count }.Where(s => !string.IsNullOrEmpty(s)));
+        }
+    }
+
+    private async Task LoadAirportCountries()
+    {
+        if (module is null) return;
+        airportCountries = JsonSerializer.Deserialize<List<RadioCountry>>(await module.InvokeAsync<string>("airportCountries"), JsonOpts) ?? new();
+        StateHasChanged();
+    }
+
+    private Task SendAirportQuery() => RadioCall("airportSetQuery", JsonSerializer.Serialize(new
+    {
+        q = airportText, cc = airportCountry, type = airportType, city = airportCity, inView = airportInView, atc = airportAtcOnly
+    }));
+
+    // Debounced: search after typing pauses (name and place share the timer)
+    private async Task DebouncedAirportQuery()
+    {
+        airportTextCts?.Cancel();
+        var cts = airportTextCts = new CancellationTokenSource();
+        try { await Task.Delay(400, cts.Token); } catch (TaskCanceledException) { return; }
+        await SendAirportQuery();
+    }
+    private Task OnAirportText(ChangeEventArgs e) { airportText = e.Value?.ToString() ?? ""; return DebouncedAirportQuery(); }
+    private Task OnAirportCity(string v) { airportCity = v; return DebouncedAirportQuery(); }
+    private List<Combo.Item> AirportPlaceItems => airportPlaces.Select(p => new Combo.Item(p, p)).ToList();
+    private List<Combo.Item> AirportTypeItems => AirportTypes.Select(k => new Combo.Item(k, T("apt." + k))).ToList();
+    private Task OnAirportCountry(string v) { airportCountry = v; return SendAirportQuery(); }
+    private Task OnAirportType(string v) { airportType = v; return SendAirportQuery(); }
+    private Task ToggleAirportInView() { airportInView = !airportInView; return SendAirportQuery(); }
+    private Task ToggleAirportAtc() { airportAtcOnly = !airportAtcOnly; return SendAirportQuery(); }
+
+    [JSInvokable]
+    public void OnAirportList(string json)
+    {
+        var r = JsonSerializer.Deserialize<PagedList<AirportItem>>(json, JsonOpts);
+        airportList = r?.Items ?? new();
+        airportTotal = r?.Total ?? 0;
+        airportOffset = r?.Offset ?? 0;
+        airportPlaces = r?.Places ?? new();
+        StateHasChanged();
+    }
 
 
 
@@ -1205,6 +1327,7 @@ else if (error is not null)
         layers[layer] = on;
         if (layer == "radio" && on && radioCountries.Count == 0) _ = LoadRadioCountries();
         if (layer == "museums" && on) _ = LoadMuseumCountries();
+        if (layer == "airports" && on) _ = LoadAirportCountries();
         StateHasChanged();
     }
 
@@ -1298,6 +1421,7 @@ else if (error is not null)
         public List<string[]> Fields { get; set; } = new();
         public string? Image { get; set; }
         public string? Video { get; set; }
+        public string? Embed { get; set; }
         public bool CanCockpit { get; set; }
         public bool IsRadio { get; set; }
         public string? Summary { get; set; }
@@ -1332,6 +1456,7 @@ else if (error is not null)
         public bool InView { get; set; }
         public bool Fav { get; set; }
         public bool Wiki { get; set; }
+        public bool Atc { get; set; }
     }
 
     private sealed class RowDetails
@@ -1352,7 +1477,18 @@ else if (error is not null)
         public bool Wiki { get; set; }
     }
 
-    // One page of a panel list (radio, museums)
+    private sealed class AirportItem
+    {
+        public string Key { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Codes { get; set; } = "";
+        public string Type { get; set; } = "";
+        public string City { get; set; } = "";
+        public string Country { get; set; } = "";
+        public bool Atc { get; set; }
+    }
+
+    // One page of a panel list (radio, museums, airports)
     private sealed class PagedList<TItem>
     {
         public int Total { get; set; }

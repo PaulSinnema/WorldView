@@ -1,7 +1,7 @@
 ﻿// WorldView globe engine: CesiumJS + keyless public feeds
 const Cz = window.Cesium;
 const SETTINGS_KEY = 'wv-settings';
-const LAYERS = ['flights', 'military', 'trains', 'ov', 'air', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras', 'plants', 'museums'];
+const LAYERS = ['flights', 'military', 'trains', 'ov', 'air', 'satellites', 'telescopes', 'quakes', 'fires', 'launches', 'radio', 'cameras', 'plants', 'museums', 'airports'];
 const ORBITERS = ['satellites', 'telescopes'];
 const TEL_COLOR = '#00e5ff';
 // Earth-orbiting space telescopes (NORAD id, name)
@@ -22,7 +22,7 @@ const OV_ICONS = { bus: ['bus', OV_COLOR], tram: ['tram', '#ff6b5a'], metro: ['m
 const FT = 0.3048, R_EARTH = 6371000;
 const FEED_URL = 'https://flights.sinnema.ch'; // netcup VPS, see fetcher/README.md
 const STATIC_URL = 'data'; // heavy datasets built on the PC (tools/build-*.mjs), shipped with the app
-const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, air: '#50f0e6', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff', plants: '#ffd23f', museums: '#ff8fa3' };
+const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, air: '#50f0e6', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff', plants: '#ffd23f', museums: '#ff8fa3', airports: '#c8d2ff' };
 // Translations (same cache-busting version as this module)
 const { LANGS, LOCALES, pickLang, t, strings } = await import(`./i18n.js${new URL(import.meta.url).search}`);
 const tr = (key, params) => t(S.lang, key, params);
@@ -43,7 +43,7 @@ const CITIES = {
 let viewer = null, dotnet = null, sat = null;
 const S = { layers: {}, style: 'normal', basemap: 'esri', ionToken: '', hud: true, detect: false, daynight: true, nightLight: 60, borders: false, regions: true, cities: true, zoom: {}, cockpit: false };
 // Per layer: zoom/follow on click
-const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, ov: false, air: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false, plants: false, museums: false };
+const ZOOM_DEFAULT = { cities: false, flights: false, military: false, trains: false, ov: false, air: false, satellites: false, telescopes: false, quakes: false, fires: false, launches: false, radio: false, cameras: false, plants: false, museums: false, airports: false };
 const NIGHT_URL = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png';
 let nightLayer = null;
 // Night brightness 0..100 → city-lights blend 0.8..0.05 (60 ≈ 0.35)
@@ -92,6 +92,7 @@ function loadSettings() {
     if (typeof S.panelFilters !== 'object' || !S.panelFilters) S.panelFilters = {};
     radioQuery = { ...radioQuery, ...(S.panelFilters.radio || {}) };
     museumQuery = { ...museumQuery, ...(S.panelFilters.museums || {}) };
+    airportQuery = { ...airportQuery, ...(S.panelFilters.airports || {}) };
     S.zoom = { ...ZOOM_DEFAULT, ...(S.zoom && typeof S.zoom === 'object' ? S.zoom : {}) };
     delete S.camZoom;
     // One-off reset: zoom now defaults to off for every layer
@@ -834,6 +835,7 @@ export async function init(containerId, ref) {
         if (radioQuery.inView && S.layers.radio) runRadioSearch();
         if (S.layers.flights) startLayer('flights'); // load the tiles for the new view
         if (S.layers.museums) { refreshMuseums(); if (museumQuery.inView) scheduleMuseumSearch(); }
+        if (S.layers.airports && airportQuery.inView) scheduleAirportSearch();
     });
     window.addEventListener('blur', () => navHeld.clear());
     // Crash report: state every 3 s; normal unload/background is not a crash
@@ -889,7 +891,7 @@ function checkGpu() {
 export const getGpu = () => gpuName;
 
 // ---------- layers ----------
-const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, ov: loadOv, air: loadAir, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras, plants: loadPlants, museums: loadMuseums };
+const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, ov: loadOv, air: loadAir, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras, plants: loadPlants, museums: loadMuseums, airports: loadAirports };
 
 export function setLayer(name, on) { applyLayer(name, on, false); }
 function applyLayer(name, on, fromEngine) {
@@ -2427,6 +2429,127 @@ function refreshMuseums() {
     }
     report('museums', 'st.museums');
 }
+// ---------- airports (OurAirports via the fetcher, refreshed monthly): large + medium ----------
+// row: [ident, lon, lat, name, large(0/1), iata, country ISO2, city, enwiki title]
+const AIRPORT_MEDIUM_H = 3e6; // medium airports only below this height
+let airportQuery = { q: '', cc: '', type: '', city: '', inView: false, atc: false }, airportTimer = null, airportsLoaded = false;
+let airportAll = [], airportOffset = 0, airportPlaces = [], airportCc = {};
+// YouTube ATC streams (fetcher), shared with the camera layer; refreshed after 30 min
+let atcP = null, atcAt = 0;
+function atcStreams() {
+    if (!atcP || Date.now() - atcAt > 30 * 60000) { atcAt = Date.now(); atcP = tryJson(`${FEED_URL}/atc-streams.json?b=${Math.floor(Date.now() / 60000)}`, 20000); }
+    return atcP;
+}
+function airportMatch(r, text = lowTrim(airportQuery.q), city = lowTrim(airportQuery.city), noCity = false) {
+    const q = airportQuery;
+    return (!q.cc || r.cc === q.cc) && (!q.type || r.type === q.type) && (!q.atc || !!r.embed)
+        && (!text || r.label.toLowerCase().includes(text) || r.key.toLowerCase() === text || r.iata.toLowerCase() === text)
+        && (noCity || !city || r.city.toLowerCase().includes(city));
+}
+// Static list, loaded once (shared by the layer and the country list); false = unreachable
+let airportRowsP = null;
+function loadAirportRows() {
+    if (airportsLoaded) return Promise.resolve(true);
+    return airportRowsP ??= (async () => {
+        const d = await tryJson(`${FEED_URL}/airports.json`, 30000);
+        if (!d?.a) return false;
+        airportCc = {};
+        for (const [id, lon, lat, name, large, iata, cc, city, wiki] of d.a) {
+            const type = large ? 'large' : 'medium';
+            const info = [['airportType', () => tr('apt.' + type)], ['icao', id]];
+            if (iata) info.push(['iata', iata]);
+            if (city) info.push(['place', city]);
+            if (cc) info.push(['country', () => regionName(cc) || cc]);
+            info.push(['position', fmtPos(lat, lon)], ['liveatc', `https://www.liveatc.net/search/?icao=${encodeURIComponent(id)}`]);
+            const r = { key: id, lat, lon, label: name, iata: iata || '', cc: cc || '', city: city || '', type, info, wikiTitle: wiki || undefined, embed: null };
+            r.pos = Cz.Cartesian3.fromDegrees(lon, lat, 0);
+            r.pt = coll.airports.add({ position: r.pos, pixelSize: large ? 6 : 4, color: Cz.Color.fromCssColorString(DETECT_COLORS.airports), outlineColor: Cz.Color.BLACK.withAlpha(0.6), outlineWidth: 1,
+                disableDepthTestDistance: 1.5e6, distanceDisplayCondition: large ? undefined : new Cz.DistanceDisplayCondition(0, AIRPORT_MEDIUM_H), id: { wv: { layer: 'airports', key: id } } });
+            store.airports.set(id, r);
+            if (cc) airportCc[cc] = (airportCc[cc] || 0) + 1;
+        }
+        airportsLoaded = true;
+        return true;
+    })().finally(() => { airportRowsP = null; });
+}
+async function loadAirports() {
+    if (!await loadAirportRows()) { report('airports', 'st.sourceDown'); return 120000; }
+    // Live streams: embed + green, larger dot
+    const j = await atcStreams(), live = new Map();
+    for (const s of j?.streams || []) if (!live.has(s.icao)) live.set(s.icao, s);
+    for (const r of store.airports.values()) {
+        const s = live.get(r.key), embed = s ? `https://www.youtube-nocookie.com/embed/${s.id}?autoplay=1&playsinline=1` : null;
+        if (r.embed === embed) continue;
+        r.embed = embed;
+        r.info = r.info.filter(([k]) => k !== 'youtube');
+        if (s) r.info.push(['youtube', `https://www.youtube.com/watch?v=${s.id}`]);
+        r.pt.color = Cz.Color.fromCssColorString(s ? '#3dff6e' : DETECT_COLORS.airports);
+        r.pt.pixelSize = s ? 9 : r.type === 'large' ? 6 : 4;
+        r.pt.distanceDisplayCondition = s || r.type === 'large' ? undefined : new Cz.DistanceDisplayCondition(0, AIRPORT_MEDIUM_H);
+    }
+    const text = lowTrim(airportQuery.q), city = lowTrim(airportQuery.city);
+    for (const r of store.airports.values()) r.pt.show = airportMatch(r, text, city);
+    report('airports', () => `OurAirports · ${tr('apt.atcCount', { n: live.size })}`);
+    runAirportSearch();
+    if (selected?.layer === 'airports') pushInfo();
+    return 30 * 60000;
+}
+export async function airportCountries() {
+    await loadAirportRows();
+    const list = Object.entries(airportCc).map(([cc, n]) => ({ cc, name: regionName(cc) || cc, n }));
+    list.sort((a, b) => a.name.localeCompare(b.name, loc()));
+    return JSON.stringify(list);
+}
+export function airportSetQuery(json) {
+    try { airportQuery = { ...airportQuery, ...JSON.parse(json) }; } catch { }
+    savePanelFilter('airports', airportQuery);
+    airportOffset = 0;
+    const text = lowTrim(airportQuery.q), city = lowTrim(airportQuery.city);
+    for (const r of store.airports.values()) r.pt.show = airportMatch(r, text, city);
+    runAirportSearch();
+}
+function scheduleAirportSearch() {
+    clearTimeout(airportTimer);
+    airportTimer = setTimeout(runAirportSearch, 300);
+}
+function runAirportSearch() {
+    if (!airportsLoaded) return;
+    const q = airportQuery, text = lowTrim(q.q), city = lowTrim(q.city);
+    const rect = q.inView && viewer ? viewer.camera.computeViewRectangle() : null;
+    const base = [...store.airports.values()].filter(r => airportMatch(r, text, city, true) && (!rect || inView(rect, Cz.Cartographic.fromDegrees(r.lon, r.lat))));
+    const counts = new Map();
+    for (const r of base) if (r.city) counts.set(r.city, (counts.get(r.city) || 0) + 1);
+    airportPlaces = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 500).map(([c]) => c);
+    const list = city ? base.filter(r => r.city.toLowerCase().includes(city)) : base;
+    // Streams first, then large airports, then by name
+    list.sort((a, b) => (!!b.embed - !!a.embed) || ((b.type === 'large') - (a.type === 'large')) || a.label.localeCompare(b.label, loc()));
+    airportAll = list;
+    airportOffset = Math.min(airportOffset, Math.max(0, Math.floor((list.length - 1) / LIST_PAGE) * LIST_PAGE));
+    emitAirportPage();
+}
+function emitAirportPage() {
+    notify('OnAirportList', JSON.stringify({
+        total: airportAll.length, offset: airportOffset, places: airportPlaces,
+        items: airportAll.slice(airportOffset, airportOffset + LIST_PAGE).map(r => ({ key: r.key, name: r.label, codes: [r.key, r.iata].filter(Boolean).join(' / '), type: tr('apt.' + r.type), city: r.city, country: (r.cc && regionName(r.cc)) || '', atc: !!r.embed }))
+    }));
+}
+export function airportPage(dir) {
+    airportOffset = Math.max(0, Math.min(airportOffset + dir * LIST_PAGE, Math.floor((airportAll.length - 1) / LIST_PAGE) * LIST_PAGE));
+    emitAirportPage();
+}
+export async function airportDetails(key) {
+    const r = store.airports.get(key);
+    if (!r) return null;
+    if (r.wikiTitle && r.wiki?.lang !== S.lang) await loadWiki(r);
+    const fields = [];
+    infoRows(r.info, fields);
+    const w = r.wiki?.lang === S.lang ? r.wiki : null;
+    return JSON.stringify({ fields, summary: w?.extract || null, link: w?.url || null, image: w?.thumb || null });
+}
+export function airportGo(key) {
+    if (store.airports.has(key)) select('airports', key, true);
+}
+
 // Wikipedia summary + photo of a Wikidata item (museums), cached per language
 // Returns the running load when one is busy, so a second caller (row details) waits for the same result
 function loadQidWiki(r) {
@@ -2562,6 +2685,18 @@ const CAMERA_SOURCES = [
     { name: 'bc', owner: 'DriveBC', load: async () => (await extraCams())?.bc },
     { name: 'nsw', owner: 'Transport for NSW', load: async () => (await extraCams())?.nsw },
     { name: 'nz', owner: 'NZ Transport Agency', load: async () => (await extraCams())?.nz },
+    // YouTube airport streams with live ATC audio (live IDs found by the fetcher)
+    {
+        name: 'atc', owner: 'YouTube', load: async () => {
+            const j = await atcStreams();
+            return j?.streams?.map(s => ({
+                id: s.id, lat: s.lat, lon: s.lon, name: `${s.name} (${s.icao}) – ATC`, owner: s.channel, title: s.title,
+                image: `https://i.ytimg.com/vi/${s.id}/hqdefault_live.jpg`,
+                embed: `https://www.youtube-nocookie.com/embed/${s.id}?autoplay=1&playsinline=1`,
+                link: `https://www.youtube.com/watch?v=${s.id}`
+            }));
+        }
+    },
     {
         name: 'hongkong', owner: 'Transport Department HK', load: async () => {
             try {
@@ -2578,7 +2713,7 @@ let extraCamsP = null;
 const extraCams = () => (extraCamsP ??= tryJson(`${FEED_URL}/cameras-extra.json`, 20000));
 async function loadCameras() {
     if (store.cameras.size) return 0;
-    const img = icon('camera', '#ff3b3b');
+    const img = icon('camera', '#ff3b3b'), atcImg = icon('camera', '#3dff6e');
     const results = await Promise.all(CAMERA_SOURCES.map(async s => ({ s, list: await s.load().catch(() => null) })));
     const ok = [], failed = [];
     for (const { s, list } of results) {
@@ -2589,9 +2724,9 @@ async function loadCameras() {
             const key = `${s.name}:${c.id}`;
             if (store.cameras.has(key)) continue;
             addBillboard('cameras', {
-                key, lat: c.lat, lon: c.lon, label: c.name, image: c.image, video: c.video || null,
-                info: [['camera', c.name], ['region', () => tr(`cam.${s.name}`)], ['operator', s.owner]]
-            }, img, 0.6);
+                key, lat: c.lat, lon: c.lon, label: c.name, image: c.image, video: c.video || null, embed: c.embed || null,
+                info: [['camera', c.title || c.name], ['region', () => tr(`cam.${s.name}`)], ['operator', c.owner || s.owner], ...(c.link ? [['youtube', c.link]] : [])]
+            }, s.name === 'atc' ? atcImg : img, s.name === 'atc' ? 0.8 : 0.6);
         }
     }
     report('cameras', () => ok.map(([n, c]) => `${tr(`cam.${n}`)} ${c}`).join(' · ')
@@ -2675,7 +2810,7 @@ function select(layer, key, fly) {
     if (layer === 'satellites') { drawOrbit(r); lastOrbit = Date.now(); }
     const zoom = S.zoom[layer] === true;
     if (moving) { if (zoom) viewer.trackedEntity = trackEntity; }
-    else if (fly && zoom) flyTo(r.lon, r.lat, layer === 'cameras' ? 1500 : layer === 'museums' ? 3000 : layer === 'radio' ? 150000 : 400000);
+    else if (fly && zoom) flyTo(r.lon, r.lat, layer === 'cameras' ? 1500 : layer === 'museums' ? 3000 : layer === 'airports' ? 12000 : layer === 'radio' ? 150000 : 400000);
     if (layer === 'radio' && radioCurrent !== key) radioPlay(key, false);
     if (AIR_DELAY[layer]) startLive(layer, key);
     pushInfo();
@@ -2727,6 +2862,7 @@ export function clearSelection(notifyUi = true) {
     if (orbitEntity) viewer.entities.remove(orbitEntity);
     trackEntity = orbitEntity = null; selected = null; trail = []; cityPick = null;
     stopLive();
+    setStreamMode(false);
     if (notifyUi) notify('OnSelect', null);
 }
 function fmtPos(lat, lon) {
@@ -2788,8 +2924,13 @@ function pushInfo() {
             img = d.img || img;
         }
     }
-    notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: f, image: photo ? null : img, video: r.video || null,
+    notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: f, image: photo ? null : img, video: r.video || null, embed: r.embed || null,
         canCockpit: MOVERS.includes(L), isRadio: L === 'radio', summary, link, photo: photo?.src || null, photoLink: photo?.link || null, photoBy: photo?.by || null }));
+    setStreamMode(!!r.embed);
+}
+// YouTube stream open: globe at 24 fps so the video decoder gets CPU/GPU time (YouTube's own buffer can't be set from an embed)
+function setStreamMode(on) {
+    if (viewer) viewer.targetFrameRate = on ? 24 : undefined;
 }
 // Sharp image (max 1280 px wide) instead of the 330 px summary thumbnail
 function wikiImage(s) {
@@ -3475,6 +3616,7 @@ function onKey(e) {
 // Keywords in EN/NL/DE/FR/ZH
 const VOICE_LAYERS = [
     ['milit', 'military'], ['军', 'military'],
+    ['airport', 'airports'], ['luchthaven', 'airports'], ['vliegveld', 'airports'], ['flughafen', 'airports'], ['aéroport', 'airports'], ['机场', 'airports'],
     ['vlucht', 'flights'], ['vliegtuig', 'flights'], ['flight', 'flights'], ['plane', 'flights'], ['flug', 'flights'], ['avion', 'flights'], ['vol ', 'flights'], ['航班', 'flights'], ['飞机', 'flights'],
     ['muse', 'museums'], ['musée', 'museums'], ['博物馆', 'museums'],
     ['telescop', 'telescopes'], ['teleskop', 'telescopes'], ['télescope', 'telescopes'], ['望远镜', 'telescopes'],

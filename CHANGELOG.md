@@ -2,6 +2,57 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.171] - 2026-11-03
+### Changed
+- YouTube stream in the info box: globe limited to 24 fps while it plays, so the video gets CPU/GPU time (smoother playback); back to full speed when the info box closes.
+
+## Fetcher 1.23.1 - 2026-11-03
+### Changed
+- ATC title matching: accents ignored (Vaclav = Václav), name words from 6 letters (Midway), "<city> airport" also for medium airports (Asheville); a search hit needs an aviation word in its title (no more Golden Globe → Yaroslavl, Aurora → Guatemala).
+
+## Fetcher 1.23.0 - 2026-11-03
+### Added
+- ATC live search matched against all airports (`airports.json`): ICAO code, else IATA code (common 3-letter words skipped), else "<city> airport" with one large airport there. Titles without a match listed in `atc-debug.json` (`unmatched`).
+
+## Fetcher 1.22.3 - 2026-11-03
+### Changed
+- ATC streams: Flightradar24 and Airline Videos Live only via the live search (their handles gave no uploads); AMS LIVE still via its uploads every 30 min.
+
+## Fetcher 1.22.2 - 2026-11-03
+### Fixed
+- ATC streams: channel ids resolved from the handle via the API (`channels?forHandle`) instead of hard-coded ids (one was wrong).
+### Added
+- Live search every 6 h (`airport live ATC`, `flightradar24 live`; 200 units): streams on any channel whose title names a known airport; all hits listed in `atc-debug.json`.
+
+## Fetcher 1.22.1 - 2026-11-03
+### Fixed
+- ATC streams: the API search (`eventType=live`) returned nothing; now the channel's 200 newest uploads are checked for live status (`playlistItems` + `videos`, ≈ 24 units per run, every 30 min). Unmatched live titles go to `atc-debug.json`.
+
+## Fetcher 1.22.0 - 2026-11-03
+### Changed
+- ATC streams via the YouTube Data API when `YOUTUBE_API_KEY` is in `.env` (hourly, 7,200 of 10,000 daily units); YouTube serves servers a stripped channel page without the Live tab. Without a key the page is still scraped; `atc-debug.json` shows why a channel gave nothing.
+
+## [1.0.170] - 2026-11-03
+### Changed
+- Data layers: Airports directly below Flights.
+
+## [1.0.169] - 2026-11-03
+### Changed
+- Airports come from the fetcher (`airports.json`, `airports.js`, OurAirports checked daily, refreshed every 30 days) instead of `wwwroot/data`; removed from the geo workflow. Fetcher 1.21.0.
+
+## [1.0.168] - 2026-11-03
+### Added
+- Airports layer: 5,281 large and medium airports (OurAirports, public domain; `tools/build-airports.mjs` → `data/airports.json`, also in the monthly geo workflow). Medium airports show below 3,000 km.
+- Airport panel in the dock (like museums): search by name, ICAO or IATA, country, place, size, "In view" and 🎧 ATC stream; paged per 200; filters also decide the dots on the globe and are kept.
+- Airports with a live YouTube ATC stream: green, larger dot, the stream plays in the info box; every airport links to its LiveATC search page.
+### Changed
+- ATC stream cameras: green camera icon (white was hard to see).
+
+## [1.0.167] - 2026-11-03
+### Added
+- Traffic cameras: airport live streams with ATC audio from YouTube (Flightradar24, Airline Videos Live, AMS LIVE for Schiphol while live), green camera icon. The info box plays the stream in a YouTube player and links to the video.
+- Fetcher 1.21.0: `atc-streams.json`, live video IDs read from the channels' Streams tab every 30 min (`atcstreams.js`).
+
 ## [1.0.166] - 2026-11-03
 ### Removed
 - Museum panel: the "clear filters" ✕ in the head bar (easy to hit by accident on the folded bar); each filter field has its own ✕. The radio head bar had none.

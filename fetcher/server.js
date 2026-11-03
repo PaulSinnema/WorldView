@@ -17,9 +17,11 @@ import { makeHistory, trackHistory } from './history.js';
 import { BOXES, fetchBox, tileInBox, buildIndex, fillPlaces } from './museums.js';
 import { fetchEnergyYear } from './energy.js';
 import { fetchPlants } from './plants.js';
+import { fetchAtcStreams } from './atcstreams.js';
+import { fetchAirports } from './airports.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.20.0';
+const VERSION = '1.23.1';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -270,13 +272,22 @@ function tick() {
     every('museums', 3600000, refreshMuseums); // hourly check; only due boxes are fetched
     every('energy', 86400000, () => refreshRare('energy-year.json', 365 * 86400000, fetchEnergyYear));
     every('plants', 86400000, () => refreshRare('plants.json', 365 * 86400000, fetchPlants));
+    every('airports', 86400000, () => refreshRare('airports.json', 30 * 86400000, fetchAirports)); // monthly
+    // YouTube airport streams with ATC audio: live video IDs change when a stream restarts
+    // With YOUTUBE_API_KEY: ≈ 24 units per run (uploads + live status), far below the 10,000 daily quota
+    every('atc', 30 * 60000, async () => {
+        const d = await fetchAtcStreams(env.YOUTUBE_API_KEY, (await readJson('airports.json'))?.a);
+        if (d.streams.length) await put('atc-streams.json', { t: Math.round(Date.now() / 1000), streams: d.streams });
+        await put('atc-debug.json', { t: new Date().toISOString(), debug: d.debug }); // temporary: why a channel gives nothing
+        log(`atc streams: ${d.streams.length} (${d.log})`);
+    });
     every('power', 30 * 60000, async () => { const d = await fetchPower(); await put('power.json', d); log(`power: ${Object.keys(d.c).length} countries`); });
 }
 
 await mkdir(DATA, { recursive: true });
 log(`WorldView fetcher v${VERSION}`);
 // Optional keys: say which features stay off
-for (const [k, what] of [['OPENSKY_CLIENT_ID', 'civil flights'], ['NS_API_KEY', 'NS trains'], ['OPENAQ_API_KEY', 'OpenAQ stations']]) {
+for (const [k, what] of [['OPENSKY_CLIENT_ID', 'civil flights'], ['NS_API_KEY', 'NS trains'], ['OPENAQ_API_KEY', 'OpenAQ stations'], ['YOUTUBE_API_KEY', 'reliable ATC streams (page scraping instead)']]) {
     if (!env[k] && !(k === 'OPENAQ_API_KEY' && env.OPENAQ_KEY)) log(`no ${k} in .env: ${what} disabled`);
 }
 // keys: which optional data sources are configured (the app greys out layers that need a missing key)

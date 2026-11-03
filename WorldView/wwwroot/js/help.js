@@ -13,7 +13,7 @@ const en = [
         <li><b>Trains</b>: the Netherlands (NS, with rolling stock and seats), Finland, the US and Canada.</li>
         <li><b>Bus, tram, metro</b>: all Dutch public transport.</li>
         <li><b>Satellites</b> and <b>Space telescopes</b> (Hubble, JWST, …) with their orbits.</li>
-        <li><b>Earthquakes</b>, <b>Wildfires</b>, <b>Launches</b>, <b>Radio</b> and <b>Traffic cameras</b>.</li>
+        <li><b>Earthquakes</b>, <b>Wildfires</b>, <b>Launches</b>, <b>Radio</b> and <b>Traffic cameras</b>.</li><li><b>Airports</b>: large and medium airports with a list panel; the 🎧 filter shows airports with a live YouTube stream with ATC audio.</li>
 <li><b>Power plants</b>: about 35,000 plants worldwide, colour per energy source, size per capacity (WRI database, ≈ 2021).</li><li><b>Museums</b>: museums from OpenStreetMap; well-known ones when zoomed out, all of them when zoomed in. Click for kind, opening hours, website and Wikipedia.</li></ul>
         <p>The <b>⌖</b> button next to a layer sets whether the globe zooms in when you click an object of that layer.</p>`],
     ['ℹ️', 'Info box', `<p>Click an object, a city or a country name for details, usually with a photo and a Wikipedia summary. Click a photo or camera image to enlarge it; zoom with the wheel, buttons or pinch and drag to pan. Click beside the info box to close it.</p>
@@ -36,7 +36,7 @@ const en = [
         <tr><td>${K('← ↑ ↓ →')}</td><td>move</td></tr><tr><td>${K('+ −')}</td><td>zoom</td></tr>
         <tr><td>${K('1')}–${K('7')}</td><td>optics</td></tr><tr><td>${K('H')} ${K('D')} ${K('N')} ${K('B')} ${K('Z')}</td><td>HUD, detection, day/night, borders, time zones</td></tr>
         <tr><td>${K('C')}</td><td>cockpit</td></tr><tr><td>${K('Esc')}</td><td>release / close</td></tr></table>`],
-    ['📚', 'Sources', `<p>OpenSky Network, adsb.lol (ODbL), Planespotters.net, tar1090-db, NS, Digitraffic (CC BY 4.0), Amtraker, OVapi/NDOV, CelesTrak, USGS, NASA EONET, Launch Library 2, Radio Browser, Wikipedia/Wikidata, Open-Meteo, NASA GIBS, Sensor.Community, OpenAQ, Nominatim/OpenStreetMap, GeoNames (CC BY 4.0), Marine Regions (CC BY 4.0), Natural Earth, geoBoundaries (CC BY 4.0), Esri, OpenStreetMap, CesiumJS. Camera images: TfL, Fintraffic, Caltrans, Austin, Calgary, Hong Kong, Vegagerðin, DriveBC, Transport for NSW, NZTA.</p>`]
+    ['📚', 'Sources', `<p>OpenSky Network, adsb.lol (ODbL), Planespotters.net, tar1090-db, NS, Digitraffic (CC BY 4.0), Amtraker, OVapi/NDOV, CelesTrak, USGS, NASA EONET, Launch Library 2, Radio Browser, Wikipedia/Wikidata, Open-Meteo, NASA GIBS, Sensor.Community, OpenAQ, Nominatim/OpenStreetMap, GeoNames (CC BY 4.0), Marine Regions (CC BY 4.0), Natural Earth, geoBoundaries (CC BY 4.0), OurAirports, Esri, OpenStreetMap, CesiumJS. Camera images: TfL, Fintraffic, Caltrans, Austin, Calgary, Hong Kong, Vegagerðin, DriveBC, Transport for NSW, NZTA. Airport streams with ATC audio: YouTube (Flightradar24, Airline Videos Live, AMS LIVE).</p>`]
 ];
 
 const KEYS_EN = en.find(x => x[1] === 'Keyboard shortcuts')[2], SOURCES_EN = en.find(x => x[1] === 'Sources')[2];
@@ -53,7 +53,7 @@ const nl = [
         <li><b>Treinen</b>: Nederland (NS, met materieel en zitplaatsen), Finland, de VS en Canada.</li>
         <li><b>Bus, tram, metro</b>: al het Nederlandse openbaar vervoer.</li>
         <li><b>Satellieten</b> en <b>Ruimtetelescopen</b> (Hubble, JWST, …) met hun banen.</li>
-        <li><b>Aardbevingen</b>, <b>Bosbranden</b>, <b>Lanceringen</b>, <b>Radio</b> en <b>Verkeerscamera's</b>.</li>
+        <li><b>Aardbevingen</b>, <b>Bosbranden</b>, <b>Lanceringen</b>, <b>Radio</b> en <b>Verkeerscamera's</b>.</li><li><b>Luchthavens</b>: grote en middelgrote luchthavens met een lijstpaneel; het 🎧-filter toont luchthavens met een live YouTube-stream met ATC-geluid.</li>
 <li><b>Energiecentrales</b>: zo'n 35.000 centrales wereldwijd, kleur per energiebron, grootte naar vermogen (WRI-database, ± 2021).</li><li><b>Musea</b>: musea uit OpenStreetMap; uitgezoomd de bekende, ingezoomd allemaal. Klik voor soort, openingstijden, website en Wikipedia.</li></ul>
         <p>Met de knop <b>⌖</b> naast een laag stel je in of de globe inzoomt als je een object van die laag aanklikt.</p>`],
     ['ℹ️', 'Infovenster', `<p>Klik op een object, een stad of een landnaam voor details, meestal met een foto en een samenvatting van Wikipedia. Klik op een foto of camerabeeld om te vergroten; zoom met het wiel, de knoppen of knijpen en sleep om te verschuiven. Klik naast het infovenster om het te sluiten.</p>
