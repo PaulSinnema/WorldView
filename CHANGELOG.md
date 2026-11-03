@@ -2,6 +2,26 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.165] - 2026-11-03
+### Changed
+- New users: all data layers start off (flights and satellites were on). Saved choices of existing users stay as they are.
+
+## [1.0.164] - 2026-11-03
+### Changed
+- Combo boxes: lists always sorted alphabetically (place too, was by count; up to 500 places); the list now opens downwards (was upwards), at least 180 px wide.
+
+## [1.0.163] - 2026-11-03
+### Changed
+- All filter dropdowns in the museum and radio panels (country, place, kind, genre) are now one reusable combo box (`Combo.razor`): type to filter the list, ✕ clears, ▾ opens/closes, the chosen item is highlighted; same on every device. Country/kind/genre: pick from the list (half-typed text falls back to the chosen value); place: free text. Touch screens: filter inputs at 16 px so iOS doesn't zoom in on focus. The settings panel keeps its native selects (language, environment layer, basemap).
+
+## [1.0.162] - 2026-11-03
+### Changed
+- Museum place filter: own combo box instead of `<datalist>` (iOS showed no dropdown, arrow or clear button). Same on every device: ✕ clears, ▾ opens/closes the list, typing filters the suggestions (contains, most museums first, max 60); the list opens upwards.
+
+## [1.0.161] - 2026-11-03
+### Fixed
+- Phones portrait: the nav pad covered the museum/radio panels. It now sits above the folded bars (one or two) and is hidden while a list is open.
+
 ## [1.0.160] - 2026-11-03
 ### Changed
 - Museum list: a row click flies to the museum only when the museum zoom button is on, like radio and the other layers (it always flew before). Nav pad stays on every device (TEMP note removed).

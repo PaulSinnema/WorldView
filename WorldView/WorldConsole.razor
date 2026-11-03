@@ -381,27 +381,9 @@ else if (error is not null)
         {
             <div class="radio-filters">
                 <input type="search" value="@museumText" @oninput="OnMuseumText" placeholder="@T("mus.search")" aria-label="@T("mus.search")" />
-                <select value="@museumCountry" @onchange="OnMuseumCountry" aria-label="@T("radio.allCountries")">
-                    <option value="">@T("radio.allCountries")</option>
-                    @foreach (var c in museumCountries)
-                    {
-                        <option value="@c.Cc">@c.Name (@c.N.ToString("N0"))</option>
-                    }
-                </select>
-                <input class="place" type="search" list="museum-places" value="@museumCity" @oninput="OnMuseumCity" placeholder="@T("mus.place")" aria-label="@T("mus.place")" />
-                <datalist id="museum-places">
-                    @foreach (var p in museumPlaces)
-                    {
-                        <option value="@p"></option>
-                    }
-                </datalist>
-                <select value="@museumType" @onchange="OnMuseumType" aria-label="@T("mus.allTypes")">
-                    <option value="">@T("mus.allTypes")</option>
-                    @foreach (var key in MuseumTypes)
-                    {
-                        <option value="@key">@T("mus." + key)</option>
-                    }
-                </select>
+                <Combo Items="CountryItems(museumCountries)" Value="@museumCountry" ValueChanged="OnMuseumCountry" Placeholder="@T("radio.allCountries")" />
+                <Combo Items="PlaceItems" Value="@museumCity" ValueChanged="OnMuseumCity" Placeholder="@T("mus.place")" FreeText="true" Max="500" />
+                <Combo Items="MuseumTypeItems" Value="@museumType" ValueChanged="OnMuseumType" Placeholder="@T("mus.allTypes")" />
                 <button class="@(museumInView ? "active" : "")" @onclick="ToggleMuseumInView">@T("radio.inView")</button>
                 <button class="@(museumWikiOnly ? "active" : "")" @onclick="ToggleMuseumWiki">@T("mus.wikiOnly")</button>
                 @if (museumTotal > museumList.Count)
@@ -465,20 +447,8 @@ else if (error is not null)
         {
             <div class="radio-filters">
                 <input type="search" value="@radioText" @oninput="OnRadioText" placeholder="@T("radio.search")" aria-label="@T("radio.search")" />
-                <select value="@radioCountry" @onchange="OnRadioCountry" aria-label="@T("radio.allCountries")">
-                    <option value="">@T("radio.allCountries")</option>
-                    @foreach (var c in radioCountries)
-                    {
-                        <option value="@c.Cc">@c.Name (@c.N)</option>
-                    }
-                </select>
-                <select value="@radioGenre" @onchange="OnRadioGenre" aria-label="@T("radio.allGenres")">
-                    <option value="">@T("radio.allGenres")</option>
-                    @foreach (var (key, tag) in Genres)
-                    {
-                        <option value="@tag">@T("genre." + key)</option>
-                    }
-                </select>
+                <Combo Items="CountryItems(radioCountries)" Value="@radioCountry" ValueChanged="OnRadioCountry" Placeholder="@T("radio.allCountries")" />
+                <Combo Items="GenreItems" Value="@radioGenre" ValueChanged="OnRadioGenre" Placeholder="@T("radio.allGenres")" />
                 <button class="@(radioInView ? "active" : "")" @onclick="ToggleRadioInView">@T("radio.inView")</button>
                 <button class="@(radioFavOnly ? "active" : "")" @onclick="ToggleRadioFav">★ @T("radio.favorites")</button>
                 <span class="pager">
@@ -999,8 +969,8 @@ else if (error is not null)
         await SendRadioQuery();
     }
 
-    private Task OnRadioCountry(ChangeEventArgs e) { radioCountry = e.Value?.ToString() ?? ""; return SendRadioQuery(); }
-    private Task OnRadioGenre(ChangeEventArgs e) { radioGenre = e.Value?.ToString() ?? ""; return SendRadioQuery(); }
+    private Task OnRadioCountry(string v) { radioCountry = v; return SendRadioQuery(); }
+    private Task OnRadioGenre(string v) { radioGenre = v; return SendRadioQuery(); }
     private Task ToggleRadioInView() { radioInView = !radioInView; return SendRadioQuery(); }
     private Task ToggleRadioFav() { radioFavOnly = !radioFavOnly; return SendRadioQuery(); }
 
@@ -1170,10 +1140,16 @@ else if (error is not null)
         await SendMuseumQuery();
     }
     private Task OnMuseumText(ChangeEventArgs e) { museumText = e.Value?.ToString() ?? ""; return DebouncedMuseumQuery(); }
-    private Task OnMuseumCity(ChangeEventArgs e) { museumCity = e.Value?.ToString() ?? ""; return DebouncedMuseumQuery(); }
+    private Task OnMuseumCity(string v) { museumCity = v; return DebouncedMuseumQuery(); }
 
-    private Task OnMuseumCountry(ChangeEventArgs e) { museumCountry = e.Value?.ToString() ?? ""; return SendMuseumQuery(); }
-    private Task OnMuseumType(ChangeEventArgs e) { museumType = e.Value?.ToString() ?? ""; return SendMuseumQuery(); }
+    // Items for the filter combo boxes (Combo.razor)
+    private static List<Combo.Item> CountryItems(List<RadioCountry> list) => list.Select(c => new Combo.Item(c.Cc, $"{c.Name} ({c.N:N0})")).ToList();
+    private List<Combo.Item> PlaceItems => museumPlaces.Select(p => new Combo.Item(p, p)).ToList();
+    private List<Combo.Item> MuseumTypeItems => MuseumTypes.Select(k => new Combo.Item(k, T("mus." + k))).ToList();
+    private List<Combo.Item> GenreItems => Genres.Select(g => new Combo.Item(g.Tag, T("genre." + g.Key))).ToList();
+
+    private Task OnMuseumCountry(string v) { museumCountry = v; return SendMuseumQuery(); }
+    private Task OnMuseumType(string v) { museumType = v; return SendMuseumQuery(); }
     private Task ToggleMuseumInView() { museumInView = !museumInView; return SendMuseumQuery(); }
     private Task ToggleMuseumWiki() { museumWikiOnly = !museumWikiOnly; return SendMuseumQuery(); }
 

@@ -39,6 +39,12 @@
         @media (min-width: 761px) { body:has(.panel:not(.toggled)) .navpad { right: auto; left: calc(12px + env(safe-area-inset-left)); } }
         @media (min-width: 900px) and (min-height: 600px) { body:has(.panel:not(.toggled)) .navpad { left: auto; right: calc(310px + env(safe-area-inset-right)); } }
         @media (max-width: 760px) { body:has(.panel.toggled) .navpad { display: none; } }
+        /* Phones portrait: nav pad above the folded museum/radio bars; hidden while a list is open */
+        @media (max-width: 760px) {
+            body:has(.dock .radio) .navpad { bottom: calc(76px + env(safe-area-inset-bottom)); }
+            body:has(.dock .radio + .radio) .navpad { bottom: calc(130px + env(safe-area-inset-bottom)); }
+            body:has(.dock .radio:not(.collapsed)) .navpad { display: none; }
+        }
         /* Medium widths (phone landscape, tablets): centred top bar would run under the panel → panel starts below it */
         @media (min-width: 761px) and (max-width: 1299px) { .panel { top: calc(50px + env(safe-area-inset-top)); max-height: calc(100% - 66px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); } }
         /* Touch screens: bigger targets in the top bar */
@@ -167,7 +173,14 @@
         .radio-filters { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 8px 6px; }
         .radio-filters input, .radio-filters select { padding: 5px; background: #061218; border: 1px solid var(--line); min-width: 0; }
         .radio-filters input { flex: 2 1 140px; }
-        .radio-filters input.place { flex: 1 1 110px; }
+        .combo { position: relative; flex: 1 1 130px; display: flex; background: #061218; border: 1px solid var(--line); min-width: 0; }
+        .radio-filters .combo input { flex: 1; min-width: 0; border: 0; background: transparent; }
+        .radio .combo .combo-btn { border: 0; background: none; padding: 0 7px; opacity: .7; }
+        .combo-list { position: absolute; left: -1px; right: -1px; top: 100%; min-width: 180px; z-index: 5; list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; background: #061218; border: 1px solid var(--line); }
+        .combo-list li { padding: 6px 8px; cursor: pointer; border-top: 1px solid var(--line); }
+        .combo-list li:hover { background: rgba(255,255,255,.06); }
+        .combo-list li.on { color: var(--acc); }
+        @media (pointer: coarse) { .radio-filters input { font-size: 16px; } } /* iOS zooms in on focus below 16px */
         .radio-filters select { flex: 1 1 110px; max-width: 180px; }
         .radio-count { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 0 8px 4px; font-size: 11px; }
         .radio-count > span:first-child { opacity: .6; }

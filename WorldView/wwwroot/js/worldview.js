@@ -72,7 +72,7 @@ function loadSettings() {
     try { Object.assign(S, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { }
     S.cockpit = false;
     if (typeof S.layers !== 'object' || !S.layers) S.layers = {};
-    for (const l of LAYERS) if (typeof S.layers[l] !== 'boolean') S.layers[l] = l === 'flights' || l === 'satellites';
+    for (const l of LAYERS) if (typeof S.layers[l] !== 'boolean') S.layers[l] = false; // new users start with a quiet globe
     if (!STYLE_KEYS.includes(S.style)) S.style = 'normal';
     if (typeof S.daynight !== 'boolean') S.daynight = true;
     if (typeof S.trails !== 'boolean') S.trails = true;

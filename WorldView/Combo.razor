@@ -1,0 +1,75 @@
+﻿@* Own dropdown with type-to-filter, ✕ and ▾: same on every device (iOS shows no datalist dropdown and its own select wheel) *@
+<span class="combo">
+    <input type="text" value="@text" @oninput="OnInput" @onfocus="() => open = true" @onfocusout="CloseSoon"
+           placeholder="@Placeholder" aria-label="@Placeholder" autocomplete="off" autocorrect="off" spellcheck="false" />
+    @if (text != "")
+    {
+        <button class="combo-btn" title="✕" @onclick="Clear">✕</button>
+    }
+    <button class="combo-btn" @onclick="() => open = !open">▾</button>
+    @if (open && Shown.Count > 0)
+    {
+        <ul class="combo-list">
+            @foreach (var it in Shown)
+            {
+                <li class="@(it.Value == Value ? "on" : "")" @onmousedown:preventDefault="true" @onclick="() => Pick(it)">@it.Label</li>
+            }
+        </ul>
+    }
+</span>
+
+@code {
+    public sealed record Item(string Value, string Label);
+
+    [Parameter] public List<Item> Items { get; set; } = new();
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "";
+    [Parameter] public bool FreeText { get; set; } // true: the typed text is the value (place); false: pick from the list (country)
+    [Parameter] public int Max { get; set; } = 300;
+
+    private string text = "";
+    private bool open, typing;
+
+    // Typed text filters the list; otherwise the whole list; always alphabetical
+    private List<Item> Shown => (typing && text != ""
+        ? Items.Where(i => i.Label.Contains(text, StringComparison.OrdinalIgnoreCase) && !(FreeText && i.Value.Equals(text, StringComparison.OrdinalIgnoreCase)))
+        : Items).OrderBy(i => i.Label, StringComparer.InvariantCultureIgnoreCase).Take(Max).ToList();
+
+    // Show the chosen value (its label) unless the user is typing
+    protected override void OnParametersSet()
+    {
+        if (!typing) text = FreeText ? Value : Items.FirstOrDefault(i => i.Value == Value)?.Label ?? "";
+    }
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        text = e.Value?.ToString() ?? "";
+        typing = open = true;
+        if (FreeText) await ValueChanged.InvokeAsync(text);
+    }
+
+    private async Task Pick(Item it)
+    {
+        typing = open = false;
+        text = FreeText ? it.Value : it.Label;
+        await ValueChanged.InvokeAsync(it.Value);
+    }
+
+    private async Task Clear()
+    {
+        text = "";
+        typing = open = false;
+        await ValueChanged.InvokeAsync("");
+    }
+
+    // Focus leaves: close a moment later so a tap on an item still lands; a half-typed list choice falls back to the chosen value
+    private async Task CloseSoon()
+    {
+        await Task.Delay(200);
+        open = false;
+        if (!FreeText && typing) { typing = false; text = Items.FirstOrDefault(i => i.Value == Value)?.Label ?? ""; }
+        else typing = false;
+        StateHasChanged();
+    }
+}
