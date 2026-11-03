@@ -64,6 +64,7 @@ const S = {
     'mus.open_air': ['Open-air', 'Openlucht', 'Freilicht', 'Plein air', '露天'],
     'mus.archaeological': ['Archaeology', 'Archeologie', 'Archäologie', 'Archéologie', '考古'],
     'mus.other': ['Museum', 'Museum', 'Museum', 'Musée', '博物馆'],
+    'row.details': ['Show/hide details', 'Details tonen/verbergen', 'Details ein-/ausblenden', 'Afficher/masquer les détails', '显示/隐藏详情'],
     'f.place': ['Place', 'Plaats', 'Ort', 'Lieu', '地点'],
     'mus.place': ['Place…', 'Plaats…', 'Ort…', 'Lieu…', '地点…'],
     'mus.search': ['Search museum…', 'Zoek museum…', 'Museum suchen…', 'Rechercher un musée…', '搜索博物馆…'],

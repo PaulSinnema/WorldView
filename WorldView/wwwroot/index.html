@@ -154,7 +154,8 @@
         .dock.both .radio-list { max-height: 18vh; }
         .radio button { padding: 4px 8px; background: rgba(255,255,255,.04); border: 1px solid var(--line); cursor: pointer; }
         .radio button.active { background: rgba(255,79,216,.25); border-color: #ff4fd8; }
-        .radio-head { display: flex; align-items: center; gap: 5px; padding: 6px 8px; }
+        .radio-head { display: flex; align-items: center; gap: 5px; padding: 6px 8px; cursor: pointer; } /* tap folds the panel open/shut */
+        .radio-ctrl { display: flex; align-items: center; gap: 5px; cursor: default; }
         .radio-now { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
         .radio-now b, .radio-now span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         .radio-now b { color: #fff; font-weight: normal; }
@@ -170,19 +171,50 @@
         .radio-filters select { flex: 1 1 110px; max-width: 180px; }
         .radio-count { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 0 8px 4px; font-size: 11px; }
         .radio-count > span:first-child { opacity: .6; }
-        .pager { display: flex; align-items: center; gap: 6px; }
+        .pager { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+        .radio-filters .pager { margin-left: auto; }
+        .pager .muted { opacity: .6; }
         .radio .pager button { padding: 1px 8px; }
         .radio .pager button:disabled { opacity: .3; cursor: default; }
         .radio-list { list-style: none; margin: 0; padding: 0 4px 6px; max-height: 32vh; overflow-y: auto; }
         .radio-list li { display: flex; align-items: center; gap: 8px; padding: 4px; border-top: 1px solid var(--line); cursor: pointer; }
         .radio-list li:hover { background: rgba(255,255,255,.05); }
         .radio-list li.current { background: rgba(255,79,216,.18); }
+        .radio-list li.sel { background: rgba(125,255,176,.09); box-shadow: inset 3px 0 0 rgba(125,255,176,.55); }
+        .radio-list li.sel + li.row-details { background: rgba(125,255,176,.06); }
+        .radio-list li.current.sel { background: rgba(255,79,216,.18); }
         .radio-list img, .radio-list .noicon { width: 22px; height: 22px; flex: none; object-fit: contain; text-align: center; }
         .rs-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
         .rs-main b, .rs-main span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         .rs-main b { font-weight: normal; color: #fff; }
         .rs-main span { font-size: 11px; opacity: .6; }
         .radio-list .star { border: 0; background: none; font-size: 15px; }
+        .radio-list .fold { border: 0; background: none; font-size: 14px; padding: 4px 8px; opacity: .7; }
+        .radio-list .fold.on { opacity: 1; color: var(--acc); }
+        .radio-list li.row-details { display: block; cursor: default; padding: 4px 8px 8px 34px; border-top: 0; background: rgba(255,255,255,.03); font-size: 12px; }
+        .row-details .rd { display: flex; align-items: flex-start; gap: 10px; }
+        .row-details .rd-text { flex: 1; min-width: 0; }
+        .row-details img.zoomable { cursor: zoom-in; }
+        .radio-list li.row-details img { flex: none; display: block; width: auto; height: auto; max-width: 140px; max-height: 120px; margin: 2px 0 0; object-fit: contain; }
+        @media (orientation: portrait) and (max-width: 760px) { .row-details .rd { flex-direction: column; gap: 6px; } } /* phone portrait: image above the text */
+        .row-details table { border-collapse: collapse; }
+        .row-details th { text-align: left; font-weight: normal; opacity: .6; padding: 1px 10px 1px 0; vertical-align: top; white-space: nowrap; }
+        .row-details td { padding: 1px 0; word-break: break-word; }
+        .row-details a { color: var(--acc); word-break: break-all; }
+        .row-details p { margin: 6px 0; line-height: 1.4; font-family: system-ui, sans-serif; }
+        /* Phones: one thing at a time. Settings open → map panels hidden; a list open → info box hidden (details in the row) */
+        @media (max-height: 500px) and (pointer: coarse) and (min-width: 761px) { .panel { display: none; } .panel.toggled { display: block; } }
+        @media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+            body:has(.panel.toggled) .info, body:has(.panel.toggled) .dock { display: none; }
+            .info.dock-open { display: none; }
+            .radio-list .fold { display: none; } /* tapping the row folds it open/shut */
+            /* The open list fills the height up to the top bar (both open: shared) */
+            .dock { max-height: calc(100dvh - 64px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+            .dock .radio:not(.collapsed) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+            .dock .radio > :not(.radio-list) { flex: none; } /* head + filters keep their height; only the list shrinks */
+            .dock .radio-list, .dock.both .radio-list { max-height: none; flex: 1 1 auto; min-height: 60px; }
+        }
+        @media (max-width: 760px) { .dock { max-height: calc(100dvh - 124px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); } } /* portrait: two-row top bar */
         .toast { position: fixed; left: 50%; top: calc(52px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 30; max-width: calc(100% - 40px); padding: 7px 14px; background: var(--bg); border: 1px solid var(--acc); }
         .boot { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #000; color: var(--ok); letter-spacing: 3px; text-align: center; padding: 20px; }
         .boot.error { color: #ff6b6b; letter-spacing: 0; }

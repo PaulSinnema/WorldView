@@ -2,6 +2,60 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.159] - 2026-11-03
+### Added
+- Museum row details: tapping the photo enlarges it in the lightbox (zoom/pan as in the info box); close with ✕ or a tap beside it.
+
+### Changed
+- Museum and radio panels: a tap on the head bar folds the panel open/shut; the small 🏛/📻 ▴▾ button is gone. Radio controls (play, stop, favourite, volume) and the museum ✕ don't fold the panel.
+
+## [1.0.158] - 2026-11-03
+### Changed
+- Phones, museum and radio lists: a second tap on the folded-open row folds it shut (without flying or restarting the station); the ▸/▾ button is hidden there. Desktop keeps the button.
+
+## [1.0.157] - 2026-11-03
+### Fixed
+- Museum row details showed no photo or summary when the Wikipedia load was already running (phones: the row tap selects the museum, which starts the load, and then folds the row open). `loadQidWiki` now returns the running load, so the details wait for the same result.
+
+## [1.0.156] - 2026-11-03
+### Changed
+- Phones: tapping a row in the museum or radio list also folds it open (and scrolls it to the top); ▾ folds it shut. Desktop unchanged (▸ only).
+
+## [1.0.155] - 2026-11-03
+### Added
+- List panels remember their last filter across sessions: every query is saved per panel in the settings (`S.panelFilters.radio`, `.museums`), applied by the engine at start (list and globe dots) and read back by the UI (`getPanelFilter`). New panels: save with `savePanelFilter(name, query)` and add their fields to `PanelFilter`.
+
+## [1.0.154] - 2026-11-03
+### Changed
+- Museum and radio lists: the selected row (item in the info box, or the folded-open row) gets a soft green background with a thin green bar on the left; its details share the tint. The playing radio station keeps its pink.
+
+## [1.0.153] - 2026-11-03
+### Changed
+- Row details on a phone in portrait: image above the text (landscape and desktop keep it on the left).
+
+## [1.0.152] - 2026-11-03
+### Changed
+- Row details: photo/logo on the left (max 140 × 120 px), fields, summary and link to its right.
+
+## [1.0.151] - 2026-11-03
+### Changed
+- Phones: an open museum/radio list fills the height up to the top bar (both open: they share it); head and filters keep their height, only the list shrinks.
+- Pager (◀ 1–200 ▶) moved into the filter row; radio station count there too (separate count row removed).
+
+### Fixed
+- Photo in the folded-open row details was squeezed to 22 px by the list icon rule; now up to 160 × 110 px.
+
+## [1.0.150] - 2026-11-03
+### Changed
+- Museum/radio lists: a row folded open scrolls (smoothly) to the top of its list, again once the details have loaded, so the start of the text is in view.
+
+## [1.0.149] - 2026-11-03
+### Added
+- Museum and radio lists: ▸ button per row folds the details open under the row (museum: kind, place, country, opening hours, website link, Wikipedia summary + photo + link; radio: logo, country, genre, codec, position). One row at a time.
+
+### Changed
+- Phones (portrait, and landscape with touch): one thing at a time. Settings open → info box and museum/radio panels hidden; a museum/radio list expanded → info box hidden (selection stays; it returns when the list is collapsed). In phone landscape the settings panel now starts closed and opens with ☰, as in portrait.
+
 ## [1.0.148] - 2026-11-03
 ### Added
 - Museums: place per museum in the list ("kind · place · country") and the info box; new "Place…" filter (contains, case-insensitive) with suggestions from the current result (most museums first, max 500); also filters the dots on the globe.

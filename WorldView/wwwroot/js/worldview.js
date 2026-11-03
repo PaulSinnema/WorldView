@@ -88,6 +88,10 @@ function loadSettings() {
     if (typeof S.envClick !== 'boolean') S.envClick = true;
     S.lang = pickLang(S.lang);
     if (!Array.isArray(S.radioFav)) S.radioFav = [];
+    // Last filter per list panel (radio, museums, …)
+    if (typeof S.panelFilters !== 'object' || !S.panelFilters) S.panelFilters = {};
+    radioQuery = { ...radioQuery, ...(S.panelFilters.radio || {}) };
+    museumQuery = { ...museumQuery, ...(S.panelFilters.museums || {}) };
     S.zoom = { ...ZOOM_DEFAULT, ...(S.zoom && typeof S.zoom === 'object' ? S.zoom : {}) };
     delete S.camZoom;
     // One-off reset: zoom now defaults to off for every layer
@@ -2330,11 +2334,19 @@ export async function museumCountries() {
 }
 export function museumSetQuery(json) {
     try { museumQuery = { ...museumQuery, ...JSON.parse(json) }; } catch { }
+    savePanelFilter('museums', museumQuery);
     museumOffset = 0; // new filter: page 1
     const text = lowTrim(museumQuery.q), city = lowTrim(museumQuery.city);
     for (const r of store.museums.values()) r.pt.show = museumMatch(r, text, city);
     runMuseumSearch();
 }
+// Last filter of a list panel: kept in the settings, read back by the UI at start
+function savePanelFilter(name, q) {
+    if (JSON.stringify(S.panelFilters[name]) === JSON.stringify(q)) return;
+    S.panelFilters[name] = { ...q };
+    saveSettings();
+}
+export function getPanelFilter(name) { return JSON.stringify(S.panelFilters?.[name] || {}); }
 function scheduleMuseumSearch() {
     clearTimeout(museumTimer);
     museumTimer = setTimeout(runMuseumSearch, 300);
@@ -2376,6 +2388,24 @@ export function museumPage(dir) {
     museumOffset = Math.max(0, Math.min(museumOffset + dir * LIST_PAGE, Math.floor((museumAll.length - 1) / LIST_PAGE) * LIST_PAGE));
     emitMuseumPage();
 }
+// Phone layout (same media query as the CSS): portrait, or short landscape with touch
+export function isPhone() { return matchMedia('(max-width: 760px), (max-height: 500px) and (pointer: coarse)').matches; }
+// Panel row folded open: scroll it to the top of its own list (not the page)
+export function scrollRowTop(key) {
+    const li = [...document.querySelectorAll('.radio-list li[data-key]')].find(e => e.dataset.key === key);
+    const list = li?.closest('.radio-list');
+    if (list) list.scrollTo({ top: list.scrollTop + li.getBoundingClientRect().top - list.getBoundingClientRect().top, behavior: 'smooth' });
+}
+// Details folded open in the panel row: info fields + Wikipedia summary (loaded when missing)
+export async function museumDetails(key) {
+    const r = store.museums.get(key);
+    if (!r) return null;
+    if (r.qid && r.qw?.lang !== S.lang) await loadQidWiki(r);
+    const fields = [];
+    infoRows(r.info, fields);
+    const w = r.qw?.lang === S.lang ? r.qw : null;
+    return JSON.stringify({ fields, summary: w?.extract || null, link: w?.url || null, image: w?.thumb || null });
+}
 // List click: fly there and open the info box
 export function museumGo(key) {
     const r = store.museums.get(key);
@@ -2401,15 +2431,18 @@ function refreshMuseums() {
     report('museums', 'st.museums');
 }
 // Wikipedia summary + photo of a Wikidata item (museums), cached per language
-async function loadQidWiki(r) {
+// Returns the running load when one is busy, so a second caller (row details) waits for the same result
+function loadQidWiki(r) {
     const lang = S.lang;
-    if (r.qwLoading === lang) return;
+    if (r.qwLoading === lang) return r.qwP;
     r.qwLoading = lang;
-    const w = await wikidataWiki(r.qid);
-    if (r.qwLoading !== lang) return;
-    r.qwLoading = null;
-    r.qw = { lang, extract: w?.extract || null, thumb: w?.thumb || null, url: w?.url || null };
-    if (selected?.key === r.key) pushInfo();
+    return r.qwP = (async () => {
+        const w = await wikidataWiki(r.qid);
+        if (r.qwLoading !== lang) return;
+        r.qwLoading = null;
+        r.qw = { lang, extract: w?.extract || null, thumb: w?.thumb || null, url: w?.url || null };
+        if (selected?.key === r.key) pushInfo();
+    })();
 }
 async function loadQuakes() {
     const j = await tryJson('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson');
@@ -2842,6 +2875,7 @@ export async function radioCountries() {
 }
 export function radioSetQuery(json) {
     try { radioQuery = { ...radioQuery, ...JSON.parse(json) }; } catch { }
+    savePanelFilter('radio', radioQuery);
     radioOffset = 0; // new filter: page 1
     runRadioSearch();
 }
@@ -2903,6 +2937,15 @@ export function radioPlay(key, doSelect = true) {
     // Show it on the globe when it has coordinates, else info box only (+ fly to its country)
     if (doSelect && store.radio.has(key)) select('radio', key, true);
     else if (doSelect) { radioInfoOnly(m); if (S.zoom.radio === true && m.cc) flyToCountry(m.cc); }
+}
+// Details folded open in the radio panel row
+export function radioDetails(key) {
+    const m = radioMeta.get(key);
+    if (!m) return null;
+    const fields = [[tr('f.country'), (m.cc && regionName(m.cc)) || m.country || '—'], [tr('f.genre'), m.tags || '—'],
+        [tr('f.codec'), `${m.codec || '?'} ${m.bitrate ? m.bitrate + ' kbps' : ''}`.trim()],
+        [tr('f.position'), m.lat != null && m.lon != null ? fmtPos(m.lat, m.lon) : tr('radio.noGeo')]];
+    return JSON.stringify({ fields, summary: null, link: null, image: m.favicon || null });
 }
 // Station without coordinates: info box without a selection on the globe
 function radioInfoOnly(m) {

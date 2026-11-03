@@ -218,7 +218,7 @@ else if (error is not null)
 
 @if (selection is not null)
 {
-    <section class="info">
+    <section class="info @(DockOpen ? "dock-open" : "")">
         <header><span>@selection.Title</span><button class="x" title="@T("info.close")" @onclick="ClearSelection">✕</button></header>
         @if (!string.IsNullOrEmpty(selection.Video))
         {
@@ -343,6 +343,23 @@ else if (error is not null)
     </div>
 }
 
+@if (rowImg is not null)
+{
+    @* Museum photo from a list row, enlarged (zoom/pan as in the info box) *@
+    <div class="lightbox" @onclick="() => rowImg = null">
+        <div class="lb-stage">
+            <img class="lb-media" src="@rowImg" alt="" draggable="false" @onclick:stopPropagation="true" />
+        </div>
+        <div class="lb-bar" @onclick:stopPropagation="true">
+            <button data-zoom="out" title="−">−</button>
+            <button data-zoom="reset" title="1:1">1:1</button>
+            <button data-zoom="in" title="+">+</button>
+            <span class="lb-cap">@T("info.zoomHint")</span>
+            <button title="@T("info.close")" @onclick="() => rowImg = null">✕</button>
+        </div>
+    </div>
+}
+
 @* Bottom dock: museum and radio panels stacked; lists shrink when both are open *@
 @if (layers.GetValueOrDefault("radio") || layers.GetValueOrDefault("museums"))
 {
@@ -350,15 +367,14 @@ else if (error is not null)
 @if (layers.GetValueOrDefault("museums"))
 {
     <section class="radio museum @(museumCollapsed ? "collapsed" : "")">
-        <div class="radio-head">
-            <button class="radio-toggle" title="@T("radio.collapse")" @onclick="() => museumCollapsed = !museumCollapsed">🏛 @(museumCollapsed ? "▴" : "▾")</button>
+        <div class="radio-head" title="@T("radio.collapse")" @onclick="() => museumCollapsed = !museumCollapsed">
             <span class="radio-now">
                 <b>@T("layer.museums")</b>
                 <span>@MuseumSummary</span>
             </span>
             @if (MuseumFiltered)
             {
-                <button title="@T("mus.reset")" @onclick="ResetMuseumFilters">✕</button>
+                <button title="@T("mus.reset")" @onclick="ResetMuseumFilters" @onclick:stopPropagation="true">✕</button>
             }
         </div>
         @if (!museumCollapsed)
@@ -388,28 +404,30 @@ else if (error is not null)
                 </select>
                 <button class="@(museumInView ? "active" : "")" @onclick="ToggleMuseumInView">@T("radio.inView")</button>
                 <button class="@(museumWikiOnly ? "active" : "")" @onclick="ToggleMuseumWiki">@T("mus.wikiOnly")</button>
-            </div>
-            @if (museumTotal > museumList.Count)
-            {
-                <div class="radio-count">
-                    <span></span>
+                @if (museumTotal > museumList.Count)
+                {
                     <span class="pager">
                         <button disabled="@(museumOffset == 0)" @onclick='() => RadioCall("museumPage", -1)'>◀</button>
                         <span>@((museumOffset + 1).ToString("N0"))–@((museumOffset + museumList.Count).ToString("N0"))</span>
                         <button disabled="@(museumOffset + museumList.Count >= museumTotal)" @onclick='() => RadioCall("museumPage", 1)'>▶</button>
                     </span>
-                </div>
-            }
+                }
+            </div>
             <ul class="radio-list" @key="museumOffset">
                 @foreach (var m in museumList)
                 {
-                    <li @onclick='() => RadioCall("museumGo", m.Key)'>
+                    <li data-key="@m.Key" class="@(IsRowSel(m.Key) ? "sel" : "")" @onclick='() => RowClick("museumGo", "museumDetails", m.Key)'>
                         <span class="noicon">🏛</span>
                         <span class="rs-main">
                             <b>@m.Name</b>
                             <span>@string.Join(" · ", new[] { m.Type, m.City, m.Country, m.Wiki ? "Wikipedia" : "" }.Where(x => !string.IsNullOrEmpty(x)))</span>
                         </span>
+                        <button class="fold @(rowOpen == m.Key ? "on" : "")" title="@T("row.details")" @onclick='() => ToggleRow("museumDetails", m.Key)' @onclick:stopPropagation="true">@(rowOpen == m.Key ? "▾" : "▸")</button>
                     </li>
+                    @if (rowOpen == m.Key)
+                    {
+                        @RowDetailsBox()
+                    }
                 }
             </ul>
         }
@@ -418,8 +436,7 @@ else if (error is not null)
 @if (layers.GetValueOrDefault("radio"))
 {
     <section class="radio @(radioCollapsed ? "collapsed" : "")">
-        <div class="radio-head">
-            <button class="radio-toggle" title="@T("radio.collapse")" @onclick="() => radioCollapsed = !radioCollapsed">📻 @(radioCollapsed ? "▴" : "▾")</button>
+        <div class="radio-head" title="@T("radio.collapse")" @onclick="() => radioCollapsed = !radioCollapsed">
             <span class="radio-now @(radioNow?.Playing == true ? "on" : "")">
                 @if (radioNow is not null)
                 {
@@ -431,15 +448,18 @@ else if (error is not null)
                     <b>@T("radio.title")</b>
                 }
             </span>
-            <button title="@T("radio.prev")" @onclick='() => RadioCall("radioStep", -1)'>⏮</button>
-            <button title="@T("radio.playPause")" @onclick='() => RadioCall("radioToggle")'>@(radioNow?.Playing == true ? "⏸" : "▶")</button>
-            <button title="@T("radio.next")" @onclick='() => RadioCall("radioStep", 1)'>⏭</button>
-            <button title="@T("radio.stop")" @onclick='() => RadioCall("radioStop")'>■</button>
-            @if (radioNow is not null)
-            {
-                <button class="star @(radioNow.Fav ? "on" : "")" title="@T("radio.fav")" @onclick='() => RadioCall("radioFav", radioNow.Key)'>★</button>
-            }
-            <input class="radio-vol" type="range" min="0" max="100" value="@radioVolume" @oninput="SetRadioVolume" title="@T("radio.volume")" aria-label="@T("radio.volume")" />
+            @* Controls: a tap on them must not fold the panel *@
+            <span class="radio-ctrl" @onclick:stopPropagation="true">
+                <button title="@T("radio.prev")" @onclick='() => RadioCall("radioStep", -1)'>⏮</button>
+                <button title="@T("radio.playPause")" @onclick='() => RadioCall("radioToggle")'>@(radioNow?.Playing == true ? "⏸" : "▶")</button>
+                <button title="@T("radio.next")" @onclick='() => RadioCall("radioStep", 1)'>⏭</button>
+                <button title="@T("radio.stop")" @onclick='() => RadioCall("radioStop")'>■</button>
+                @if (radioNow is not null)
+                {
+                    <button class="star @(radioNow.Fav ? "on" : "")" title="@T("radio.fav")" @onclick='() => RadioCall("radioFav", radioNow.Key)'>★</button>
+                }
+                <input class="radio-vol" type="range" min="0" max="100" value="@radioVolume" @oninput="SetRadioVolume" title="@T("radio.volume")" aria-label="@T("radio.volume")" />
+            </span>
         </div>
         @if (!radioCollapsed)
         {
@@ -461,22 +481,20 @@ else if (error is not null)
                 </select>
                 <button class="@(radioInView ? "active" : "")" @onclick="ToggleRadioInView">@T("radio.inView")</button>
                 <button class="@(radioFavOnly ? "active" : "")" @onclick="ToggleRadioFav">★ @T("radio.favorites")</button>
-            </div>
-            <div class="radio-count">
-                <span>@(radioTotal > 0 ? T("radio.count", "n", radioTotal.ToString("N0")) : T("radio.none"))</span>
-                @if (radioTotal > radioList.Count)
-                {
-                    <span class="pager">
+                <span class="pager">
+                    <span class="muted">@(radioTotal > 0 ? T("radio.count", "n", radioTotal.ToString("N0")) : T("radio.none"))</span>
+                    @if (radioTotal > radioList.Count)
+                    {
                         <button disabled="@(radioOffset == 0)" @onclick='() => RadioCall("radioPage", -1)'>◀</button>
                         <span>@((radioOffset + 1).ToString("N0"))–@((radioOffset + radioList.Count).ToString("N0"))</span>
                         <button disabled="@(radioOffset + radioList.Count >= radioTotal)" @onclick='() => RadioCall("radioPage", 1)'>▶</button>
-                    </span>
-                }
+                    }
+                </span>
             </div>
             <ul class="radio-list" @key="radioOffset">
                 @foreach (var s in radioList)
                 {
-                    <li class="@(s.Key == radioNow?.Key ? "current" : "")" @onclick='() => RadioCall("radioPlay", s.Key)'>
+                    <li data-key="@s.Key" class="@(s.Key == radioNow?.Key ? "current" : "") @(IsRowSel(s.Key) ? "sel" : "")" @onclick='() => RowClick("radioPlay", "radioDetails", s.Key)'>
                         @if (!string.IsNullOrEmpty(s.Favicon))
                         {
                             <img src="@s.Favicon" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'" />
@@ -490,7 +508,12 @@ else if (error is not null)
                             <span>@string.Join(" · ", new[] { s.Country, s.Tags, s.Geo ? "" : T("radio.noGeo") }.Where(x => !string.IsNullOrEmpty(x)))</span>
                         </span>
                         <button class="star @(s.Fav ? "on" : "")" title="@T("radio.fav")" @onclick='() => RadioCall("radioFav", s.Key)' @onclick:stopPropagation="true">★</button>
+                        <button class="fold @(rowOpen == s.Key ? "on" : "")" title="@T("row.details")" @onclick='() => ToggleRow("radioDetails", s.Key)' @onclick:stopPropagation="true">@(rowOpen == s.Key ? "▾" : "▸")</button>
                     </li>
+                    @if (rowOpen == s.Key)
+                    {
+                        @RowDetailsBox()
+                    }
                 }
             </ul>
         }
@@ -593,6 +616,12 @@ else if (error is not null)
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Row just folded open: scroll it to the top of its list
+        if (rowScroll is { } scrollKey && module is not null)
+        {
+            rowScroll = null;
+            await module.InvokeVoidAsync("scrollRowTop", scrollKey);
+        }
         if (!firstRender) return;
 
         // Background update check (GitHub Pages)
@@ -642,6 +671,7 @@ else if (error is not null)
         loading = false;
         StateHasChanged();
         if (timezones) await LoadTzZones();
+        await RestorePanelFilters();
         if (layers.GetValueOrDefault("radio")) await LoadRadioCountries();
         if (layers.GetValueOrDefault("museums")) await LoadMuseumCountries();
         try
@@ -998,6 +1028,102 @@ else if (error is not null)
         StateHasChanged();
     }
 
+    // ---------- row details (museum/radio list): folded open under the row, one at a time ----------
+    private string? rowOpen, rowScroll, rowImg; // rowImg: enlarged museum photo
+    private bool rowIsMuseum;
+    // Row of the selected item (info box) or the folded-open row
+    private bool IsRowSel(string key) => key == selection?.Key || key == rowOpen;
+    private RowDetails? rowDetails;
+
+    private Task ToggleRow(string fn, string key)
+    {
+        if (rowOpen == key) { rowOpen = null; return Task.CompletedTask; }
+        return OpenRow(fn, key);
+    }
+
+    // Row tap: select/play. On a phone it also folds the row open; a second tap on the open row only folds it shut
+    private async Task RowClick(string action, string detailsFn, string key)
+    {
+        var phone = module is not null && await module.InvokeAsync<bool>("isPhone");
+        if (phone && rowOpen == key) { rowOpen = null; return; }
+        await RadioCall(action, key);
+        if (phone) await OpenRow(detailsFn, key);
+    }
+
+    private async Task OpenRow(string fn, string key)
+    {
+        rowOpen = rowScroll = key;
+        rowIsMuseum = fn == "museumDetails";
+        rowDetails = null; // shows "loading" until the details arrive
+        if (module is null) return;
+        var json = await module.InvokeAsync<string?>(fn, key);
+        if (rowOpen != key) return; // another row was opened meanwhile
+        rowDetails = string.IsNullOrEmpty(json) ? new RowDetails() : JsonSerializer.Deserialize<RowDetails>(json, JsonOpts);
+        rowScroll = key; // again: the details changed the height
+        StateHasChanged();
+    }
+
+    private RenderFragment RowDetailsBox() => @<li class="row-details">
+        @if (rowDetails is null)
+        {
+            <span class="muted">…</span>
+        }
+        else
+        {
+            <div class="rd">
+            @if (!string.IsNullOrEmpty(rowDetails.Image) && rowIsMuseum)
+            {
+                <img class="zoomable" src="@rowDetails.Image" alt="" title="@T("info.enlarge")" referrerpolicy="no-referrer" onerror="this.style.display='none'" @onclick="() => rowImg = rowDetails.Image" />
+            }
+            else if (!string.IsNullOrEmpty(rowDetails.Image))
+            {
+                <img src="@rowDetails.Image" alt="" referrerpolicy="no-referrer" onerror="this.style.display='none'" />
+            }
+            <div class="rd-text">
+            <table>
+                @foreach (var f in rowDetails.Fields)
+                {
+                    if (f.Length < 2) continue;
+                    <tr><th>@f[0]</th><td>
+                        @if (f[1].StartsWith("https://") || f[1].StartsWith("http://"))
+                        {
+                            <a href="@f[1]" target="_blank" rel="noopener noreferrer">@f[1]</a>
+                        }
+                        else
+                        {
+                            @f[1]
+                        }
+                    </td></tr>
+                }
+            </table>
+            @if (!string.IsNullOrEmpty(rowDetails.Summary))
+            {
+                <p>@rowDetails.Summary</p>
+            }
+            @if (!string.IsNullOrEmpty(rowDetails.Link))
+            {
+                <a href="@rowDetails.Link" target="_blank" rel="noopener noreferrer">Wikipedia ↗</a>
+            }
+            </div>
+            </div>
+        }
+    </li>;
+
+    // Last filters of the list panels (saved by the engine on every query); new panels add their fields to PanelFilter
+    private async Task RestorePanelFilters()
+    {
+        if (module is null) return;
+        try
+        {
+            var r = JsonSerializer.Deserialize<PanelFilter>(await module.InvokeAsync<string>("getPanelFilter", "radio"), JsonOpts) ?? new();
+            radioText = r.Q; radioCountry = r.Cc; radioGenre = r.Tag; radioInView = r.InView; radioFavOnly = r.Fav;
+            var m = JsonSerializer.Deserialize<PanelFilter>(await module.InvokeAsync<string>("getPanelFilter", "museums"), JsonOpts) ?? new();
+            museumText = m.Q; museumCountry = m.Cc; museumType = m.Type; museumCity = m.City; museumInView = m.InView; museumWikiOnly = m.Wiki;
+            StateHasChanged();
+        }
+        catch { /* no saved filter: defaults */ }
+    }
+
     // ---------- museum panel ----------
     private static readonly string[] MuseumTypes = ["art", "history", "local", "science", "technology", "natural_history", "military", "transport", "railway", "open_air", "archaeological", "other"];
     private List<MuseumItem> museumList = new();
@@ -1008,6 +1134,8 @@ else if (error is not null)
     private bool museumInView, museumWikiOnly, museumCollapsed = true; // starts collapsed
     private CancellationTokenSource? museumTextCts;
 
+    // A museum/radio list is open: on phones the info box gives way (details fold open in the row)
+    private bool DockOpen => (layers.GetValueOrDefault("museums") && !museumCollapsed) || (layers.GetValueOrDefault("radio") && !radioCollapsed);
     private bool DockBoth => layers.GetValueOrDefault("radio") && layers.GetValueOrDefault("museums") && !radioCollapsed && !museumCollapsed;
     private bool MuseumFiltered => museumText != "" || museumCountry != "" || museumType != "" || museumCity != "" || museumInView || museumWikiOnly;
     private string MuseumSummary
@@ -1224,6 +1352,27 @@ else if (error is not null)
         public bool Geo { get; set; }
         public bool Fav { get; set; }
         public bool Playing { get; set; }
+    }
+
+    // Saved filter of a list panel; each panel uses the fields it has
+    private sealed class PanelFilter
+    {
+        public string Q { get; set; } = "";
+        public string Cc { get; set; } = "";
+        public string Tag { get; set; } = "";
+        public string Type { get; set; } = "";
+        public string City { get; set; } = "";
+        public bool InView { get; set; }
+        public bool Fav { get; set; }
+        public bool Wiki { get; set; }
+    }
+
+    private sealed class RowDetails
+    {
+        public List<string[]> Fields { get; set; } = new();
+        public string? Summary { get; set; }
+        public string? Link { get; set; }
+        public string? Image { get; set; }
     }
 
     private sealed class MuseumItem
