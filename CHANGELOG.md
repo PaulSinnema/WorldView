@@ -2,6 +2,10 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.166] - 2026-11-03
+### Removed
+- Museum panel: the "clear filters" ✕ in the head bar (easy to hit by accident on the folded bar); each filter field has its own ✕. The radio head bar had none.
+
 ## [1.0.165] - 2026-11-03
 ### Changed
 - New users: all data layers start off (flights and satellites were on). Saved choices of existing users stay as they are.

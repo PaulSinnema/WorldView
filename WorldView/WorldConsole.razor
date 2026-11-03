@@ -372,10 +372,6 @@ else if (error is not null)
                 <b>@T("layer.museums")</b>
                 <span>@MuseumSummary</span>
             </span>
-            @if (MuseumFiltered)
-            {
-                <button title="@T("mus.reset")" @onclick="ResetMuseumFilters" @onclick:stopPropagation="true">✕</button>
-            }
         </div>
         @if (!museumCollapsed)
         {
@@ -1153,12 +1149,7 @@ else if (error is not null)
     private Task ToggleMuseumInView() { museumInView = !museumInView; return SendMuseumQuery(); }
     private Task ToggleMuseumWiki() { museumWikiOnly = !museumWikiOnly; return SendMuseumQuery(); }
 
-    private Task ResetMuseumFilters()
-    {
-        museumText = museumCountry = museumType = museumCity = "";
-        museumInView = museumWikiOnly = false;
-        return SendMuseumQuery();
-    }
+
 
     [JSInvokable]
     public void OnMuseumList(string json)
