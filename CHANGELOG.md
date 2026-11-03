@@ -2,6 +2,18 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.139] - 2026-11-03
+### Changed
+- Energy per year and power plants now come from the fetcher. Fetcher 1.18.0: `energy.js` (OWID/Ember, `energy-year.json`) and `plants.js` (WRI GPPD, `plants.json`) replace `tools/build-energy.mjs` and `tools/build-plants.mjs`; fetched when missing or older than a year (checked daily). The app loads both from `FEED_URL`; both builds removed from `.github/workflows/update-geo.yml`.
+- Heavy datasets (borders, coast, geo/cities, sea, time zones, nature) stay in `wwwroot/data`, built on the PC; the app reads them via `STATIC_URL` (`data`).
+
+## [1.0.138] - 2026-11-03
+### Changed
+- Fetcher 1.17.0: museums are fetched and saved per 30° box instead of all at once. Boxes go nearest to UTC+1 (Central Europe) first; each finished box writes its 5° tiles and rebuilds `museums-index.json` from all tiles on disk, so museums appear after the first box. A failed box keeps its old tiles and is retried on the hourly check; after 3 failed boxes in a row the run stops until the next hour. `museums-state.json` holds the last success per box (refresh every 30 days). A box that returns less than half its previous count (over 100) keeps its old tiles. Rows get a 9th element (1 = has a Wikipedia article) for the overview.
+
+### Fixed
+- Museums never loaded: overpass-api.de answered every run with HTTP 502, which aborted the whole fetch. Fetcher 1.16.1 (`museums.js`): rotates between Overpass mirrors (overpass-api.de, private.coffee, kumi.systems) on 429/502/503/504, network errors and HTML error pages; a box that gets a gateway error twice is split instead of failing; gives up after 60 such failures per run; 3-minute request timeout; query timeout 120 s without `maxsize`; logs the element count.
+
 ## [1.0.137] - 2026-11-02
 ### Changed
 - Search: addresses now fly to 300 m height (was 3 km); other places still at least 3 km.

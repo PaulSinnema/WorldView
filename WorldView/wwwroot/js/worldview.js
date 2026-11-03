@@ -21,6 +21,7 @@ const TRAIN_COLOR = '#9dff3a', OV_COLOR = '#ffd23f';
 const OV_ICONS = { bus: ['bus', OV_COLOR], tram: ['tram', '#ff6b5a'], metro: ['metro', '#4da6ff'], ferry: ['ferry', '#5af0ff'] };
 const FT = 0.3048, R_EARTH = 6371000;
 const FEED_URL = 'https://flights.sinnema.ch'; // netcup VPS, see fetcher/README.md
+const STATIC_URL = 'data'; // heavy datasets built on the PC (tools/build-*.mjs), shipped with the app
 const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_COLOR, ov: OV_COLOR, air: '#50f0e6', satellites: '#ffffff', quakes: '#ff5050', fires: '#ff7a1a', launches: '#c080ff', radio: '#ff4fd8', cameras: '#ff3b3b', telescopes: '#00e5ff', plants: '#ffd23f', museums: '#ff8fa3' };
 // Translations (same cache-busting version as this module)
 const { LANGS, LOCALES, pickLang, t, strings } = await import(`./i18n.js${new URL(import.meta.url).search}`);
@@ -533,7 +534,7 @@ const EUROPE_BOX = [-25, 34, 45, 72];
 // Electricity per year (whole world, data/energy-year.json from Our World in Data / Ember: ISO3 → [year, g/kWh, renewable %])
 let energyYear = null;
 async function addPowerYearLayer(gen) {
-    const d = await (energyYear ??= tryJson('data/energy-year.json', 20000));
+    const d = await (energyYear ??= tryJson(`${FEED_URL}/energy-year.json`, 20000));
     if (!d) { energyYear = null; if (gen === envGen) toast(tr('err.noData')); return; }
     const iso3 = p => p.ISO_A3 && p.ISO_A3 !== '-99' ? p.ISO_A3 : p.ADM0_A3; // France, Norway: ISO_A3 is -99 in Natural Earth
     const val = p => { const r = d[iso3(p)]; return r && { ci: r[1], ren: r[2] }; };
@@ -1304,7 +1305,7 @@ function refreshBorders(rect, h) {
     for (const k of visible) {
         if (!borderTileKeys.has(k) || borderTiles.has(k)) continue;
         borderTiles.set(k, 'loading');
-        tryJson(`data/borders/${k}.json`, 20000).then(d => {
+        tryJson(`${STATIC_URL}/borders/${k}.json`, 20000).then(d => {
             if (!d) { borderTiles.delete(k); return; }
             borderTiles.set(k, viewer.scene.primitives.add(linePrimitive(d, Cz.Color.WHITE.withAlpha(0.8), 1.5)));
             refreshOverlayLabels();
@@ -1316,9 +1317,9 @@ function loadBorders() {
     bordersLoading ??= (async () => {
         // 10m borders (built by tools/build-geo.mjs) for accurate positions near border towns
         const [lines, countries, index] = await Promise.all([
-            tryJson('data/admin0-lines.json', 30000),
+            tryJson(`${STATIC_URL}/admin0-lines.json`, 30000),
             tryJson(NE_BASE + 'ne_110m_admin_0_countries.geojson', 30000),
-            tryJson('data/borders-index.json', 15000)]);
+            tryJson(`${STATIC_URL}/borders-index.json`, 15000)]);
         if (!lines || !countries) { bordersLoading = null; toast(tr('toast.bordersFail')); return; }
         if (index?.tiles) { borderTileSize = index.tile; borderTileKeys = new Set(index.tiles); }
         const pl = linePrimitive(lines, Cz.Color.WHITE.withAlpha(0.75), 1.5);
@@ -1387,7 +1388,7 @@ export async function setTimezones(on, fromEngine = false) {
     if (fromEngine) notify('OnToggle', 'timezones', S.timezones);
     if (S.timezones && !tzLines) {
         tzLoading ??= (async () => {
-            const d = await tryJson('data/timezones.json', 20000);
+            const d = await tryJson(`${STATIC_URL}/timezones.json`, 20000);
             if (!d) { tzLoading = null; return; }
             tzZones = d.z;
             tzFill = viewer.scene.primitives.add(tzFillPrimitive(d));
@@ -1472,18 +1473,18 @@ export async function setEez(on) { S.eez = !!on; saveSettings(); await applySea(
 async function applySea() {
     const showCoast = S.borders && S.coast, showEez = S.borders && S.eez;
     if (showCoast && !coastLines) await (seaLoading.coast ??= (async () => {
-        const d = await tryJson('data/coastline.json', 30000);
+        const d = await tryJson(`${STATIC_URL}/coastline.json`, 30000);
         if (d) coastLines = viewer.scene.primitives.add(linePrimitive(d, Cz.Color.fromCssColorString('#bfe8ff').withAlpha(0.55), 1.0));
         else seaLoading.coast = null;
     })());
     if (showEez && !eezLines) await (seaLoading.eez ??= (async () => {
-        const d = await tryJson('data/eez.json', 30000);
+        const d = await tryJson(`${STATIC_URL}/eez.json`, 30000);
         if (!d) { seaLoading.eez = null; return; }
         eezLines = Object.entries(EEZ_STYLE).map(([k, [c, a, w]]) =>
             viewer.scene.primitives.add(linePrimitive({ s: d.s, l: d[k] || [] }, Cz.Color.fromCssColorString(c).withAlpha(a), w)));
     })());
     if (showCoast && !coastTileKeys) {
-        const idx = await tryJson('data/coast-index.json', 15000);
+        const idx = await tryJson(`${STATIC_URL}/coast-index.json`, 15000);
         coastTileKeys = new Set(idx?.tiles || []); coastTileSize = idx?.tile || 5;
     }
     if (eezLines) for (const p of eezLines) p.show = showEez;
@@ -1505,7 +1506,7 @@ function refreshCoast() {
     for (const k of visible) {
         if (!coastTileKeys.has(k) || coastTiles.has(k)) continue;
         coastTiles.set(k, 'loading');
-        tryJson(`data/coast/${k}.json`, 20000).then(d => {
+        tryJson(`${STATIC_URL}/coast/${k}.json`, 20000).then(d => {
             if (!d) { coastTiles.delete(k); return; }
             coastTiles.set(k, viewer.scene.primitives.add(linePrimitive(d, Cz.Color.fromCssColorString('#bfe8ff').withAlpha(0.6), 1.0)));
             refreshCoast();
@@ -1523,7 +1524,7 @@ const zoomOf = h => Math.log2(3e7 / Math.max(h, 1));
 export async function setNature(on) { S.nature = !!on; saveSettings(); await applyNature(); }
 async function applyNature() {
     if (S.nature && !natureData) await (natureLoading ??= (async () => {
-        const d = await tryJson('data/nature.json', 30000);
+        const d = await tryJson(`${STATIC_URL}/nature.json`, 30000);
         if (!d) { natureLoading = null; toast(tr('toast.natureFail')); return; }
         natureData = d.map(([k, lon, lat, z, name, n, ele]) => ({ k, lon, lat, z, name, n: n || null, ele, carto: Cz.Cartographic.fromDegrees(lon, lat) }));
         natureLabels = new Cz.LabelCollection(); // drawn by drawLabels()
@@ -1831,7 +1832,7 @@ async function applyOverlays() {
 }
 function loadRegions() {
     regionsLoading ??= (async () => {
-        const [lines, labels] = await Promise.all([tryJson('data/admin1-lines.json', 30000), tryJson('data/admin1-labels.json', 30000)]);
+        const [lines, labels] = await Promise.all([tryJson(`${STATIC_URL}/admin1-lines.json`, 30000), tryJson(`${STATIC_URL}/admin1-labels.json`, 30000)]);
         if (!lines || !labels) { regionsLoading = null; toast(tr('toast.regionsFail')); return; }
         regionLines = viewer.scene.primitives.add(linePrimitive(lines, Cz.Color.fromCssColorString('#ffd23f').withAlpha(0.6), 1.0));
         // One label per province name (data has extra points for islands)
@@ -2050,7 +2051,7 @@ async function cityWiki(gid) {
 }
 function loadCities() {
     citiesLoading ??= (async () => {
-        const j = await tryJson('data/cities-top.json', 30000);
+        const j = await tryJson(`${STATIC_URL}/cities-top.json`, 30000);
         if (!j?.top) { citiesLoading = null; toast(tr('toast.citiesFail')); return; }
         cityTileSize = j.tile; cityTileKeys = new Set(j.tiles);
         cityAdmins = j.admins || []; cityTzs = j.tzs || [];
@@ -2080,7 +2081,7 @@ function citiesFromTiles(rect) {
         if (Array.isArray(t)) { out.push(...t); continue; }
         if (t) continue;
         cityTiles.set(k, 'loading');
-        tryJson(`data/cities/${k}.json`, 20000).then(rows => {
+        tryJson(`${STATIC_URL}/cities/${k}.json`, 20000).then(rows => {
             if (rows) { cityTiles.set(k, rows.map(toCity)); refreshOverlayLabels(); } else cityTiles.delete(k);
         });
     }
@@ -2256,7 +2257,7 @@ const FUEL_COLORS = { Solar: '#ffd23f', Wind: '#7fd8ff', Hydro: '#2f7bff', Nucle
 const fuelKey = f => 'fuel.' + f.toLowerCase().replace(/ /g, '');
 async function loadPlants() {
     if (store.plants.size) { report('plants', 'st.plants'); return 0; }
-    const d = await tryJson('data/plants.json', 30000);
+    const d = await tryJson(`${FEED_URL}/plants.json`, 30000);
     if (!d?.p) { report('plants', 'st.sourceDown'); return 120000; }
     d.p.forEach(([lon, lat, mw, fi, name, owner, year, country], i) => {
         const fuel = d.fuels[fi];

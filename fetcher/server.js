@@ -1,5 +1,5 @@
 ﻿// WorldView fetcher for a VPS (netcup): writes snapshots + 10° tiles to /data, served by Caddy
-import { mkdir, writeFile, rename, readdir, unlink, stat } from 'node:fs/promises';
+import { mkdir, writeFile, rename, readdir, unlink, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openskyToken, fetchOpensky, fetchMilitary } from './core.js';
 import { loadAircraftDb, loadTypes, lookup } from './aircraftdb.js';
@@ -14,10 +14,12 @@ import { fetchPower } from './power.js';
 import { fetchTempAnomaly } from './gistemp.js';
 import { fetchCoral } from './coral.js';
 import { makeHistory, trackHistory } from './history.js';
-import { fetchMuseums } from './museums.js';
+import { BOXES, fetchBox, tileInBox, buildIndex } from './museums.js';
+import { fetchEnergyYear } from './energy.js';
+import { fetchPlants } from './plants.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.16.0';
+const VERSION = '1.18.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -123,27 +125,55 @@ function refreshNh3() {
         .finally(() => { nh3Busy = false; });
 }
 
-// Museums (OSM via Overpass) every 30 days, in the background (≈ 10–30 min); skipped at start while the files are fresh
+// Museums (OSM via Overpass): each 30° box every 30 days, nearest to UTC+1 first; failed boxes retried hourly
+// museums-state.json = { "s_w": last success (ms) }; every finished box updates its tiles and the index at once
 const MUSEUMS_EVERY = 30 * 86400000;
-let museumsBusy = false, museumsChecked = false;
-async function refreshMuseums() {
-    if (museumsBusy) return;
-    if (!museumsChecked) {
-        museumsChecked = true;
-        const s = await stat(join(DATA, 'museums-index.json')).catch(() => null);
-        if (s && Date.now() - s.mtimeMs < MUSEUMS_EVERY) { due.museums = s.mtimeMs + MUSEUMS_EVERY; return; }
+async function readJson(rel) {
+    try { return JSON.parse(await readFile(join(DATA, rel), 'utf8')); } catch { return null; }
+}
+async function writeMuseumIndex() {
+    const tiles = new Map();
+    for (const f of await readdir(join(DATA, 'museums'))) {
+        if (f.endsWith('.json')) tiles.set(f.slice(0, -5), await readJson(`museums/${f}`) || []);
     }
-    museumsBusy = true;
-    try {
-        const m = await fetchMuseums();
-        await mkdir(join(DATA, 'museums'), { recursive: true });
-        for (const [k, rows] of m.tiles) await put(`museums/${k}.json`, rows);
-        for (const f of await readdir(join(DATA, 'museums'))) {
-            if (f.endsWith('.json') && !m.tiles.has(f.slice(0, -5))) await unlink(join(DATA, 'museums', f)).catch(() => { });
+    const idx = buildIndex(tiles);
+    await put('museums-index.json', idx);
+    return idx;
+}
+async function refreshMuseums() {
+    const dir = join(DATA, 'museums');
+    await mkdir(dir, { recursive: true });
+    const state = await readJson('museums-state.json') || {};
+    let fails = 0;
+    for (const [s, w] of BOXES) {
+        const key = `${s}_${w}`;
+        if (Date.now() - (state[key] || 0) < MUSEUMS_EVERY) continue;
+        try {
+            const box = await fetchBox(s, w);
+            const old = (await readdir(dir)).filter(f => f.endsWith('.json') && tileInBox(f.slice(0, -5), s, w));
+            let oldCount = 0;
+            for (const f of old) oldCount += (await readJson(`museums/${f}`) || []).length;
+            if (oldCount > 100 && box.count < oldCount / 2) throw new Error(`only ${box.count} (was ${oldCount}), old tiles kept`);
+            for (const [k, rows] of box.tiles) await put(`museums/${k}.json`, rows);
+            for (const f of old) if (!box.tiles.has(f.slice(0, -5))) await unlink(join(dir, f)).catch(() => { });
+            state[key] = Date.now();
+            await put('museums-state.json', state);
+            const idx = await writeMuseumIndex();
+            log(`museums: box ${key} ${box.count} in ${box.tiles.size} tiles; total ${idx.tiles.length} tiles, overview ${idx.top.length}`);
+            fails = 0;
+        } catch (e) {
+            log(`museums: box ${key} failed: ${e.message}${e.cause ? ` (${e.cause.code || e.cause.message})` : ''}`);
+            if (++fails >= 3) { log('museums: 3 boxes failed in a row, retry in an hour'); break; }
         }
-        await put('museums-index.json', m.index); // last: the app only sees complete sets
-        log(`museums: ${m.count} in ${m.tiles.size} tiles, overview ${m.index.top.length}`);
-    } finally { museumsBusy = false; }
+    }
+}
+
+// Rare datasets: fetched only when missing or older than maxAge (checked daily)
+async function refreshRare(rel, maxAge, fn) {
+    const s = await stat(join(DATA, rel)).catch(() => null);
+    if (s && Date.now() - s.mtimeMs < maxAge) return;
+    await put(rel, await fn());
+    log(`${rel}: updated`);
 }
 
 // Each feed on its own schedule; a slow one never delays the others
@@ -222,7 +252,9 @@ function tick() {
     // Total ozone (NOAA GFS) every 6 hours, temperature anomaly (NASA GISTEMP, monthly) checked daily
     every('ozone', 6 * 3600000, async () => { const d = await fetchOzone(); await put('ozone.json', d); log(`ozone: ${d.valid}`); });
     every('tempanom', 24 * 3600000, async () => { const d = await fetchTempAnomaly(); await put('tempanom.json', d); log(`tempanom: ${d.month}`); });
-    every('museums', MUSEUMS_EVERY, refreshMuseums);
+    every('museums', 3600000, refreshMuseums); // hourly check; only due boxes are fetched
+    every('energy', 86400000, () => refreshRare('energy-year.json', 365 * 86400000, fetchEnergyYear));
+    every('plants', 86400000, () => refreshRare('plants.json', 365 * 86400000, fetchPlants));
     every('power', 30 * 60000, async () => { const d = await fetchPower(); await put('power.json', d); log(`power: ${Object.keys(d.c).length} countries`); });
 }
 
