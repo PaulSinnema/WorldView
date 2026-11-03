@@ -2708,7 +2708,7 @@ function pushInfo() {
     } else {
         infoRows(r.info, f);
     }
-    let img = r.image ? `${r.image}${r.image.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 30000)}` : null;
+    let img = r.image ? `${r.image}${r.image.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 30000)}` : r.logo || null; // logo: radio station
     let summary = null, link = null, photo = null;
     // Wikipedia: own article (telescopes) or the aircraft model article
     const ws = r.wikiTitle ? r : PLANES.includes(L) ? aircraftWiki(r) : null;
@@ -2800,7 +2800,7 @@ function addRadioStation(s) {
     // Stations with coordinates also go on the globe
     if (m.lat != null && m.lon != null && !store.radio.has(m.key)) {
         addPoint('radio', {
-            key: m.key, lat: m.lat, lon: m.lon, label: m.name, stream: m.stream,
+            key: m.key, lat: m.lat, lon: m.lon, label: m.name, stream: m.stream, logo: m.favicon || null,
             info: [['station', m.name], ['country', () => (m.cc && regionName(m.cc)) || m.country || '—'], ['genre', m.tags || '—'], ['codec', `${m.codec || '?'} ${m.bitrate ? m.bitrate + ' kbps' : ''}`.trim()]]
         }, 5, '#ff4fd8');
     }
@@ -2877,8 +2877,9 @@ export function radioPlay(key, doSelect = true) {
 function radioInfoOnly(m) {
     clearSelection(false);
     const fields = [[tr('f.station'), m.name], [tr('f.country'), (m.cc && regionName(m.cc)) || m.country || '—'], [tr('f.genre'), m.tags || '—'],
-        [tr('f.codec'), `${m.codec || '?'} ${m.bitrate ? m.bitrate + ' kbps' : ''}`.trim()], [tr('f.position'), tr('radio.noGeo')]];
-    notify('OnSelect', JSON.stringify({ layer: 'radio', key: m.key, title: m.name, fields, image: null, video: null, canCockpit: false, isRadio: true,
+        [tr('f.codec'), `${m.codec || '?'} ${m.bitrate ? m.bitrate + ' kbps' : ''}`.trim()],
+        [tr('f.position'), S.zoom.radio === true && m.cc ? tr('radio.countryPos', { c: regionName(m.cc) || m.cc }) : tr('radio.noGeo')]]; // flown to the country centre
+    notify('OnSelect', JSON.stringify({ layer: 'radio', key: m.key, title: m.name, fields, image: m.favicon || null, video: null, canCockpit: false, isRadio: true,
         summary: null, link: null, photo: null, photoLink: null, photoBy: null }));
 }
 // Country centre via Nominatim (cached)

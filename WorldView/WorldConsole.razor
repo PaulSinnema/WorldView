@@ -230,6 +230,11 @@ else if (error is not null)
             <a href="@selection.PhotoLink" target="_blank"><img src="@selection.Photo" alt="@selection.Title" /></a>
             <a class="credit" href="@selection.PhotoLink" target="_blank">© @selection.PhotoBy · Planespotters.net</a>
         }
+        else if (!string.IsNullOrEmpty(selection.Image) && selection.IsRadio)
+        {
+            @* Station logo: small, not enlargeable; hidden when it fails to load *@
+            <img class="logo" src="@selection.Image" alt="@selection.Title" referrerpolicy="no-referrer" onerror="this.style.display='none'" />
+        }
         else if (!string.IsNullOrEmpty(selection.Image))
         {
             <img class="media" src="@selection.Image" alt="@selection.Title" title="@T("info.enlarge")" @onclick="ToggleEnlarge" />

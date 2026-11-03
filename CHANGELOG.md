@@ -2,6 +2,14 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.145] - 2026-11-03
+### Changed
+- Radio: for a station without coordinates the info box now says "no own location – centre of {country} shown" when the camera flew to the country (zoom on); otherwise "no location" as before.
+
+## [1.0.144] - 2026-11-03
+### Added
+- Radio: the station logo (Radio Browser favicon) shows in the info box, small (max 96 px) and centred, not enlargeable; hidden when it fails to load.
+
 ## [1.0.143] - 2026-11-03
 ### Fixed
 - Radio: choosing a station without coordinates showed no info box (only stations on the globe could be selected). It now opens an info box with station, country, genre, codec and "no location"; with zoom on it still flies to the country.

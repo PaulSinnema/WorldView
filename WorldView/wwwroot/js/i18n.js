@@ -151,6 +151,7 @@ const S = {
     'radio.fav': ['Add/remove favourite', 'Favoriet aan/uit', 'Favorit an/aus', 'Ajouter/retirer des favoris', '添加/移除收藏'],
     'radio.collapse': ['Collapse/expand', 'In-/uitklappen', 'Ein-/ausklappen', 'Réduire/développer', '折叠/展开'],
     'radio.noGeo': ['no location', 'geen locatie', 'kein Standort', 'sans position', '无位置'],
+    'radio.countryPos': ['no own location – centre of {c} shown', 'geen eigen locatie – midden van {c} getoond', 'kein eigener Standort – Mitte von {c} angezeigt', 'pas de position propre – centre de {c} affiché', '无具体位置 – 显示{c}中心'],
     'genre.news': ['News', 'Nieuws', 'Nachrichten', 'Infos', '新闻'],
     'genre.talk': ['Talk', 'Praat', 'Talk', 'Débat', '谈话'],
     'genre.pop': ['Pop', 'Pop', 'Pop', 'Pop', '流行'],
