@@ -2,6 +2,15 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.148] - 2026-11-03
+### Added
+- Museums: place per museum in the list ("kind · place · country") and the info box; new "Place…" filter (contains, case-insensitive) with suggestions from the current result (most museums first, max 500); also filters the dots on the globe.
+- Fetcher 1.20.0: place as 11th row element: OSM `addr:city`, else the nearest town (≥ 5,000 inhabitants) within 15 km from GeoNames cities5000 (`places.js`; city districts and arrondissements skipped). Index gets `fields: 11`; an older index triggers a rebuild that fills in country and place for existing tiles.
+
+## [1.0.147] - 2026-11-03
+### Changed
+- Museum and radio lists are paged: 200 per page with ◀ 1–200 ▶ when there are more; a new filter goes back to page 1, the list scrolls to the top on each page. Radio server search now returns up to 1,000 stations (was 300); prev/next steps through the whole result.
+
 ## [1.0.146] - 2026-11-03
 ### Changed
 - Info box: field values that are web addresses (http/https) are links that open in a new tab. Museum websites without a scheme get `https://`; of several (`;`-separated) only the first is used.

@@ -1,7 +1,8 @@
 ﻿// Museums: OpenStreetMap tourism=museum via Overpass (ODbL), worldwide in 30° boxes (dense boxes split automatically)
-// row: [id, lon, lat, name, typeIndex, wikidata, website, openingHours, wiki(0/1), country ISO2]
+// row: [id, lon, lat, name, typeIndex, wikidata, website, openingHours, wiki(0/1), country ISO2, place]
 // Boxes are fetched one at a time (nearest to UTC+1 first); server.js writes each box's 5° tiles right away
 import { loadCountries, countryOf } from './countries.js';
+import { loadPlaces, placeOf } from './places.js';
 
 const MIRRORS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 const UA = 'WorldView-fetcher/1.0 (+https://flights.sinnema.ch)';
@@ -65,7 +66,8 @@ async function collect(s, w, n, e, depth = 0) {
 // One 30° box → { tiles: Map key -> rows, count }; throws when Overpass fails
 export async function fetchBox(s, w) {
     failures = 0;
-    await loadCountries().catch(e => log(`museums: countries ${e.message}`)); // without: country filled in later
+    await loadCountries().catch(e => log(`museums: countries ${e.message}`)); // without: filled in later
+    await loadPlaces().catch(e => log(`museums: places ${e.message}`));
     const els = await collect(s, w, s + BOX, w + BOX);
     const seen = new Set(), tiles = new Map();
     let count = 0;
@@ -85,19 +87,24 @@ export async function fetchBox(s, w) {
         const k = tileKey(lo, la);
         if (!tiles.has(k)) tiles.set(k, []);
         const cc = countryOf(lo, la, (t['addr:country'] || '').toUpperCase());
+        const city = (t['addr:city'] || '').trim() || placeOf(lo, la);
         const row = [id, lo, la, name, ti, qid, t.website || t['contact:website'] || '', t.opening_hours || '', qid && t.wikipedia ? 1 : 0];
-        if (cc !== null) row.push(cc); // no country map: fillCountries adds it later
+        if (cc !== null && city !== null) row.push(cc, city); // maps not loaded: fillPlaces adds them later
         tiles.get(k).push(row);
         count++;
     }
     return { tiles, count };
 }
 
-// Missing country fields (tiles from before 1.19.0) → filled in; returns true when rows changed
-export async function fillCountries(rows) {
-    if (rows.every(r => r.length >= 10)) return false;
+// Missing country/place fields (tiles from before 1.20.0) → filled in; returns true when rows changed
+export async function fillPlaces(rows) {
+    if (rows.every(r => r.length >= 11)) return false;
     await loadCountries();
-    for (const r of rows) if (r.length < 10) { r[8] ??= 0; r[9] = countryOf(r[1], r[2]) ?? ''; }
+    await loadPlaces();
+    for (const r of rows) {
+        if (r.length < 10) { r[8] ??= 0; r[9] = countryOf(r[1], r[2]) ?? ''; }
+        if (r.length < 11) r[10] = placeOf(r[1], r[2]) ?? '';
+    }
     return true;
 }
 
@@ -115,5 +122,5 @@ export function buildIndex(tiles) {
     }
     if (top.length > TOP) { const step = top.length / TOP; top = Array.from({ length: TOP }, (_, i) => top[Math.floor(i * step)]); }
     const countries = Object.fromEntries([...byCountry].map(([cc, rows]) => [cc, rows.length]));
-    return { index: { t: Math.round(Date.now() / 1000), tile: TILE, tiles: [...tiles.keys()], types: TYPES, countries, top }, byCountry };
+    return { index: { t: Math.round(Date.now() / 1000), fields: 11, tile: TILE, tiles: [...tiles.keys()], types: TYPES, countries, top }, byCountry };
 }

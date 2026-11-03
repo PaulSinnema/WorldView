@@ -2270,26 +2270,29 @@ async function loadPlants() {
     return 0;
 }
 // Museums (OpenStreetMap via the fetcher, refreshed monthly): overview (with Wikipedia article) at once, all museums per 5° tile when zoomed in
-// row: [id, lon, lat, name, typeIndex, wikidata, website, openingHours, wiki(0/1), country ISO2]
+// row: [id, lon, lat, name, typeIndex, wikidata, website, openingHours, wiki(0/1), country ISO2, place]
 const MUSEUM_TILE_H = 2e6; // below this height the tiles in view are loaded and shown
 let museumIdx = null, museumIdxAt = 0, museumIdxP = null;
 const museumTiles = new Map(); // key -> 'loading' | true
 const museumByCc = new Map(); // ISO2 -> Promise of rows (museums/cc/{ISO2}.json)
-let museumQuery = { q: '', cc: '', type: '', inView: false, wiki: false }, museumGen = 0, museumTimer = null;
-// Panel filter; also decides which dots show on the globe
-function museumMatch(r, text = (museumQuery.q || '').trim().toLowerCase()) {
+let museumQuery = { q: '', cc: '', type: '', city: '', inView: false, wiki: false }, museumGen = 0, museumTimer = null;
+const lowTrim = s => (s || '').trim().toLowerCase();
+// Panel filter; also decides which dots show on the globe (noCity: for the place suggestions)
+function museumMatch(r, text = lowTrim(museumQuery.q), city = lowTrim(museumQuery.city), noCity = false) {
     const q = museumQuery;
-    return (!q.cc || r.cc === q.cc) && (!q.type || r.type === q.type) && (!q.wiki || r.wiki) && (!text || r.label.toLowerCase().includes(text));
+    return (!q.cc || r.cc === q.cc) && (!q.type || r.type === q.type) && (!q.wiki || r.wiki) && (!text || r.label.toLowerCase().includes(text))
+        && (noCity || !city || r.city.toLowerCase().includes(city));
 }
-function addMuseum([id, lon, lat, name, ti, qid, web, hours, wiki, cc], top) {
+function addMuseum([id, lon, lat, name, ti, qid, web, hours, wiki, cc, city], top) {
     if (store.museums.has(id)) return;
     const type = museumIdx?.types[ti] || 'other';
     const info = [['museumType', () => tr('mus.' + type)]];
+    if (city) info.push(['place', city]);
     if (cc) info.push(['country', () => regionName(cc) || cc]);
     if (hours) info.push(['openingHours', hours]);
     if (web) { const u = web.split(';')[0].trim(); info.push(['website', /^https?:\/\//i.test(u) ? u.replace(/^https?/i, s => s.toLowerCase()) : 'https://' + u]); } // OSM often omits the scheme
     info.push(['position', fmtPos(lat, lon)]);
-    const r = { key: id, lat, lon, label: name, qid, info, top, type, cc: cc || '', wiki: !!wiki };
+    const r = { key: id, lat, lon, label: name, qid, info, top, type, cc: cc || '', city: city || '', wiki: !!wiki };
     r.pos = Cz.Cartesian3.fromDegrees(lon, lat, 0);
     r.pt = coll.museums.add({ position: r.pos, pixelSize: top ? 6 : 5, color: Cz.Color.fromCssColorString(DETECT_COLORS.museums), outlineColor: Cz.Color.BLACK.withAlpha(0.6), outlineWidth: 1,
         disableDepthTestDistance: 1.5e6, distanceDisplayCondition: top ? undefined : new Cz.DistanceDisplayCondition(0, MUSEUM_TILE_H * 1.2), id: { wv: { layer: 'museums', key: id } } });
@@ -2327,8 +2330,9 @@ export async function museumCountries() {
 }
 export function museumSetQuery(json) {
     try { museumQuery = { ...museumQuery, ...JSON.parse(json) }; } catch { }
-    const text = (museumQuery.q || '').trim().toLowerCase();
-    for (const r of store.museums.values()) r.pt.show = museumMatch(r, text);
+    museumOffset = 0; // new filter: page 1
+    const text = lowTrim(museumQuery.q), city = lowTrim(museumQuery.city);
+    for (const r of store.museums.values()) r.pt.show = museumMatch(r, text, city);
     runMuseumSearch();
 }
 function scheduleMuseumSearch() {
@@ -2346,14 +2350,31 @@ async function runMuseumSearch() {
         if (!rows) museumByCc.delete(q.cc);
         for (const row of rows || []) addMuseum(row, false);
     }
-    const text = (q.q || '').trim().toLowerCase();
+    const text = lowTrim(q.q), city = lowTrim(q.city);
     const rect = q.inView && viewer ? viewer.camera.computeViewRectangle() : null;
-    const list = [...store.museums.values()].filter(r => museumMatch(r, text) && (!rect || inView(rect, Cz.Cartographic.fromDegrees(r.lon, r.lat))));
+    // All filters except place: base for the place suggestions (most museums first)
+    const base = [...store.museums.values()].filter(r => museumMatch(r, text, city, true) && (!rect || inView(rect, Cz.Cartographic.fromDegrees(r.lon, r.lat))));
+    const counts = new Map();
+    for (const r of base) if (r.city) counts.set(r.city, (counts.get(r.city) || 0) + 1);
+    museumPlaces = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 500).map(([c]) => c);
+    const list = city ? base.filter(r => r.city.toLowerCase().includes(city)) : base;
     list.sort((a, b) => (b.wiki - a.wiki) || a.label.localeCompare(b.label, loc()));
+    museumAll = list;
+    museumOffset = Math.min(museumOffset, Math.max(0, Math.floor((list.length - 1) / LIST_PAGE) * LIST_PAGE)); // list may have shrunk
+    emitMuseumPage();
+}
+// Paged list for the panel (LIST_PAGE per page)
+const LIST_PAGE = 200;
+let museumAll = [], museumOffset = 0, museumPlaces = [];
+function emitMuseumPage() {
     notify('OnMuseumList', JSON.stringify({
-        total: list.length,
-        items: list.slice(0, 300).map(r => ({ key: r.key, name: r.label, type: tr('mus.' + r.type), country: (r.cc && regionName(r.cc)) || '', wiki: r.wiki }))
+        total: museumAll.length, offset: museumOffset, places: museumPlaces,
+        items: museumAll.slice(museumOffset, museumOffset + LIST_PAGE).map(r => ({ key: r.key, name: r.label, type: tr('mus.' + r.type), city: r.city, country: (r.cc && regionName(r.cc)) || '', wiki: r.wiki }))
     }));
+}
+export function museumPage(dir) {
+    museumOffset = Math.max(0, Math.min(museumOffset + dir * LIST_PAGE, Math.floor((museumAll.length - 1) / LIST_PAGE) * LIST_PAGE));
+    emitMuseumPage();
 }
 // List click: fly there and open the info box
 export function museumGo(key) {
@@ -2821,6 +2842,7 @@ export async function radioCountries() {
 }
 export function radioSetQuery(json) {
     try { radioQuery = { ...radioQuery, ...JSON.parse(json) }; } catch { }
+    radioOffset = 0; // new filter: page 1
     runRadioSearch();
 }
 async function runRadioSearch() {
@@ -2831,7 +2853,7 @@ async function runRadioSearch() {
         list = (S.radioFav || []).map(f => radioMeta.get(f.key));
     } else if (!q.inView && (text || q.cc || q.tag)) {
         // Targeted server search: all matching stations, not just the preloaded top 750
-        const p = new URLSearchParams({ hidebroken: 'true', is_https: 'true', order: 'clickcount', reverse: 'true', limit: '300' });
+        const p = new URLSearchParams({ hidebroken: 'true', is_https: 'true', order: 'clickcount', reverse: 'true', limit: '1000' });
         if (text) p.set('name', text);
         if (q.cc) p.set('countrycode', q.cc);
         if (q.tag) p.set('tag', q.tag);
@@ -2849,9 +2871,18 @@ async function runRadioSearch() {
         && (!q.cc || m.cc === q.cc)
         && (!q.tag || m.tags.toLowerCase().includes(q.tag)));
     if (!q.fav) list.sort((a, b) => b.votes - a.votes);
-    radioList = list.slice(0, 300);
     if (my !== radioGen) return;
-    notify('OnRadioList', JSON.stringify(radioList.map(radioPublic)));
+    radioList = list; // whole result: prev/next step through all of it
+    radioOffset = Math.min(radioOffset, Math.max(0, Math.floor((list.length - 1) / LIST_PAGE) * LIST_PAGE));
+    emitRadioPage();
+}
+let radioOffset = 0;
+function emitRadioPage() {
+    notify('OnRadioList', JSON.stringify({ total: radioList.length, offset: radioOffset, items: radioList.slice(radioOffset, radioOffset + LIST_PAGE).map(radioPublic) }));
+}
+export function radioPage(dir) {
+    radioOffset = Math.max(0, Math.min(radioOffset + dir * LIST_PAGE, Math.floor((radioList.length - 1) / LIST_PAGE) * LIST_PAGE));
+    emitRadioPage();
 }
 function radioNow() {
     const m = radioMeta.get(radioCurrent);

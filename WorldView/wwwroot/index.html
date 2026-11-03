@@ -166,8 +166,13 @@
         .radio-filters { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 8px 6px; }
         .radio-filters input, .radio-filters select { padding: 5px; background: #061218; border: 1px solid var(--line); min-width: 0; }
         .radio-filters input { flex: 2 1 140px; }
+        .radio-filters input.place { flex: 1 1 110px; }
         .radio-filters select { flex: 1 1 110px; max-width: 180px; }
-        .radio-count { padding: 0 8px 4px; font-size: 11px; opacity: .6; }
+        .radio-count { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 0 8px 4px; font-size: 11px; }
+        .radio-count > span:first-child { opacity: .6; }
+        .pager { display: flex; align-items: center; gap: 6px; }
+        .radio .pager button { padding: 1px 8px; }
+        .radio .pager button:disabled { opacity: .3; cursor: default; }
         .radio-list { list-style: none; margin: 0; padding: 0 4px 6px; max-height: 32vh; overflow-y: auto; }
         .radio-list li { display: flex; align-items: center; gap: 8px; padding: 4px; border-top: 1px solid var(--line); cursor: pointer; }
         .radio-list li:hover { background: rgba(255,255,255,.05); }

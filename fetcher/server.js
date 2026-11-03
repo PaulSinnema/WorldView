@@ -14,12 +14,12 @@ import { fetchPower } from './power.js';
 import { fetchTempAnomaly } from './gistemp.js';
 import { fetchCoral } from './coral.js';
 import { makeHistory, trackHistory } from './history.js';
-import { BOXES, fetchBox, tileInBox, buildIndex, fillCountries } from './museums.js';
+import { BOXES, fetchBox, tileInBox, buildIndex, fillPlaces } from './museums.js';
 import { fetchEnergyYear } from './energy.js';
 import { fetchPlants } from './plants.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.19.0';
+const VERSION = '1.20.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -138,7 +138,7 @@ async function writeMuseumIndex() {
     for (const f of await readdir(join(DATA, 'museums'))) {
         if (!f.endsWith('.json')) continue;
         const k = f.slice(0, -5), rows = await readJson(`museums/${f}`) || [];
-        try { if (await fillCountries(rows)) { await put(`museums/${f}`, rows); filled++; } } catch (e) { log(`museums: countries ${e.message}`); }
+        try { if (await fillPlaces(rows)) { await put(`museums/${f}`, rows); filled++; } } catch (e) { log(`museums: places ${e.message}`); }
         tiles.set(k, rows);
     }
     const { index, byCountry } = buildIndex(tiles);
@@ -149,15 +149,15 @@ async function writeMuseumIndex() {
         if (f.endsWith('.json') && !byCountry.has(f.slice(0, -5))) await unlink(join(ccDir, f)).catch(() => { });
     }
     await put('museums-index.json', index); // last: the app only sees complete sets
-    if (filled) log(`museums: country added to ${filled} tiles`);
+    if (filled) log(`museums: country/place added to ${filled} tiles`);
     return index;
 }
 async function refreshMuseums() {
     const dir = join(DATA, 'museums');
     await mkdir(dir, { recursive: true });
-    // Index from before 1.19.0 (no countries): rebuild once from the tiles on disk
+    // Index from before 1.20.0 (no country/place): rebuild once from the tiles on disk
     const oldIdx = await readJson('museums-index.json');
-    if (oldIdx && !oldIdx.countries) await writeMuseumIndex();
+    if (oldIdx && (oldIdx.fields || 0) < 11) await writeMuseumIndex();
     const state = await readJson('museums-state.json') || {};
     let fails = 0;
     for (const [s, w] of BOXES) {

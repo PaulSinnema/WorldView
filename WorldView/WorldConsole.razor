@@ -372,6 +372,13 @@ else if (error is not null)
                         <option value="@c.Cc">@c.Name (@c.N.ToString("N0"))</option>
                     }
                 </select>
+                <input class="place" type="search" list="museum-places" value="@museumCity" @oninput="OnMuseumCity" placeholder="@T("mus.place")" aria-label="@T("mus.place")" />
+                <datalist id="museum-places">
+                    @foreach (var p in museumPlaces)
+                    {
+                        <option value="@p"></option>
+                    }
+                </datalist>
                 <select value="@museumType" @onchange="OnMuseumType" aria-label="@T("mus.allTypes")">
                     <option value="">@T("mus.allTypes")</option>
                     @foreach (var key in MuseumTypes)
@@ -382,14 +389,25 @@ else if (error is not null)
                 <button class="@(museumInView ? "active" : "")" @onclick="ToggleMuseumInView">@T("radio.inView")</button>
                 <button class="@(museumWikiOnly ? "active" : "")" @onclick="ToggleMuseumWiki">@T("mus.wikiOnly")</button>
             </div>
-            <ul class="radio-list">
+            @if (museumTotal > museumList.Count)
+            {
+                <div class="radio-count">
+                    <span></span>
+                    <span class="pager">
+                        <button disabled="@(museumOffset == 0)" @onclick='() => RadioCall("museumPage", -1)'>◀</button>
+                        <span>@((museumOffset + 1).ToString("N0"))–@((museumOffset + museumList.Count).ToString("N0"))</span>
+                        <button disabled="@(museumOffset + museumList.Count >= museumTotal)" @onclick='() => RadioCall("museumPage", 1)'>▶</button>
+                    </span>
+                </div>
+            }
+            <ul class="radio-list" @key="museumOffset">
                 @foreach (var m in museumList)
                 {
                     <li @onclick='() => RadioCall("museumGo", m.Key)'>
                         <span class="noicon">🏛</span>
                         <span class="rs-main">
                             <b>@m.Name</b>
-                            <span>@string.Join(" · ", new[] { m.Type, m.Country, m.Wiki ? "Wikipedia" : "" }.Where(x => !string.IsNullOrEmpty(x)))</span>
+                            <span>@string.Join(" · ", new[] { m.Type, m.City, m.Country, m.Wiki ? "Wikipedia" : "" }.Where(x => !string.IsNullOrEmpty(x)))</span>
                         </span>
                     </li>
                 }
@@ -444,8 +462,18 @@ else if (error is not null)
                 <button class="@(radioInView ? "active" : "")" @onclick="ToggleRadioInView">@T("radio.inView")</button>
                 <button class="@(radioFavOnly ? "active" : "")" @onclick="ToggleRadioFav">★ @T("radio.favorites")</button>
             </div>
-            <div class="radio-count">@(radioList.Count > 0 ? T("radio.count", "n", radioList.Count.ToString("N0")) : T("radio.none"))</div>
-            <ul class="radio-list">
+            <div class="radio-count">
+                <span>@(radioTotal > 0 ? T("radio.count", "n", radioTotal.ToString("N0")) : T("radio.none"))</span>
+                @if (radioTotal > radioList.Count)
+                {
+                    <span class="pager">
+                        <button disabled="@(radioOffset == 0)" @onclick='() => RadioCall("radioPage", -1)'>◀</button>
+                        <span>@((radioOffset + 1).ToString("N0"))–@((radioOffset + radioList.Count).ToString("N0"))</span>
+                        <button disabled="@(radioOffset + radioList.Count >= radioTotal)" @onclick='() => RadioCall("radioPage", 1)'>▶</button>
+                    </span>
+                }
+            </div>
+            <ul class="radio-list" @key="radioOffset">
                 @foreach (var s in radioList)
                 {
                     <li class="@(s.Key == radioNow?.Key ? "current" : "")" @onclick='() => RadioCall("radioPlay", s.Key)'>
@@ -906,6 +934,7 @@ else if (error is not null)
         ("sports", "sports"), ("chillout", "chillout")
     ];
     private List<RadioStation> radioList = new();
+    private int radioTotal, radioOffset;
     private List<RadioCountry> radioCountries = new();
     private RadioStation? radioNow;
     private string radioText = "", radioCountry = "", radioGenre = "";
@@ -955,7 +984,10 @@ else if (error is not null)
     [JSInvokable]
     public void OnRadioList(string json)
     {
-        radioList = JsonSerializer.Deserialize<List<RadioStation>>(json, JsonOpts) ?? new();
+        var r = JsonSerializer.Deserialize<PagedList<RadioStation>>(json, JsonOpts);
+        radioList = r?.Items ?? new();
+        radioTotal = r?.Total ?? 0;
+        radioOffset = r?.Offset ?? 0;
         StateHasChanged();
     }
 
@@ -970,22 +1002,22 @@ else if (error is not null)
     private static readonly string[] MuseumTypes = ["art", "history", "local", "science", "technology", "natural_history", "military", "transport", "railway", "open_air", "archaeological", "other"];
     private List<MuseumItem> museumList = new();
     private List<RadioCountry> museumCountries = new();
-    private int museumTotal;
-    private string museumText = "", museumCountry = "", museumType = "";
+    private int museumTotal, museumOffset;
+    private string museumText = "", museumCountry = "", museumType = "", museumCity = "";
+    private List<string> museumPlaces = new();
     private bool museumInView, museumWikiOnly, museumCollapsed = true; // starts collapsed
     private CancellationTokenSource? museumTextCts;
 
     private bool DockBoth => layers.GetValueOrDefault("radio") && layers.GetValueOrDefault("museums") && !radioCollapsed && !museumCollapsed;
-    private bool MuseumFiltered => museumText != "" || museumCountry != "" || museumType != "" || museumInView || museumWikiOnly;
+    private bool MuseumFiltered => museumText != "" || museumCountry != "" || museumType != "" || museumCity != "" || museumInView || museumWikiOnly;
     private string MuseumSummary
     {
         get
         {
             var count = museumTotal > 0 ? T("mus.count", "n", museumTotal.ToString("N0")) : MuseumFiltered ? T("mus.none") : T("mus.hint");
-            if (museumTotal > museumList.Count) count += " · " + T("mus.first", "n", museumList.Count.ToString("N0"));
             var country = museumCountries.FirstOrDefault(c => c.Cc == museumCountry)?.Name;
             var type = museumType != "" ? T("mus." + museumType) : null;
-            return string.Join(" · ", new[] { country, type, count }.Where(s => !string.IsNullOrEmpty(s)));
+            return string.Join(" · ", new[] { museumCity, country, type, count }.Where(s => !string.IsNullOrEmpty(s)));
         }
     }
 
@@ -998,18 +1030,19 @@ else if (error is not null)
 
     private Task SendMuseumQuery() => RadioCall("museumSetQuery", JsonSerializer.Serialize(new
     {
-        q = museumText, cc = museumCountry, type = museumType, inView = museumInView, wiki = museumWikiOnly
+        q = museumText, cc = museumCountry, type = museumType, city = museumCity, inView = museumInView, wiki = museumWikiOnly
     }));
 
-    // Debounced: search after typing pauses
-    private async Task OnMuseumText(ChangeEventArgs e)
+    // Debounced: search after typing pauses (name and place share the timer)
+    private async Task DebouncedMuseumQuery()
     {
-        museumText = e.Value?.ToString() ?? "";
         museumTextCts?.Cancel();
         var cts = museumTextCts = new CancellationTokenSource();
         try { await Task.Delay(400, cts.Token); } catch (TaskCanceledException) { return; }
         await SendMuseumQuery();
     }
+    private Task OnMuseumText(ChangeEventArgs e) { museumText = e.Value?.ToString() ?? ""; return DebouncedMuseumQuery(); }
+    private Task OnMuseumCity(ChangeEventArgs e) { museumCity = e.Value?.ToString() ?? ""; return DebouncedMuseumQuery(); }
 
     private Task OnMuseumCountry(ChangeEventArgs e) { museumCountry = e.Value?.ToString() ?? ""; return SendMuseumQuery(); }
     private Task OnMuseumType(ChangeEventArgs e) { museumType = e.Value?.ToString() ?? ""; return SendMuseumQuery(); }
@@ -1018,7 +1051,7 @@ else if (error is not null)
 
     private Task ResetMuseumFilters()
     {
-        museumText = museumCountry = museumType = "";
+        museumText = museumCountry = museumType = museumCity = "";
         museumInView = museumWikiOnly = false;
         return SendMuseumQuery();
     }
@@ -1026,9 +1059,11 @@ else if (error is not null)
     [JSInvokable]
     public void OnMuseumList(string json)
     {
-        var r = JsonSerializer.Deserialize<MuseumListInfo>(json, JsonOpts);
+        var r = JsonSerializer.Deserialize<PagedList<MuseumItem>>(json, JsonOpts);
         museumList = r?.Items ?? new();
         museumTotal = r?.Total ?? 0;
+        museumOffset = r?.Offset ?? 0;
+        museumPlaces = r?.Places ?? new();
         StateHasChanged();
     }
 
@@ -1196,14 +1231,18 @@ else if (error is not null)
         public string Key { get; set; } = "";
         public string Name { get; set; } = "";
         public string Type { get; set; } = "";
+        public string City { get; set; } = "";
         public string Country { get; set; } = "";
         public bool Wiki { get; set; }
     }
 
-    private sealed class MuseumListInfo
+    // One page of a panel list (radio, museums)
+    private sealed class PagedList<TItem>
     {
         public int Total { get; set; }
-        public List<MuseumItem> Items { get; set; } = new();
+        public int Offset { get; set; }
+        public List<TItem> Items { get; set; } = new();
+        public List<string>? Places { get; set; } // museums: place suggestions
     }
 
     private sealed class RadioCountry
