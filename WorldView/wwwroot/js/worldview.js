@@ -2869,9 +2869,17 @@ export function radioPlay(key, doSelect = true) {
     audio.addEventListener('error', () => { toast(tr('toast.radioFail')); radioNow(); });
     audio.play().catch(() => { toast(tr('toast.radioFail')); radioNow(); });
     radioNow();
-    // Show it on the globe when it has coordinates, else fly to its country
+    // Show it on the globe when it has coordinates, else info box only (+ fly to its country)
     if (doSelect && store.radio.has(key)) select('radio', key, true);
-    else if (doSelect && S.zoom.radio === true && m.cc) flyToCountry(m.cc);
+    else if (doSelect) { radioInfoOnly(m); if (S.zoom.radio === true && m.cc) flyToCountry(m.cc); }
+}
+// Station without coordinates: info box without a selection on the globe
+function radioInfoOnly(m) {
+    clearSelection(false);
+    const fields = [[tr('f.station'), m.name], [tr('f.country'), (m.cc && regionName(m.cc)) || m.country || '—'], [tr('f.genre'), m.tags || '—'],
+        [tr('f.codec'), `${m.codec || '?'} ${m.bitrate ? m.bitrate + ' kbps' : ''}`.trim()], [tr('f.position'), tr('radio.noGeo')]];
+    notify('OnSelect', JSON.stringify({ layer: 'radio', key: m.key, title: m.name, fields, image: null, video: null, canCockpit: false, isRadio: true,
+        summary: null, link: null, photo: null, photoLink: null, photoBy: null }));
 }
 // Country centre via Nominatim (cached)
 const countryCentre = new Map();

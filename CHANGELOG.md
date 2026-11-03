@@ -2,6 +2,10 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.143] - 2026-11-03
+### Fixed
+- Radio: choosing a station without coordinates showed no info box (only stations on the globe could be selected). It now opens an info box with station, country, genre, codec and "no location"; with zoom on it still flies to the country.
+
 ## [1.0.142] - 2026-11-03
 ### Added
 - Museum panel, like the radio panel: search by name, country (with counts), kind, "In view" and "Wikipedia" filters; list sorted Wikipedia first, then name (max 300 shown, total in the header); a click flies there (3 km) and opens the info box. The filters also decide which dots show on the globe. Choosing a country loads all its museums (`museums/cc/{ISO2}.json`). The info box shows the country.
