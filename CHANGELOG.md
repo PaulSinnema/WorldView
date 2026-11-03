@@ -2,6 +2,10 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.160] - 2026-11-03
+### Changed
+- Museum list: a row click flies to the museum only when the museum zoom button is on, like radio and the other layers (it always flew before). Nav pad stays on every device (TEMP note removed).
+
 ## [1.0.159] - 2026-11-03
 ### Added
 - Museum row details: tapping the photo enlarges it in the lightbox (zoom/pan as in the info box); close with ✕ or a tap beside it.

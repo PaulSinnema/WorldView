@@ -2406,12 +2406,9 @@ export async function museumDetails(key) {
     const w = r.qw?.lang === S.lang ? r.qw : null;
     return JSON.stringify({ fields, summary: w?.extract || null, link: w?.url || null, image: w?.thumb || null });
 }
-// List click: fly there and open the info box
+// List click: open the info box; flies there only with the zoom button on (as radio and the other layers)
 export function museumGo(key) {
-    const r = store.museums.get(key);
-    if (!r) return;
-    flyTo(r.lon, r.lat, 3000);
-    select('museums', key, false);
+    if (store.museums.has(key)) select('museums', key, true);
 }
 function refreshMuseums() {
     if (!museumIdx) return;
