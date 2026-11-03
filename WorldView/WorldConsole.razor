@@ -330,6 +330,60 @@ else if (error is not null)
     </div>
 }
 
+@* Bottom dock: museum and radio panels stacked; lists shrink when both are open *@
+@if (layers.GetValueOrDefault("radio") || layers.GetValueOrDefault("museums"))
+{
+<div class="dock @(DockBoth ? "both" : "")">
+@if (layers.GetValueOrDefault("museums"))
+{
+    <section class="radio museum @(museumCollapsed ? "collapsed" : "")">
+        <div class="radio-head">
+            <button class="radio-toggle" title="@T("radio.collapse")" @onclick="() => museumCollapsed = !museumCollapsed">🏛 @(museumCollapsed ? "▴" : "▾")</button>
+            <span class="radio-now">
+                <b>@T("layer.museums")</b>
+                <span>@MuseumSummary</span>
+            </span>
+            @if (MuseumFiltered)
+            {
+                <button title="@T("mus.reset")" @onclick="ResetMuseumFilters">✕</button>
+            }
+        </div>
+        @if (!museumCollapsed)
+        {
+            <div class="radio-filters">
+                <input type="search" value="@museumText" @oninput="OnMuseumText" placeholder="@T("mus.search")" aria-label="@T("mus.search")" />
+                <select value="@museumCountry" @onchange="OnMuseumCountry" aria-label="@T("radio.allCountries")">
+                    <option value="">@T("radio.allCountries")</option>
+                    @foreach (var c in museumCountries)
+                    {
+                        <option value="@c.Cc">@c.Name (@c.N.ToString("N0"))</option>
+                    }
+                </select>
+                <select value="@museumType" @onchange="OnMuseumType" aria-label="@T("mus.allTypes")">
+                    <option value="">@T("mus.allTypes")</option>
+                    @foreach (var key in MuseumTypes)
+                    {
+                        <option value="@key">@T("mus." + key)</option>
+                    }
+                </select>
+                <button class="@(museumInView ? "active" : "")" @onclick="ToggleMuseumInView">@T("radio.inView")</button>
+                <button class="@(museumWikiOnly ? "active" : "")" @onclick="ToggleMuseumWiki">@T("mus.wikiOnly")</button>
+            </div>
+            <ul class="radio-list">
+                @foreach (var m in museumList)
+                {
+                    <li @onclick='() => RadioCall("museumGo", m.Key)'>
+                        <span class="noicon">🏛</span>
+                        <span class="rs-main">
+                            <b>@m.Name</b>
+                            <span>@string.Join(" · ", new[] { m.Type, m.Country, m.Wiki ? "Wikipedia" : "" }.Where(x => !string.IsNullOrEmpty(x)))</span>
+                        </span>
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+}
 @if (layers.GetValueOrDefault("radio"))
 {
     <section class="radio @(radioCollapsed ? "collapsed" : "")">
@@ -400,6 +454,8 @@ else if (error is not null)
             </ul>
         }
     </section>
+}
+</div>
 }
 
 @if (toast is not null)
@@ -546,6 +602,7 @@ else if (error is not null)
         StateHasChanged();
         if (timezones) await LoadTzZones();
         if (layers.GetValueOrDefault("radio")) await LoadRadioCountries();
+        if (layers.GetValueOrDefault("museums")) await LoadMuseumCountries();
         try
         {
             if (module is not null) { envMissing = [.. await module.InvokeAsync<string[]>("getEnvMissing")]; StateHasChanged(); }
@@ -566,6 +623,7 @@ else if (error is not null)
         if (module is null || e.Value?.ToString() is not { } langCode) return;
         ApplyStrings(await module.InvokeAsync<string>("setLang", langCode));
         if (radioCountries.Count > 0) await LoadRadioCountries();
+        if (museumCountries.Count > 0) { await LoadMuseumCountries(); await SendMuseumQuery(); } // names + list in the new language
         if (showHelp) await OpenHelp();
     }
 
@@ -574,6 +632,7 @@ else if (error is not null)
         layers[key] = on;
         if (module is not null) await module.InvokeVoidAsync("setLayer", key, on);
         if (key == "radio" && on && radioCountries.Count == 0) await LoadRadioCountries();
+        if (key == "museums" && on) await LoadMuseumCountries(); // index may have grown since
     }
 
     private async Task SetStyle(string key)
@@ -894,6 +953,72 @@ else if (error is not null)
         StateHasChanged();
     }
 
+    // ---------- museum panel ----------
+    private static readonly string[] MuseumTypes = ["art", "history", "local", "science", "technology", "natural_history", "military", "transport", "railway", "open_air", "archaeological", "other"];
+    private List<MuseumItem> museumList = new();
+    private List<RadioCountry> museumCountries = new();
+    private int museumTotal;
+    private string museumText = "", museumCountry = "", museumType = "";
+    private bool museumInView, museumWikiOnly, museumCollapsed = true; // starts collapsed
+    private CancellationTokenSource? museumTextCts;
+
+    private bool DockBoth => layers.GetValueOrDefault("radio") && layers.GetValueOrDefault("museums") && !radioCollapsed && !museumCollapsed;
+    private bool MuseumFiltered => museumText != "" || museumCountry != "" || museumType != "" || museumInView || museumWikiOnly;
+    private string MuseumSummary
+    {
+        get
+        {
+            var count = museumTotal > 0 ? T("mus.count", "n", museumTotal.ToString("N0")) : MuseumFiltered ? T("mus.none") : T("mus.hint");
+            if (museumTotal > museumList.Count) count += " · " + T("mus.first", "n", museumList.Count.ToString("N0"));
+            var country = museumCountries.FirstOrDefault(c => c.Cc == museumCountry)?.Name;
+            var type = museumType != "" ? T("mus." + museumType) : null;
+            return string.Join(" · ", new[] { country, type, count }.Where(s => !string.IsNullOrEmpty(s)));
+        }
+    }
+
+    private async Task LoadMuseumCountries()
+    {
+        if (module is null) return;
+        museumCountries = JsonSerializer.Deserialize<List<RadioCountry>>(await module.InvokeAsync<string>("museumCountries"), JsonOpts) ?? new();
+        StateHasChanged();
+    }
+
+    private Task SendMuseumQuery() => RadioCall("museumSetQuery", JsonSerializer.Serialize(new
+    {
+        q = museumText, cc = museumCountry, type = museumType, inView = museumInView, wiki = museumWikiOnly
+    }));
+
+    // Debounced: search after typing pauses
+    private async Task OnMuseumText(ChangeEventArgs e)
+    {
+        museumText = e.Value?.ToString() ?? "";
+        museumTextCts?.Cancel();
+        var cts = museumTextCts = new CancellationTokenSource();
+        try { await Task.Delay(400, cts.Token); } catch (TaskCanceledException) { return; }
+        await SendMuseumQuery();
+    }
+
+    private Task OnMuseumCountry(ChangeEventArgs e) { museumCountry = e.Value?.ToString() ?? ""; return SendMuseumQuery(); }
+    private Task OnMuseumType(ChangeEventArgs e) { museumType = e.Value?.ToString() ?? ""; return SendMuseumQuery(); }
+    private Task ToggleMuseumInView() { museumInView = !museumInView; return SendMuseumQuery(); }
+    private Task ToggleMuseumWiki() { museumWikiOnly = !museumWikiOnly; return SendMuseumQuery(); }
+
+    private Task ResetMuseumFilters()
+    {
+        museumText = museumCountry = museumType = "";
+        museumInView = museumWikiOnly = false;
+        return SendMuseumQuery();
+    }
+
+    [JSInvokable]
+    public void OnMuseumList(string json)
+    {
+        var r = JsonSerializer.Deserialize<MuseumListInfo>(json, JsonOpts);
+        museumList = r?.Items ?? new();
+        museumTotal = r?.Total ?? 0;
+        StateHasChanged();
+    }
+
     private async Task ShowToastAsync(string message)
     {
         var id = ++toastId;
@@ -936,6 +1061,7 @@ else if (error is not null)
     {
         layers[layer] = on;
         if (layer == "radio" && on && radioCountries.Count == 0) _ = LoadRadioCountries();
+        if (layer == "museums" && on) _ = LoadMuseumCountries();
         StateHasChanged();
     }
 
@@ -1050,6 +1176,21 @@ else if (error is not null)
         public bool Geo { get; set; }
         public bool Fav { get; set; }
         public bool Playing { get; set; }
+    }
+
+    private sealed class MuseumItem
+    {
+        public string Key { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Type { get; set; } = "";
+        public string Country { get; set; } = "";
+        public bool Wiki { get; set; }
+    }
+
+    private sealed class MuseumListInfo
+    {
+        public int Total { get; set; }
+        public List<MuseumItem> Items { get; set; } = new();
     }
 
     private sealed class RadioCountry

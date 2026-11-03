@@ -1,6 +1,8 @@
 ﻿// Museums: OpenStreetMap tourism=museum via Overpass (ODbL), worldwide in 30° boxes (dense boxes split automatically)
-// row: [id, lon, lat, name, typeIndex, wikidata, website, openingHours, wiki(0/1)]
+// row: [id, lon, lat, name, typeIndex, wikidata, website, openingHours, wiki(0/1), country ISO2]
 // Boxes are fetched one at a time (nearest to UTC+1 first); server.js writes each box's 5° tiles right away
+import { loadCountries, countryOf } from './countries.js';
+
 const MIRRORS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 const UA = 'WorldView-fetcher/1.0 (+https://flights.sinnema.ch)';
 export const TILE = 5, BOX = 30;
@@ -29,26 +31,26 @@ export function tileInBox(k, s, w) {
 let mirror = 0, failures = 0;
 async function query(s, w, n, e) {
     const q = `[out:json][timeout:120];nwr["tourism"="museum"](${s},${w},${n},${e});out center tags;`;
-    let gateway = 0;
-    for (let attempt = 0; attempt < 8; attempt++) {
-        const url = MIRRORS[mirror % MIRRORS.length];
+    for (let attempt = 0; attempt < 9; attempt++) {
+        // After each round past all servers: back off (30 s, 60 s)
+        if (attempt && attempt % MIRRORS.length === 0) await sleep(30000 * attempt / MIRRORS.length);
+        const url = MIRRORS[mirror % MIRRORS.length], host = new URL(url).host;
         let r, j;
         try {
             r = await fetch(url, { method: 'POST', headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q), signal: AbortSignal.timeout(180000) });
-        } catch (err) { log(`museums: ${new URL(url).host} ${err.message}`); mirror++; await sleep(10000); continue; } // network/timeout: next mirror
-        if (r.status === 429 || r.status === 503) { mirror++; await sleep(15000 * (attempt + 1)); continue; } // busy: next mirror, wait
-        if (r.status === 502 || r.status === 504) { // gateway timeout: other mirror once, then split
-            log(`museums: ${new URL(url).host} HTTP ${r.status} (${s},${w},${n},${e})`);
+        } catch (err) { log(`museums: ${host} ${err.message} (${s},${w},${n},${e})`); mirror++; continue; } // network/timeout: next server
+        if (r.status === 504) { // query too heavy: caller splits
+            log(`museums: ${host} HTTP 504 (${s},${w},${n},${e}), splitting`);
             mirror++;
-            if (++gateway >= 2) { if (++failures > 20) throw new Error('Overpass unavailable'); return null; }
-            await sleep(10000); continue;
+            if (++failures > 20) throw new Error('Overpass unavailable');
+            return null;
         }
-        if (!r.ok) throw new Error(`Overpass HTTP ${r.status}`);
-        try { j = await r.json(); } catch { mirror++; await sleep(10000); continue; } // HTML error page
+        if (!r.ok) { log(`museums: ${host} HTTP ${r.status} (${s},${w},${n},${e})`); mirror++; continue; } // busy/overloaded: next server
+        try { j = await r.json(); } catch { mirror++; continue; } // HTML error page
         if (j.remark && /runtime error|timed out|out of memory/i.test(j.remark)) return null;
         return j.elements || [];
     }
-    throw new Error('Overpass keeps refusing (rate limit)');
+    throw new Error('all Overpass servers busy');
 }
 async function collect(s, w, n, e, depth = 0) {
     const els = await query(s, w, n, e);
@@ -63,6 +65,7 @@ async function collect(s, w, n, e, depth = 0) {
 // One 30° box → { tiles: Map key -> rows, count }; throws when Overpass fails
 export async function fetchBox(s, w) {
     failures = 0;
+    await loadCountries().catch(e => log(`museums: countries ${e.message}`)); // without: country filled in later
     const els = await collect(s, w, s + BOX, w + BOX);
     const seen = new Set(), tiles = new Map();
     let count = 0;
@@ -81,16 +84,36 @@ export async function fetchBox(s, w) {
         const qid = /^Q\d+$/.test(t.wikidata || '') ? t.wikidata : '';
         const k = tileKey(lo, la);
         if (!tiles.has(k)) tiles.set(k, []);
-        tiles.get(k).push([id, lo, la, name, ti, qid, t.website || t['contact:website'] || '', t.opening_hours || '', qid && t.wikipedia ? 1 : 0]);
+        const cc = countryOf(lo, la, (t['addr:country'] || '').toUpperCase());
+        const row = [id, lo, la, name, ti, qid, t.website || t['contact:website'] || '', t.opening_hours || '', qid && t.wikipedia ? 1 : 0];
+        if (cc !== null) row.push(cc); // no country map: fillCountries adds it later
+        tiles.get(k).push(row);
         count++;
     }
     return { tiles, count };
 }
 
+// Missing country fields (tiles from before 1.19.0) → filled in; returns true when rows changed
+export async function fillCountries(rows) {
+    if (rows.every(r => r.length >= 10)) return false;
+    await loadCountries();
+    for (const r of rows) if (r.length < 10) { r[8] ??= 0; r[9] = countryOf(r[1], r[2]) ?? ''; }
+    return true;
+}
+
 // Index from all tiles on disk; top = museums with a Wikipedia article, spread evenly when there are more than TOP
+// countries = { ISO2: count }; byCountry = Map ISO2 -> rows (for museums/cc/{ISO2}.json)
 export function buildIndex(tiles) {
     let top = [];
-    for (const rows of tiles.values()) for (const r of rows) if (r[8]) top.push(r);
+    const byCountry = new Map();
+    for (const rows of tiles.values()) for (const r of rows) {
+        if (r[8]) top.push(r);
+        const cc = r[9] || '';
+        if (!cc) continue;
+        if (!byCountry.has(cc)) byCountry.set(cc, []);
+        byCountry.get(cc).push(r);
+    }
     if (top.length > TOP) { const step = top.length / TOP; top = Array.from({ length: TOP }, (_, i) => top[Math.floor(i * step)]); }
-    return { t: Math.round(Date.now() / 1000), tile: TILE, tiles: [...tiles.keys()], types: TYPES, top };
+    const countries = Object.fromEntries([...byCountry].map(([cc, rows]) => [cc, rows.length]));
+    return { index: { t: Math.round(Date.now() / 1000), tile: TILE, tiles: [...tiles.keys()], types: TYPES, countries, top }, byCountry };
 }

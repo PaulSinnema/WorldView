@@ -2,6 +2,20 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.142] - 2026-11-03
+### Added
+- Museum panel, like the radio panel: search by name, country (with counts), kind, "In view" and "Wikipedia" filters; list sorted Wikipedia first, then name (max 300 shown, total in the header); a click flies there (3 km) and opens the info box. The filters also decide which dots show on the globe. Choosing a country loads all its museums (`museums/cc/{ISO2}.json`). The info box shows the country.
+- Bottom dock: museum and radio panels stack above each other at the same width; when both are expanded their lists shrink (18vh, 14vh on phones).
+- Fetcher 1.19.0: country per museum (10th row element, ISO2) from Natural Earth 50m admin 0 (`countries.js`, point in polygon; OSM `addr:country` or the nearest coast within 0.5° as fallback). The index gets `countries` ({ISO2: count}) and every rebuild writes `museums/cc/{ISO2}.json`; tiles without the country field get it on the next rebuild (an index without `countries` triggers one at start).
+
+## [1.0.141] - 2026-11-03
+### Fixed
+- Fetcher 1.18.1 (`museums.js`): HTTP 502 from Overpass means an overloaded server, not a too heavy query; splitting on it only multiplied requests. Now 502/429/503, network errors and timeouts switch to the next server at once, with a 30 s and 60 s pause after each round past all servers (max 9 attempts per box part). Only 504 or an Overpass timeout/memory remark splits the box.
+
+## [1.0.140] - 2026-11-03
+### Changed
+- Museums: switching the layer on reloads `museums-index.json` when the last load is older than 10 minutes, so boxes the fetcher added since then appear without a page reload; a changed index reloads the tiles in view. A failed reload keeps the old index.
+
 ## [1.0.139] - 2026-11-03
 ### Changed
 - Energy per year and power plants now come from the fetcher. Fetcher 1.18.0: `energy.js` (OWID/Ember, `energy-year.json`) and `plants.js` (WRI GPPD, `plants.json`) replace `tools/build-energy.mjs` and `tools/build-plants.mjs`; fetched when missing or older than a year (checked daily). The app loads both from `FEED_URL`; both builds removed from `.github/workflows/update-geo.yml`.

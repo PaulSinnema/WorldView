@@ -829,7 +829,7 @@ export async function init(containerId, ref) {
     viewer.camera.moveEnd.addEventListener(() => {
         if (radioQuery.inView && S.layers.radio) runRadioSearch();
         if (S.layers.flights) startLayer('flights'); // load the tiles for the new view
-        if (S.layers.museums) refreshMuseums();
+        if (S.layers.museums) { refreshMuseums(); if (museumQuery.inView) scheduleMuseumSearch(); }
     });
     window.addEventListener('blur', () => navHeld.clear());
     // Crash report: state every 3 s; normal unload/background is not a crash
@@ -2270,32 +2270,97 @@ async function loadPlants() {
     return 0;
 }
 // Museums (OpenStreetMap via the fetcher, refreshed monthly): overview (with Wikipedia article) at once, all museums per 5° tile when zoomed in
-// row: [id, lon, lat, name, typeIndex, wikidata, website, openingHours]
+// row: [id, lon, lat, name, typeIndex, wikidata, website, openingHours, wiki(0/1), country ISO2]
 const MUSEUM_TILE_H = 2e6; // below this height the tiles in view are loaded and shown
-let museumIdx = null;
+let museumIdx = null, museumIdxAt = 0, museumIdxP = null;
 const museumTiles = new Map(); // key -> 'loading' | true
-function addMuseum([id, lon, lat, name, ti, qid, web, hours], top) {
+const museumByCc = new Map(); // ISO2 -> Promise of rows (museums/cc/{ISO2}.json)
+let museumQuery = { q: '', cc: '', type: '', inView: false, wiki: false }, museumGen = 0, museumTimer = null;
+// Panel filter; also decides which dots show on the globe
+function museumMatch(r, text = (museumQuery.q || '').trim().toLowerCase()) {
+    const q = museumQuery;
+    return (!q.cc || r.cc === q.cc) && (!q.type || r.type === q.type) && (!q.wiki || r.wiki) && (!text || r.label.toLowerCase().includes(text));
+}
+function addMuseum([id, lon, lat, name, ti, qid, web, hours, wiki, cc], top) {
     if (store.museums.has(id)) return;
-    const type = museumIdx.types[ti] || 'other';
+    const type = museumIdx?.types[ti] || 'other';
     const info = [['museumType', () => tr('mus.' + type)]];
+    if (cc) info.push(['country', () => regionName(cc) || cc]);
     if (hours) info.push(['openingHours', hours]);
     if (web) info.push(['website', web]);
     info.push(['position', fmtPos(lat, lon)]);
-    const r = { key: id, lat, lon, label: name, qid, info, top };
+    const r = { key: id, lat, lon, label: name, qid, info, top, type, cc: cc || '', wiki: !!wiki };
     r.pos = Cz.Cartesian3.fromDegrees(lon, lat, 0);
     r.pt = coll.museums.add({ position: r.pos, pixelSize: top ? 6 : 5, color: Cz.Color.fromCssColorString(DETECT_COLORS.museums), outlineColor: Cz.Color.BLACK.withAlpha(0.6), outlineWidth: 1,
         disableDepthTestDistance: 1.5e6, distanceDisplayCondition: top ? undefined : new Cz.DistanceDisplayCondition(0, MUSEUM_TILE_H * 1.2), id: { wv: { layer: 'museums', key: id } } });
+    r.pt.show = museumMatch(r);
     store.museums.set(id, r);
 }
+// Index at first start, again after 10 min (the fetcher adds boxes one by one); false = unreachable
+function loadMuseumIndex() {
+    if (museumIdx && Date.now() - museumIdxAt <= 600000) return Promise.resolve(true);
+    return museumIdxP ??= (async () => {
+        const d = await tryJson(`${FEED_URL}/museums-index.json?b=${Math.floor(Date.now() / 60000)}`, 30000);
+        if (!d?.tiles) return !!museumIdx;
+        museumIdxAt = Date.now();
+        if (d.t !== museumIdx?.t) {
+            museumIdx = { t: d.t, tile: d.tile, tiles: new Set(d.tiles), types: d.types || [], countries: d.countries || {} };
+            museumTiles.clear(); // changed tiles reload via the new ?b=
+            museumByCc.clear();
+            for (const row of d.top || []) addMuseum(row, true);
+        }
+        return true;
+    })().finally(() => { museumIdxP = null; });
+}
 async function loadMuseums() {
-    if (!museumIdx) {
-        const d = await tryJson(`${FEED_URL}/museums-index.json?b=${Math.floor(Date.now() / 3600000)}`, 30000);
-        if (!d?.tiles) { report('museums', 'st.sourceDown'); return 120000; }
-        museumIdx = { t: d.t, tile: d.tile, tiles: new Set(d.tiles), types: d.types || [] };
-        for (const row of d.top || []) addMuseum(row, true);
-    }
+    if (!await loadMuseumIndex()) { report('museums', 'st.sourceDown'); return 120000; }
     refreshMuseums();
+    runMuseumSearch();
     return 0;
+}
+// Countries with museums, names in the UI language
+export async function museumCountries() {
+    await loadMuseumIndex();
+    const list = Object.entries(museumIdx?.countries || {}).map(([cc, n]) => ({ cc, name: regionName(cc) || cc, n }));
+    list.sort((a, b) => a.name.localeCompare(b.name, loc()));
+    return JSON.stringify(list);
+}
+export function museumSetQuery(json) {
+    try { museumQuery = { ...museumQuery, ...JSON.parse(json) }; } catch { }
+    const text = (museumQuery.q || '').trim().toLowerCase();
+    for (const r of store.museums.values()) r.pt.show = museumMatch(r, text);
+    runMuseumSearch();
+}
+function scheduleMuseumSearch() {
+    clearTimeout(museumTimer);
+    museumTimer = setTimeout(runMuseumSearch, 300);
+}
+// Panel list: a chosen country loads all its museums; otherwise what is loaded (overview + tiles in view)
+async function runMuseumSearch() {
+    const my = ++museumGen, q = museumQuery;
+    if (q.cc && museumIdx) {
+        let p = museumByCc.get(q.cc);
+        if (!p) museumByCc.set(q.cc, p = tryJson(`${FEED_URL}/museums/cc/${q.cc}.json?b=${museumIdx.t || 0}`, 30000));
+        const rows = await p;
+        if (my !== museumGen) return;
+        if (!rows) museumByCc.delete(q.cc);
+        for (const row of rows || []) addMuseum(row, false);
+    }
+    const text = (q.q || '').trim().toLowerCase();
+    const rect = q.inView && viewer ? viewer.camera.computeViewRectangle() : null;
+    const list = [...store.museums.values()].filter(r => museumMatch(r, text) && (!rect || inView(rect, Cz.Cartographic.fromDegrees(r.lon, r.lat))));
+    list.sort((a, b) => (b.wiki - a.wiki) || a.label.localeCompare(b.label, loc()));
+    notify('OnMuseumList', JSON.stringify({
+        total: list.length,
+        items: list.slice(0, 300).map(r => ({ key: r.key, name: r.label, type: tr('mus.' + r.type), country: (r.cc && regionName(r.cc)) || '', wiki: r.wiki }))
+    }));
+}
+// List click: fly there and open the info box
+export function museumGo(key) {
+    const r = store.museums.get(key);
+    if (!r) return;
+    flyTo(r.lon, r.lat, 3000);
+    select('museums', key, false);
 }
 function refreshMuseums() {
     if (!museumIdx) return;
@@ -2308,6 +2373,7 @@ function refreshMuseums() {
                 museumTiles.set(k, true);
                 for (const row of rows) addMuseum(row, false);
                 report('museums', 'st.museums');
+                if (museumQuery.inView || !museumQuery.cc) scheduleMuseumSearch();
             });
         }
     }
