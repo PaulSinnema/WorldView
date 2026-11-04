@@ -1084,11 +1084,11 @@ else if (error is not null)
     private Task ToggleMuseumWiki() { museumWikiOnly = !museumWikiOnly; return SendMuseumQuery(); }
 
     // ---------- generic list panels (satellites, launches); engine side: LISTS in worldview.js ----------
-    private sealed record ListDef(string Name, string Icon, string Search, string AllA, string? AllB, string? Flag, string GoFn, string DetailsFn);
+    private sealed record ListDef(string Name, string Icon, string Search, string AllA, string? AllB, string? Flag, string GoFn, string DetailsFn, string FlagIcon = "🎥");
     private static readonly ListDef[] ListDefs =
     [
-        new("satellites", "🛰", "sat.search", "sat.allGroups", null, null, "satGo", "satDetails"),
-        new("telescopes", "🔭", "tel.search", "sat.allGroups", null, null, "telGo", "telDetails"),
+        new("satellites", "🛰", "sat.search", "sat.allGroups", null, "list.model", "satGo", "satDetails", "🧊"),
+        new("telescopes", "🔭", "tel.search", "sat.allGroups", null, "list.model", "telGo", "telDetails", "🧊"),
         new("launches", "🚀", "lch.search", "lch.allProviders", "lch.allStatus", "lch.webcast", "launchGo", "launchDetails")
     ];
     private sealed class ListState
@@ -1183,12 +1183,12 @@ else if (error is not null)
                 <button class="@(s.InView ? "active" : "")" @onclick='() => { s.InView = !s.InView; return SendList(d.Name); }'>@T("radio.inView")</button>
                 @if (d.Flag is not null)
                 {
-                    <button class="@(s.Flag ? "active" : "")" @onclick='() => { s.Flag = !s.Flag; return SendList(d.Name); }'>🎥 @T(d.Flag)</button>
+                    <button class="@(s.Flag ? "active" : "")" @onclick='() => { s.Flag = !s.Flag; return SendList(d.Name); }'>@d.FlagIcon @T(d.Flag)</button>
                 }
             </span>,
             Total = s.Total, Offset = s.Offset, Count = s.Items.Count,
             Page = dir => RadioCall("listPage", d.Name, dir),
-            Rows = s.Items.Select(it => new PanelRow(it.Key, it.Name, it.Sub, it.Flag ? "🎥" : d.Icon)),
+            Rows = s.Items.Select(it => new PanelRow(it.Key, it.Name, it.Sub, it.Flag ? d.FlagIcon : d.Icon)),
             GoFn = d.GoFn, DetailsFn = d.DetailsFn
         });
     }

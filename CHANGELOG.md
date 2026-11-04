@@ -2,6 +2,72 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.230] - 2026-11-04
+### Changed
+- Satellites/telescopes: 1.0.229 undone, navigation is free again after the first positioning.
+### Fixed
+- First positioning: the target–Earth angle now fits the view (at most 26°, smaller on a flat landscape screen); on a phone in landscape the Earth was outside the picture (Chandra, JWST).
+
+## [1.0.229] - 2026-11-04
+### Changed
+- Satellites/telescopes: also while you steer the camera, the Earth stays in view (its edge within 10° of the screen centre); the camera turns around the object only as far as needed.
+
+## [1.0.228] - 2026-11-04
+### Fixed
+- Flashing lines close to a selected telescope/satellite on a high orbit (Chandra, XMM, GEO): its orbit ring slid ~10 km/s away from the object between the one-second redraws; the ring now turns with the Earth every frame.
+
+## [1.0.227] - 2026-11-04
+### Changed
+- Orbit names: an arrow pointing at the orbit line instead of a dot; arrow and name stay fully inside the view.
+
+## [1.0.226] - 2026-11-04
+### Added
+- Detection on: the name of a telescope (and the ISS) is shown along its orbit line while the object itself is off screen; clicking the name selects the object.
+
+## [1.0.225] - 2026-11-04
+### Fixed
+- Telescopes (Fermi, Hubble, ...) no longer appear a second time in the satellite list: that copy lost its orbit line on deselect. They only live in the telescope layer, where the orbit stays visible.
+
+## [1.0.224] - 2026-11-04
+### Added
+- Satellite and telescope lists: rows with a 3D model get a 🧊 icon, and a "3D model" filter button shows only those.
+
+## [1.0.223] - 2026-11-04
+### Changed
+- Orbit fade only for the selected satellite/telescope; the other telescope rings stay fully visible.
+
+## [1.0.222] - 2026-11-04
+### Changed
+- Selecting a satellite/telescope puts it in the screen centre (was aimed between target and Earth centre: target upper right); camera position unchanged, so the Earth still shows lower left.
+
+## [1.0.221] - 2026-11-04
+### Changed
+- Orbit fade shorter close up: ~5 min of orbit visible (full for 1 min either side, gone after 2.5 min; was 200 km … 2000 km with a 5% floor); zoomed out the whole ring stays visible.
+
+## [1.0.220] - 2026-11-04
+### Changed
+- Orbit lines of the selected satellite and of the space telescopes fade with distance to the camera (from 3× the camera-object distance, min 200 km, down to 5%): close up, the far side of the ring no longer shows as a sharp V (perspective of a ring seen edge-on); zoomed out the full ring stays visible. ISS dashed orbit unchanged.
+
+## [1.0.219] - 2026-11-04
+### Fixed
+- Orbit lines still showed kinks close up: twice as many points (≤0.5° turn per vertex) and, near the camera, segments no longer than 1% of their distance to it, so the line stays smooth when zoomed in.
+
+## [1.0.218] - 2026-11-04
+### Fixed
+- Orbit lines of eccentric/high orbits (INTEGRAL, XMM-Newton, Chandra, TESS) showed sharp corners: sampling is now uniform in eccentric anomaly (≤1.5° turn per vertex, also at perigee and apogee) instead of fixed time steps (21 min for INTEGRAL).
+- 90° kink / spike at the object on high orbits: the real-Earth-rotation zone around the object is limited by the sideways shift it causes (LEO unchanged: 60 s / 15 min) and sampled densely; where Earth rotation outruns the object itself (INTEGRAL, XMM, Chandra, TESS near apogee) it is left out and the plain ring is drawn.
+
+## [1.0.217] - 2026-11-04
+### Changed
+- Space telescopes take their TLE from the CelesTrak `science`/`visual` groups the satellite layer already loads; only telescopes not in those groups (TESS, INTEGRAL) are requested one by one. Cuts CelesTrak requests per load from 17 to 9 (CelesTrak blocks IPs that ask too often).
+- Concurrent requests for the same CelesTrak group are shared instead of fetched twice.
+
+## [1.0.216] - 2026-11-04
+### Added
+- 3D models (NASA 3D Resources, optimized to ≤0.5 MB each) for the telescopes Fermi, Swift and TESS, and for the Earth-observation satellites Landsat 8, Terra and ICESat-2.
+- New `resource` satellite group (CelesTrak Earth Resources) so Landsat 8, Terra and ICESat-2 are tracked and listed; needs a live check that they actually appear in that group.
+- Real-world model scale is approximate for the new models: NASA doesn't publish exact deployed dimensions for all of them (Fermi, TESS, Landsat 8, Terra are estimates from public figures; Swift and ICESat-2 are well-sourced).
+
 ## [1.0.215] - 2026-11-04
 ### Fixed
 - L2 line still flickered between positions. Reproduced and tested live: a single straight segment from 85 m to 1.5 million km from the camera renders unreliably (the depth along it is interpolated between two wildly different ends). The line now has 50 points spaced geometrically from the telescope (100 m, 150 m, … 1.5 million km): steady in every captured frame.

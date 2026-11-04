@@ -12,6 +12,8 @@ const TELESCOPES = [[20580, 'Hubble', 'Hubble Space Telescope'], [25867, 'Chandr
 // Sun-Earth L2 telescopes: no TLE, shown at approximate L2 (offset avoids overlap)
 const L2_TELESCOPES = [['jwst', 'James Webb (JWST)', 3e8, 'James Webb Space Telescope'], ['euclid', 'Euclid', -3e8, 'Euclid (spacecraft)']];
 const L2_DIST = 1.5e9;
+const TEL_IDS = new Set(TELESCOPES.map(([id]) => String(id))); // NORAD ids of the telescope layer
+const TEL_GROUPS = ['science', 'visual']; // CelesTrak groups that hold most TELESCOPES (also in SAT_GROUPS)
 const STYLE_KEYS = ['normal', 'crt', 'nvg', 'flir', 'ironbow', 'noir', 'snow'];
 const BILLBOARD_LAYERS = ['flights', 'military', 'trains', 'ov', 'launches', 'cameras'];
 const MOVERS = ['flights', 'military', 'trains', 'ov'];
@@ -27,7 +29,7 @@ const DETECT_COLORS = { flights: '#3fd0ff', military: '#ffb020', trains: TRAIN_C
 const { LANGS, LOCALES, pickLang, t, strings } = await import(`./i18n.js${new URL(import.meta.url).search}`);
 const tr = (key, params) => t(S.lang, key, params);
 const loc = () => LOCALES[S.lang] || 'en-GB';
-const SAT_GROUPS = [['stations', '#ff5a5a', 'grp.stations'], ['visual', '#ffffff', 'grp.visual'], ['gps-ops', '#4cff8a', 'grp.gps'], ['weather', '#5ac8ff', 'grp.weather'], ['science', '#ffd23f', 'grp.science'], ['geo', '#b07aff', 'grp.geo']];
+const SAT_GROUPS = [['stations', '#ff5a5a', 'grp.stations'], ['visual', '#ffffff', 'grp.visual'], ['gps-ops', '#4cff8a', 'grp.gps'], ['weather', '#5ac8ff', 'grp.weather'], ['science', '#ffd23f', 'grp.science'], ['geo', '#b07aff', 'grp.geo'], ['resource', '#6bffb0', 'grp.resource']];
 const RADIO_HOSTS = ['https://de1.api.radio-browser.info', 'https://nl1.api.radio-browser.info', 'https://at1.api.radio-browser.info', 'https://fi1.api.radio-browser.info'];
 const CITIES = {
     apeldoorn: [52.211, 5.969], amsterdam: [52.373, 4.893], rotterdam: [51.922, 4.479], 'den haag': [52.078, 4.288], utrecht: [52.091, 5.122],
@@ -807,12 +809,15 @@ export async function init(containerId, ref) {
             hoverQueued = false;
             if (!hoverPos) return;
             const { x, y } = hoverPos;
-            let on = labelHits.some(([hx, hy, w, h]) => x >= hx && x <= hx + w && y >= hy && y <= hy + h);
+            let on = orbNameHits.concat(labelHits).some(([hx, hy, w, h]) => x >= hx && x <= hx + w && y >= hy && y <= hy + h);
             if (!on) { const id = scene.pick(hoverPos)?.id; on = !!(id?.wv || id?.city || id?.country || id?.region); }
             scene.canvas.style.cursor = on ? 'pointer' : '';
         }, 80);
     }, Cz.ScreenSpaceEventType.MOUSE_MOVE);
     handler.setInputAction(e => {
+        // Orbit names (detection on): click selects the object
+        const oh = S.detect ? orbNameHits.findLast(([x, y, w, h]) => e.position.x >= x && e.position.x <= x + w && e.position.y >= y && e.position.y <= y + h) : null;
+        if (oh) { select(oh[4], oh[5], true); return; }
         // Labels live on the 2D canvas: hit-test them first (cities, countries)
         const hit = labelHits.findLast(([x, y, w, h]) => e.position.x >= x && e.position.x <= x + w && e.position.y >= y && e.position.y <= y + h)?.[4];
         if (hit?.city) { selectCity(hit.city); return; }
@@ -1220,7 +1225,20 @@ function posAt(r, now) {
 
 // satellites
 // Same caching as tleById: cache at once (up to a week), background refresh after 6 h, 10 s timeout, older cache as fallback
-async function tleGroup(g) {
+const tleGroupPending = new Map(); // one in-flight load per group: satellites and telescopes share it
+function tleGroup(g) {
+    if (!tleGroupPending.has(g)) tleGroupPending.set(g, tleGroupLoad(g).finally(() => tleGroupPending.delete(g)));
+    return tleGroupPending.get(g);
+}
+// TLE (3 lines) for one NORAD id out of a group text, or null
+function tleFromGroup(txt, id) {
+    if (!txt) return null;
+    const lines = txt.split(/\r?\n/).map(s => s.trimEnd()).filter(Boolean);
+    for (let i = 0; i + 2 < lines.length; i++)
+        if (lines[i + 1].startsWith('1 ') && lines[i + 2].startsWith('2 ') && lines[i + 1].substring(2, 7).trim() === String(id)) return lines.slice(i, i + 3).join('\n');
+    return null;
+}
+async function tleGroupLoad(g) {
     const ck = 'wv-tle-' + g;
     let c = null;
     try { c = JSON.parse(localStorage.getItem(ck) || 'null'); } catch { }
@@ -1257,7 +1275,7 @@ async function loadSatellites() {
                 const name = lines[i].trim(), l1 = lines[i + 1], l2 = lines[i + 2];
                 if (!l1.startsWith('1 ') || !l2.startsWith('2 ')) continue;
                 const id = l1.substring(2, 7).trim();
-                if (store.satellites.has(id)) continue;
+                if (store.satellites.has(id) || TEL_IDS.has(id)) continue; // telescopes live in their own layer (always-on orbit)
                 let rec;
                 try { rec = sat.twoline2satrec(l1, l2); } catch { continue; }
                 const r = { key: id, label: name, rec, group: label, color, lat: 0, lon: 0, alt: 0, vel: 0 };
@@ -1305,23 +1323,58 @@ const CAM_NEAR_M = 3e6, CAM_NEAR_MAX = 300;
 // One full orbit (half back, half ahead): the ring as seen in space (fixed Earth rotation), except around the object,
 // where it follows the real Earth rotation so the object stays exactly on its line close up; blended smoothly (no kink)
 const ORBIT_NEAR_MS = 60000, ORBIT_FADE_MS = 900000, ORBIT_NEAR_STEP = 500;
-function orbitPoints(r, n = 180) {
+const ORBIT_NEAR_KM = 30, ORBIT_FADE_KM = 450, EARTH_OMEGA = 7.2921159e-5; // max sideways shift by Earth rotation (LEO: 60 s / 15 min)
+const ORBIT_CAM_CHORD = 0.01; // max segment length as a fraction of its distance to the camera (no visible kinks close up)
+function orbitPoints(r, n = 720) {
     const now = Date.now(), g0 = sat.gstime(new Date(now)), half = Math.PI / r.rec.no * 60000, pts = [];
-    const fade = Math.min(ORBIT_FADE_MS, half * 0.8);
+    const aM = r.rec.a * 6378135; // semi-major axis (m)
+    // High orbits shift ω·r sideways per second (INTEGRAL ~10 km/s): shorter real-rotation zone there, else a huge hook
+    const rm = r.pos ? Cz.Cartesian3.magnitude(r.pos) : aM, rot = EARTH_OMEGA * rm / 1000; // km/s
+    const v = Math.sqrt(398600.4418 * Math.max(0, 2000 / rm - 1000 / aM)); // own speed (km/s, vis-viva)
+    // Rotation dominates (high orbit near apogee): the real-rotation zone would stick out as a spike, so plain ring there
+    const blend = rot < 0.3 * v;
+    const near = blend ? Math.min(ORBIT_NEAR_MS, ORBIT_NEAR_KM / rot * 1000) : 0;
+    const fade = blend ? Math.max(near + 1000, Math.min(ORBIT_FADE_MS, half * 0.8, ORBIT_FADE_KM / rot * 1000)) : 0;
     // Weight of the real rotation: 1 near the object, cosine fade to 0 (fixed ring) further away
-    const w = dt => { const a = Math.abs(dt); return a <= ORBIT_NEAR_MS ? 1 : a >= fade ? 0 : 0.5 + 0.5 * Math.cos(Math.PI * (a - ORBIT_NEAR_MS) / (fade - ORBIT_NEAR_MS)); };
+    const w = dt => { const a = Math.abs(dt); return a <= near ? 1 : a >= fade ? 0 : 0.5 + 0.5 * Math.cos(Math.PI * (a - near) / (fade - near)); };
     const push = dt => {
         const d = new Date(now + dt), diff = ((sat.gstime(d) - g0) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
         const g = satGeo(r, d, g0 + w(dt) * diff);
-        if (g) pts.push(Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h));
+        if (!g) return null;
+        const p = Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h);
+        pts.push(p);
+        return p;
     };
-    const step = 2 * half / n;
-    for (let dt = -half; dt < -ORBIT_NEAR_MS; dt += step) push(dt);
+    // Step uniform in eccentric anomaly (dt ∝ r), scaled by √(1-e²): ≤ 360/n degrees of turn per vertex, also at perigee/apogee
+    // of eccentric orbits (INTEGRAL, XMM, Chandra); inside the blend zone at most 1/30 of it
+    const base = 2 * half / n, k = Math.sqrt(1 - Math.min(r.rec.ecco, 0.99) ** 2), cam = viewer.camera.positionWC;
+    const stepAt = (dt, p) => {
+        let s = base;
+        if (p) {
+            const pr = Cz.Cartesian3.magnitude(p), pv = Math.sqrt(398600.4418 * Math.max(1e-9, 2000 / pr - 1000 / aM)); // km/s
+            s = Math.min(base * (pr / aM) * k, ORBIT_CAM_CHORD * Cz.Cartesian3.distance(p, cam) / pv); // ms
+        }
+        if (Math.abs(dt) < fade) s = Math.min(s, (fade - near) / 30);
+        else if (dt < -fade) s = Math.min(s, -fade - dt); // land on the blend zone, don't jump over it
+        return Math.max(s, 50);
+    };
+    for (let dt = -half; dt < -near;) dt += stepAt(dt, push(dt));
     // Extra dense ±5 s: a 0.5 s chord (3.75 km) bows 0.25 m from the true path, a visible wobble from 50 m away
-    for (let dt = -ORBIT_NEAR_MS; dt < ORBIT_NEAR_MS; dt += Math.abs(dt) < 5000 ? 50 : ORBIT_NEAR_STEP) push(dt);
-    for (let dt = ORBIT_NEAR_MS; dt <= half; dt += step) push(dt);
+    for (let dt = -near; dt < near; dt += Math.abs(dt) < 5000 ? 50 : ORBIT_NEAR_STEP) push(dt);
+    for (let dt = near; dt <= half;) dt += stepAt(dt, push(dt));
     push(-half); // close the ring
+    r.orbSpin = blend ? null : { g0, base: pts }; // plain ring: fixed in space, turned with the Earth every frame (spinOrbit)
     return pts;
+}
+// Selected object on a high orbit (Chandra, XMM, GEO...): the Earth turns ω·r ≈ 10 km/s under it, so its ring (drawn once a second)
+// slid away from the object between the redraws and showed up as flashes; turn the ring about Earth's axis every frame instead
+function spinOrbit() {
+    if (!sat || !selected || !ORBITERS.includes(selected.layer)) return;
+    const r = store[selected.layer].get(selected.key), sp = r?.orbSpin;
+    const line = selected.layer === 'telescopes' ? r?.orbLine : orbitEntity?.wvKey === r?.key ? orbitEntity : null;
+    if (!sp || !line) return;
+    const a = -(sat.gstime(new Date(frameMs)) - sp.g0), c = Math.cos(a), s = Math.sin(a);
+    line.positions = sp.base.map(p => new Cz.Cartesian3(p.x * c - p.y * s, p.x * s + p.y * c, p.z));
 }
 // Orbit lines as primitives, updated in place: re-adding entities every few seconds made the view flicker while following
 let orbitLines = null;
@@ -1329,13 +1382,47 @@ function orbitLine(line, positions, color, width, dashed) {
     orbitLines ??= viewer.scene.primitives.add(new Cz.PolylineCollection());
     if (line) { line.positions = positions; line.show = true; return line; }
     const c = Cz.Color.fromCssColorString(color).withAlpha(dashed ? 0.8 : 0.7);
-    return orbitLines.add({ positions, width, material: dashed ? Cz.Material.fromType('PolylineDash', { color: c, dashLength: 24 }) : Cz.Material.fromType('Color', { color: c }) });
+    return orbitLines.add({ positions, width, material: dashed ? Cz.Material.fromType('PolylineDash', { color: c, dashLength: 24 }) : orbitFadeMaterial(c) });
+}
+// Orbit line fading with eye distance: full near the camera, faint far away (the far side of a ring seen edge-on looks like a V).
+// Fixed type: one shared shader; a new material per line (a removed polyline destroys its material)
+const ORBIT_FADE_FULL_S = 60, ORBIT_FADE_SPAN = 2.5, ORBIT_FADE_ALPHA = 0; // close up: full 1 min of flight, gone after 2.5 min (5 min in all)
+function orbitFadeMaterial(color) {
+    return new Cz.Material({
+        fabric: {
+            type: 'WvOrbitFade',
+            uniforms: { color, fadeNear: 1e12, fadeFar: 1e13 },
+            source: `czm_material czm_getMaterial(czm_materialInput materialInput) {
+    czm_material m = czm_getDefaultMaterial(materialInput);
+    float d = 1.0 / gl_FragCoord.w; // eye-space depth (m)
+    m.diffuse = color.rgb;
+    m.alpha = color.a * max(1.0 - smoothstep(fadeNear, fadeFar, d), ${ORBIT_FADE_ALPHA.toFixed(2)});
+    return m;
+}`
+        },
+        translucent: true
+    });
+}
+// Fade starts at 3× the camera-object distance, at least the distance flown in 1 min: zoomed out the whole ring stays full,
+// close up only ~5 min of orbit remains (2.5 min either side)
+function fadeOrbit(line, r) {
+    const u = line?.material?.uniforms;
+    if (!u || u.fadeNear === undefined || !r?.pos) return;
+    // Only the selected object's line fades; the rest stay full rings
+    if (selected?.key !== r.key || !ORBITERS.includes(selected.layer)) { u.fadeNear = 1e12; u.fadeFar = 1e13; return; }
+    u.fadeNear = Math.max(3 * Cz.Cartesian3.distance(viewer.camera.positionWC, r.pos), (r.vel || 7.5) * 1000 * ORBIT_FADE_FULL_S);
+    u.fadeFar = u.fadeNear * ORBIT_FADE_SPAN;
+}
+function fadeOrbits() {
+    if (orbitEntity) fadeOrbit(orbitEntity, store.satellites.get(orbitEntity.wvKey));
+    for (const r of store.telescopes.values()) fadeOrbit(r.orbLine, r);
 }
 function drawOrbit(r) {
     if (orbitEntity && (orbitEntity.wvKey !== r.key || !sat || !r.rec?.no)) { orbitLines.remove(orbitEntity); orbitEntity = null; }
     if (!sat || !r.rec?.no) return;
     orbitEntity = orbitLine(orbitEntity, orbitPoints(r), r.color, 1.5, false);
     orbitEntity.wvKey = r.key;
+    fadeOrbit(orbitEntity, r);
 }
 function hideOrbit() { if (orbitEntity) { orbitLines.remove(orbitEntity); orbitEntity = null; } }
 // ISS: orbit always shown with the satellite layer (refreshed every 30 s), plus the live view from YouTube
@@ -2282,7 +2369,9 @@ async function loadTelescopes() {
         for (const [key, name, offset, wikiTitle] of L2_TELESCOPES) if (!store.telescopes.has(key)) addTel({ key, label: name, wikiTitle, l2: true, offset, group: 'grp.telescopeL2' });
         propagateTelescopes();
         runList('telescopes');
-        const tles = await Promise.all(TELESCOPES.map(([id]) => tleById(id).catch(() => null)));
+        // Most telescopes are in groups the satellite layer loads anyway: per-id request only for the rest (CelesTrak rate-limits)
+        const grp = await Promise.all(TEL_GROUPS.map(g => tleGroup(g).catch(() => null)));
+        const tles = await Promise.all(TELESCOPES.map(([id]) => grp.map(t => tleFromGroup(t, id)).find(Boolean) ?? tleById(id).catch(() => null)));
         telLoading = false;
         TELESCOPES.forEach(([id, name, wikiTitle], i) => {
             const lines = (tles[i] || '').split(/\r?\n/).map(s => s.trimEnd()).filter(Boolean);
@@ -2320,18 +2409,19 @@ const L2_LINE_PTS = 48;
 function drawTelOrbits() {
     if (!sat || !telOrbits) return;
     telOrbits.removeAll();
-    const ring = Cz.Material.fromType('Color', { color: Cz.Color.fromCssColorString(TEL_COLOR).withAlpha(0.55) });
+    const ringColor = Cz.Color.fromCssColorString(TEL_COLOR).withAlpha(0.55);
     for (const r of store.telescopes.values()) {
         if (r.l2Line) r.l2Line.show = r.listOk !== false;
         if (r.listOk === false) continue; // filtered out in the panel
         if (r.l2 || !r.rec?.no) continue; // L2 lines: onPreRender
-        const pts = orbitPoints(r, 240);
-        r.orbLine = pts.length > 1 ? telOrbits.add({ positions: pts, width: 1.5, material: ring }) : null;
+        const pts = orbitPoints(r, 480);
+        r.orbLine = pts.length > 1 ? telOrbits.add({ positions: pts, width: 1.5, material: orbitFadeMaterial(ringColor) }) : null;
+        fadeOrbit(r.orbLine, r);
     }
 }
 // Selected telescope: its ring every second (a 30 s re-alignment made the far part jump ~15 km: the line wobbled)
 function drawTelOrbit(r) {
-    if (sat && r?.orbLine && r.rec?.no) r.orbLine.positions = orbitPoints(r, 240);
+    if (sat && r?.orbLine && r.rec?.no) r.orbLine.positions = orbitPoints(r);
 }
 
 // static point layers
@@ -2650,9 +2740,9 @@ export function airportGo(key) {
 // q: { q, a, b, inView, flag }; filters also decide what shows on the globe (r.listOk)
 const LISTS = {
     satellites: {
-        match: (r, q, t) => (!q.a || r.group === q.a) && (!t || r.label.toLowerCase().includes(t) || r.key === t),
+        match: (r, q, t) => (!q.a || r.group === q.a) && (!q.flag || hasModel('satellites', r.key)) && (!t || r.label.toLowerCase().includes(t) || r.key === t),
         sort: (a, b) => (b.key === ISS_ID) - (a.key === ISS_ID) || a.label.localeCompare(b.label, loc()),
-        row: r => ({ key: r.key, name: r.label, sub: [`NORAD ${r.key}`, tr(r.group), r.alt ? `${Math.round(r.alt / 1000).toLocaleString(loc())} km` : ''].filter(Boolean).join(' · '), flag: !!r.embed }),
+        row: r => ({ key: r.key, name: r.label, sub: [`NORAD ${r.key}`, tr(r.group), r.alt ? `${Math.round(r.alt / 1000).toLocaleString(loc())} km` : ''].filter(Boolean).join(' · '), flag: hasModel('satellites', r.key) }),
         optA: () => SAT_GROUPS.map(([, , l]) => ({ k: l, v: tr(l) })),
         optB: () => [],
         apply: r => { if (r.pt) r.pt.show = r.listOk !== false; }
@@ -2666,9 +2756,9 @@ const LISTS = {
         apply: r => { if (r.bb) r.bb.show = r.listOk !== false; }
     },
     telescopes: {
-        match: (r, q, t) => (!q.a || r.group === q.a) && (!t || r.label.toLowerCase().includes(t) || r.key === t),
+        match: (r, q, t) => (!q.a || r.group === q.a) && (!q.flag || hasModel('telescopes', r.key)) && (!t || r.label.toLowerCase().includes(t) || r.key === t),
         sort: (a, b) => a.label.localeCompare(b.label, loc()),
-        row: r => ({ key: r.key, name: r.label, sub: [r.l2 ? 'L2' : `NORAD ${r.key}`, tr(r.group), r.l2 ? tr('v.millionKm', { n: 1.5 }) : r.alt ? `${Math.round(r.alt / 1000).toLocaleString(loc())} km` : ''].filter(Boolean).join(' · '), flag: false }),
+        row: r => ({ key: r.key, name: r.label, sub: [r.l2 ? 'L2' : `NORAD ${r.key}`, tr(r.group), r.l2 ? tr('v.millionKm', { n: 1.5 }) : r.alt ? `${Math.round(r.alt / 1000).toLocaleString(loc())} km` : ''].filter(Boolean).join(' · '), flag: hasModel('telescopes', r.key) }),
         optA: () => ['grp.telescope', 'grp.telescopeL2'].map(k => ({ k, v: tr(k) })),
         optB: () => [],
         apply: r => { if (r.pt) r.pt.show = r.lbl.show = r.listOk !== false; },
@@ -3068,8 +3158,13 @@ function startOrbTrack(r) {
     orbManual = false; orbLast = null; // composed view until the user moves
 }
 // Angle between target and Earth centre as seen from the camera
-const ORB_SEP = 26 * Math.PI / 180;
-// Camera offset (east-north-up) behind the target, tilted until target and Earth centre are ORB_SEP apart
+// At most 26°, but the Earth centre (lower left, 45°) at 40% of the half view (clear of the bottom panels) in both directions: a flat phone screen in landscape
+// has only ~15° half height, so a fixed 26° put the Earth outside the view (Chandra, JWST)
+function orbSep() {
+    const f = viewer.camera.frustum, hy = Math.tan((f.fovy ?? f.fov) / 2), hx = hy * (f.aspectRatio || 1);
+    return Math.min(26 * Math.PI / 180, Math.atan(Math.min(hx, hy) * 0.4 * Math.SQRT2));
+}
+// Camera offset (east-north-up) behind the target, tilted until target and Earth centre are orbSep() apart
 function orbOffset(r, p) {
     // With a 3D model (its own, or one within 2 km: docked craft such as Nauka, Soyuz, Dragon at the ISS): close by, real size in view
     let model = MODEL_SIZE[MODELS[selected?.layer]?.[r.key]];
@@ -3081,11 +3176,12 @@ function orbOffset(r, p) {
     // Target at the origin, Earth centre at (0, 0, -R), camera at L·(0, -sin t, cos t)
     const sep = t => Math.acos(Math.min(1, (L + Math.cos(t) * R) / Math.hypot(L * Math.sin(t), R + L * Math.cos(t))));
     let lo = 0, hi = toRad(89);
-    for (let i = 0; i < 30; i++) { const t = (lo + hi) / 2; if (sep(t) < ORB_SEP) lo = t; else hi = t; }
+    const want = orbSep();
+    for (let i = 0; i < 30; i++) { const t = (lo + hi) / 2; if (sep(t) < want) lo = t; else hi = t; }
     const t = (lo + hi) / 2;
     return new Cz.Cartesian3(0, -L * Math.sin(t), L * Math.cos(t));
 }
-// Aim between target and Earth: target upper right, Earth lower left
+// Aim at the target (screen centre), rolled so the Earth lies lower left
 let orbW = null; // last Earth → target screen direction (used while they line up)
 function orbAim() {
     const cam = viewer.camera, C3 = Cz.Cartesian3;
@@ -3093,9 +3189,8 @@ function orbAim() {
     const earth = Cz.Matrix4.multiplyByPoint(inv, C3.ZERO, new C3()); // Earth centre in the target's frame
     const a = C3.normalize(C3.negate(cam.position, new C3()), new C3());
     const b = C3.normalize(C3.subtract(earth, cam.position, new C3()), new C3());
-    // Target and Earth (almost) in line: no direction between them; look at the target and keep the last screen layout
-    const ab = C3.add(a, b, new C3());
-    const d = C3.magnitude(ab) > 1e-6 ? C3.normalize(ab, ab) : a;
+    // Look straight at the target (was the bisector of target and Earth: target off-centre upper right)
+    const d = a;
     const v = C3.subtract(a, b, new C3());
     const vp = C3.subtract(v, C3.multiplyByScalar(d, C3.dot(d, v), new C3()), new C3());
     let w;
@@ -3555,7 +3650,7 @@ export function setLang(lang) {
 export function setZoom(layer, on) { S.zoom[layer] = !!on; saveSettings(); }
 export function setDetect(on, fromEngine = false) {
     S.detect = !!on; saveSettings();
-    if (!S.detect && detectCtx) detectCtx.clearRect(0, 0, detectCanvas.width, detectCanvas.height);
+    if (!S.detect && detectCtx) { detectCtx.clearRect(0, 0, detectCanvas.width, detectCanvas.height); orbNameHits = []; }
     if (fromEngine) notify('OnToggle', 'detect', S.detect);
 }
 export function setCockpit(on) {
@@ -3680,8 +3775,9 @@ function tick() {
     if (selected && now - lastInfo > 2000) { lastInfo = now; pushInfo(); }
 }
 // 3D models (NASA 3D Resources) in real size (m); minimumPixelSize keeps them visible as an icon from far away
-const MODELS = { satellites: { '25544': 'iss' }, telescopes: { '20580': 'hubble', '25867': 'chandra', jwst: 'jwst' } };
-const MODEL_SIZE = { iss: 109, hubble: 13.2, chandra: 19.5, jwst: 21.2 }; // longest extent (m)
+function hasModel(layer, key) { return !!MODELS[layer]?.[key]; } // true when the object has a 3D model
+const MODELS = { satellites: { '25544': 'iss', '39084': 'landsat8', '25994': 'terra', '43613': 'icesat2' }, telescopes: { '20580': 'hubble', '25867': 'chandra', jwst: 'jwst', '33053': 'fermi', '28485': 'swift', '43435': 'tess' } };
+const MODEL_SIZE = { iss: 109, hubble: 13.2, chandra: 19.5, jwst: 21.2, fermi: 8.5, swift: 5.6, tess: 4.0, landsat8: 5.2, terra: 16.7, icesat2: 10.0 }; // longest extent (m)
 // Per-model rotation into flight attitude. ISS: modules along the motion, truss across it, flat over the Earth
 // (as delivered the truss pointed forward and the modules up: plane on its edge). Maps x→y, y→z, z→x
 const MODEL_FIX = { iss: Cz.Matrix4.fromRotation(new Cz.Matrix3(0, 0, 1, 1, 0, 0, 0, 1, 0)) };
@@ -3727,6 +3823,8 @@ function modelsStep() {
 }
 function onPreRender(scene, time) {
     frameMs = time ? Cz.JulianDate.toDate(time).getTime() : Date.now(); // one instant for everything drawn this frame
+    fadeOrbits();
+    spinOrbit();
     // Selected satellite: its dot every frame (the rest once a second); else it jumps ~8 km per second against the smoothly following camera
     // Selected telescope: same per-frame move (dot + its label)
     // All telescopes every frame (only a few): a deselected one no longer jumps 7.5 km/s (L2: 110 km/s) away from the camera
@@ -3894,7 +3992,58 @@ function drawDetect() {
         const name = String(r.label || r.key).slice(0, 18);
         ctx.fillText(MOVERS.includes(l) ? `${name} ${Math.round((r.gs || 0) * 3.6)} ${tr('u.kmh')}` : name, x + b + 3, y - b + 8);
     }
+    drawOrbitNames(ctx, occ, toWin, w, h, drawn);
     detectShown = shownNow;
+}
+// Detection on: name along the orbit line of a satellite/telescope whose object is off screen; a click on it selects the object
+let orbNameHits = [];
+function drawOrbitNames(ctx, occ, toWin, w, h, drawn) {
+    orbNameHits = [];
+    const targets = [];
+    if (S.layers.telescopes) for (const r of store.telescopes.values()) if (!r.l2 && r.listOk !== false && r.orbLine) targets.push(['telescopes', r, r.orbLine]);
+    const iss = store.satellites.get(ISS_ID);
+    if (S.layers.satellites && iss && issOrbitEntity?.show) targets.push(['satellites', iss, issOrbitEntity]);
+    const m = 10, taken = [], dist2 = Cz.Cartesian3.distanceSquared;
+    for (const [l, r, line] of targets) {
+        const pts = line.positions;
+        if (!pts?.length || !r.pos || (selected?.layer === l && selected.key === r.key)) continue;
+        const sp = occ.isPointVisible(r.pos) ? toWin(viewer.scene, r.pos, scratchWin) : null;
+        if (sp && sp.x >= 0 && sp.y >= 0 && sp.x <= w && sp.y <= h) { r.nameP = null; continue; } // object itself in view
+        const name = String(r.label || r.key).slice(0, 18), tw = ctx.measureText(name).width;
+        // Spot on screen (arrow + whole text inside) and not behind the Earth
+        const onScreen = p => { if (!occ.isPointVisible(p)) return null; const s = toWin(viewer.scene, p); return s && s.x >= m + 20 && s.x <= w - tw - 2 * m - 30 && s.y >= m + 28 && s.y <= h - m - 20 ? s : null; };
+        let s = null, bi = -1;
+        if (r.nameP) { // keep the held spot while it stays on screen: no hopping
+            let bd = 1e30;
+            for (let i = 0; i < pts.length; i++) { const d = dist2(pts[i], r.nameP); if (d < bd) { bd = d; bi = i; } }
+            if (bd < 1e10) s = onScreen(pts[bi]);
+        }
+        if (!s) { // new spot: the visible orbit point closest to the object
+            let bd = 1e30; bi = -1;
+            for (let i = 0; i < pts.length; i++) { const d = dist2(pts[i], r.pos); if (d < bd) { const q = onScreen(pts[i]); if (q) { bd = d; bi = i; s = q; } } }
+        }
+        r.nameP = s ? pts[bi] : null;
+        if (!s) continue;
+        // Arrow: beside the line (normal to it, on the right side), tip on the line, name behind the tail
+        const a = toWin(viewer.scene, pts[(bi + pts.length - 1) % pts.length]), c = toWin(viewer.scene, pts[(bi + 1) % pts.length]);
+        let tx = a && c ? c.x - a.x : 1, ty = a && c ? c.y - a.y : 0;
+        const tl = Math.hypot(tx, ty) || 1;
+        let nx = -ty / tl, ny = tx / tl;
+        if (nx < -0.01 || (Math.abs(nx) <= 0.01 && ny < 0)) { nx = -nx; ny = -ny; }
+        const L = 20, tail = [s.x + nx * L, s.y + ny * L], tip = [s.x + nx * 2, s.y + ny * 2];
+        if (drawn.some(([dx, dy]) => Math.abs(dx - tail[0]) < tw + 40 && Math.abs(dy - tail[1]) < 24) || taken.some(([ox, oy]) => Math.abs(ox - tail[0]) < tw + 40 && Math.abs(oy - tail[1]) < 24)) continue;
+        taken.push(tail);
+        ctx.strokeStyle = ctx.fillStyle = DETECT_COLORS[l];
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(tail[0], tail[1]); ctx.lineTo(tip[0] + nx * 5, tip[1] + ny * 5); ctx.stroke();
+        ctx.beginPath(); // head: 7 px long, 3.5 px half-width
+        ctx.moveTo(tip[0], tip[1]);
+        ctx.lineTo(tip[0] + nx * 7 - ny * 3.5, tip[1] + ny * 7 + nx * 3.5);
+        ctx.lineTo(tip[0] + nx * 7 + ny * 3.5, tip[1] + ny * 7 - nx * 3.5);
+        ctx.closePath(); ctx.fill();
+        ctx.fillText(name, tail[0] + 5, tail[1] + 4);
+        orbNameHits.push([tail[0] - 8, tail[1] - 12, tw + 20, 22, l, r.key]);
+    }
 }
 let detectShown = new Set();
 const DETECT_CW = 200, DETECT_CH = 40; // label grid cell (px)

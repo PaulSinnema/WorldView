@@ -81,6 +81,7 @@ const S = {
     'lch.search': ['Search launch or provider…', 'Zoek lancering of aanbieder…', 'Start oder Anbieter suchen…', 'Rechercher lancement ou opérateur…', '搜索发射或发射商…'],
     'lch.allProviders': ['All providers', 'Alle aanbieders', 'Alle Anbieter', 'Tous les opérateurs', '所有发射商'],
     'lch.allStatus': ['All statuses', 'Alle statussen', 'Alle Status', 'Tous les statuts', '所有状态'],
+    'list.model': ['3D model', '3D-model', '3D-Modell', 'Modèle 3D', '3D 模型'],
     'lch.webcast': ['Webcast', 'Webcast', 'Webcast', 'Webcast', '直播'],
     'list.count': ['{n} found', '{n} gevonden', '{n} gefunden', '{n} trouvés', '找到 {n} 个'],
     'list.none': ['Nothing found', 'Niets gevonden', 'Nichts gefunden', 'Rien trouvé', '未找到'],
@@ -232,6 +233,7 @@ const S = {
     'grp.weather': ['Weather satellite', 'Weersatelliet', 'Wettersatellit', 'Satellite météo', '气象卫星'],
     'grp.science': ['Science', 'Wetenschap', 'Wissenschaft', 'Science', '科学'],
     'grp.geo': ['Geostationary', 'Geostationair', 'Geostationär', 'Géostationnaire', '地球静止'],
+    'grp.resource': ['Earth observation', 'Aardobservatie', 'Erdbeobachtung', 'Observation de la Terre', '对地观测'],
     'grp.telescope': ['Space telescope', 'Ruimtetelescoop', 'Weltraumteleskop', 'Télescope spatial', '太空望远镜'],
     'grp.telescopeL2': ['Space telescope (L2)', 'Ruimtetelescoop (L2)', 'Weltraumteleskop (L2)', 'Télescope spatial (L2)', '太空望远镜（L2）'],
 
