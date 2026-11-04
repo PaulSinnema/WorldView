@@ -152,6 +152,26 @@ else if (error is not null)
             }
         </div>
     }
+    @if (detect)
+    {
+        @* Detection labels: size, optional black plate with its opacity *@
+        <label class="slider">
+            <span>@T("det.font")</span>
+            <input type="range" min="10" max="24" value="@detectFont" @oninput='e => SetDetectStyle(e, "font")' aria-label="@T("det.font")" />
+            <span>@(detectFont)px</span>
+        </label>
+        <div class="toggles" style="margin-top:4px">
+            <button class="@(detectBg ? "active" : "")" @onclick='() => SetDetectStyle(null, "bg")'>@T("det.bg")</button>
+        </div>
+        @if (detectBg)
+        {
+            <label class="slider">
+                <span>@T("det.bgAlpha")</span>
+                <input type="range" min="0" max="100" value="@detectBgAlpha" @oninput='e => SetDetectStyle(e, "alpha")' aria-label="@T("det.bgAlpha")" />
+                <span>@detectBgAlpha%</span>
+            </label>
+        }
+    }
     @if (dayNight)
     {
         <label class="slider">
@@ -436,6 +456,8 @@ else if (error is not null)
     private string style = "normal", basemap = "esri", ionToken = "", searchText = "";
     private string gpu = "";
     private int nightLight = 60;
+    private int detectFont = 14, detectBgAlpha = 60;
+    private bool detectBg;
     private bool borders, regions = true, cities = true, coast, eez, nature, streets, timezones, envClick = true;
     private string envOverlay = "";
     private static readonly string[] EnvLayers = ["tempAnom", "lstDay", "lstNight", "sst", "sstAnom", "coral", "seaIce", "no2", "so2", "nh3", "powerYear", "power", "ozoneCams", "ozone", "aod", "rain", "ndvi", "snow"];
@@ -525,6 +547,9 @@ else if (error is not null)
                 dayNight = st.DayNight;
                 trails = st.Trails;
                 nightLight = st.NightLight;
+                detectFont = st.DetectFont;
+                detectBg = st.DetectBg;
+                detectBgAlpha = st.DetectBgAlpha;
                 borders = st.Borders;
                 regions = st.Regions;
                 cities = st.Cities;
@@ -616,6 +641,15 @@ else if (error is not null)
     {
         trails = !trails;
         if (module is not null) await module.InvokeVoidAsync("setTrails", trails);
+    }
+
+    // what: "font" / "alpha" (slider value in e) or "bg" (toggle)
+    private async Task SetDetectStyle(ChangeEventArgs? e, string what)
+    {
+        if (what == "bg") detectBg = !detectBg;
+        else if (int.TryParse(e?.Value?.ToString(), out var v)) { if (what == "font") detectFont = v; else detectBgAlpha = v; }
+        else return;
+        if (module is not null) await module.InvokeVoidAsync("setDetectStyle", detectFont, detectBg, detectBgAlpha);
     }
 
     private async Task SetNightLight(ChangeEventArgs e)
@@ -1547,6 +1581,9 @@ else if (error is not null)
         public bool DayNight { get; set; } = true;
     public bool Trails { get; set; } = true;
         public int NightLight { get; set; } = 60;
+        public int DetectFont { get; set; } = 14;
+        public bool DetectBg { get; set; }
+        public int DetectBgAlpha { get; set; } = 60;
         public bool Borders { get; set; }
         public bool Regions { get; set; } = true;
         public bool Cities { get; set; } = true;

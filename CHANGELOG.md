@@ -2,6 +2,14 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.235] - 2026-11-04
+### Added
+- Settings (with Detection on): detection label size (10–24 px) and an optional black plate under the labels with adjustable opacity; saved with the other settings.
+
+## [1.0.234] - 2026-11-04
+### Changed
+- Detection labels (aircraft, satellites, orbit names) easier to read: dark outline around the text and 14 px semi-bold (was 13 px with a light shadow).
+
 ## [1.0.233] - 2026-11-04
 ### Fixed
 - Trails (and detection labels) of aircraft hidden by the panel filter stayed visible without their aircraft.

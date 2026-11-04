@@ -50,6 +50,13 @@ const NIGHT_URL = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Blac
 let nightLayer = null;
 // Night brightness 0..100 → city-lights blend 0.8..0.05 (60 ≈ 0.35)
 const nightAlpha = () => 0.8 - Math.max(0, Math.min(100, S.nightLight)) / 100 * 0.75;
+// Detection labels: size (px), black plate on/off, plate opacity (%)
+export function setDetectStyle(font, bg, alpha) {
+    S.detectFont = Math.min(24, Math.max(10, +font || 14));
+    S.detectBg = !!bg;
+    S.detectBgAlpha = Math.min(100, Math.max(0, +alpha || 0));
+    saveSettings();
+}
 export function setNightLight(v) {
     S.nightLight = Number(v); saveSettings();
     if (nightLayer) nightLayer.nightAlpha = nightAlpha();
@@ -79,6 +86,9 @@ function loadSettings() {
     if (typeof S.daynight !== 'boolean') S.daynight = true;
     if (typeof S.trails !== 'boolean') S.trails = true;
     if (!Number.isFinite(S.nightLight)) S.nightLight = 60;
+    if (!Number.isFinite(S.detectFont)) S.detectFont = 14; // detection label size (px)
+    if (typeof S.detectBg !== 'boolean') S.detectBg = false; // black plate under detection labels
+    if (!Number.isFinite(S.detectBgAlpha)) S.detectBgAlpha = 60; // its opacity (%)
     if (typeof S.regions !== 'boolean') S.regions = true;
     if (typeof S.cities !== 'boolean') S.cities = true;
     if (typeof S.timezones !== 'boolean') S.timezones = false;
@@ -880,7 +890,7 @@ export async function init(containerId, ref) {
     if (S.streets) setStreets(true);
     for (const l of LAYERS) if (S.layers[l]) startLayer(l);
 
-    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, trails: S.trails, nightLight: S.nightLight, borders: S.borders, regions: S.regions, cities: S.cities, coast: S.coast, eez: S.eez, nature: S.nature, streets: S.streets, timezones: S.timezones, envOverlay: S.envOverlay, envClick: S.envClick, zoom: S.zoom, gpu: gpuName });
+    return JSON.stringify({ layers: S.layers, style: S.style, basemap: S.basemap, ionToken: S.ionToken, hud: S.hud, detect: S.detect, dayNight: S.daynight, trails: S.trails, nightLight: S.nightLight, detectFont: S.detectFont, detectBg: S.detectBg, detectBgAlpha: S.detectBgAlpha, borders: S.borders, regions: S.regions, cities: S.cities, coast: S.coast, eez: S.eez, nature: S.nature, streets: S.streets, timezones: S.timezones, envOverlay: S.envOverlay, envClick: S.envClick, zoom: S.zoom, gpu: gpuName });
 }
 
 // Warn when the browser renders in software (hardware acceleration off or no GPU)
@@ -3999,7 +4009,7 @@ function drawDetect() {
     }
     const items = [...cells.values()].sort((a, b) => a[0] - b[0]);
     const shownNow = new Set();
-    ctx.lineWidth = 1; ctx.font = '13px "Share Tech Mono", monospace';
+    ctx.lineWidth = 1; ctx.font = `600 ${S.detectFont}px "Share Tech Mono", monospace`;
     ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3;
     const b = 11, drawn = [];
     for (const [, x, y, r, l] of items) {
@@ -4017,10 +4027,24 @@ function drawDetect() {
         // Moving targets: speed next to the name
         if (r.lbl?.show && telLabels?.show) continue; // has its own map label (telescopes): box only
         const name = String(r.label || r.key).slice(0, 18);
-        ctx.fillText(MOVERS.includes(l) ? `${name} ${Math.round((r.gs || 0) * 3.6)} ${tr('u.kmh')}` : name, x + b + 3, y - b + 8);
+        detectText(ctx, MOVERS.includes(l) ? `${name} ${Math.round((r.gs || 0) * 3.6)} ${tr('u.kmh')}` : name, x + b + 3, y - b + 8);
     }
     drawOrbitNames(ctx, occ, toWin, w, h, drawn);
     detectShown = shownNow;
+}
+// Label text with a dark outline, optionally on a black plate: readable on any background (fillStyle = layer colour, set by the caller)
+function detectText(ctx, text, x, y) {
+    const lw = ctx.lineWidth, sb = ctx.shadowBlur, fs = ctx.fillStyle, px = S.detectFont;
+    ctx.shadowBlur = 0;
+    if (S.detectBg && S.detectBgAlpha > 0) {
+        ctx.fillStyle = `rgba(0,0,0,${S.detectBgAlpha / 100})`;
+        ctx.fillRect(x - 3, y - px * 0.9, ctx.measureText(text).width + 6, px * 1.25);
+        ctx.fillStyle = fs;
+    }
+    ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
+    ctx.lineWidth = lw; ctx.shadowBlur = sb;
 }
 // Detection on: name along the orbit line of a satellite/telescope whose object is off screen; a click on it selects the object
 let orbNameHits = [];
@@ -4068,7 +4092,7 @@ function drawOrbitNames(ctx, occ, toWin, w, h, drawn) {
         ctx.lineTo(tip[0] + nx * 7 - ny * 3.5, tip[1] + ny * 7 + nx * 3.5);
         ctx.lineTo(tip[0] + nx * 7 + ny * 3.5, tip[1] + ny * 7 - nx * 3.5);
         ctx.closePath(); ctx.fill();
-        ctx.fillText(name, tail[0] + 5, tail[1] + 4);
+        detectText(ctx, name, tail[0] + 5, tail[1] + 4);
         orbNameHits.push([tail[0] - 8, tail[1] - 12, tw + 20, 22, l, r.key]);
     }
 }
