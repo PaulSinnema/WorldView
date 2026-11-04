@@ -152,7 +152,6 @@ const S = {
     // info panel
     'info.close': ['Close', 'Sluiten', 'Schließen', 'Fermer', '关闭'],
     'info.enlarge': ['Click to enlarge', 'Klik om te vergroten', 'Zum Vergrößern klicken', 'Cliquer pour agrandir', '点击放大'],
-    'info.shrink': ['Click to shrink', 'Klik om te verkleinen', 'Zum Verkleinern klicken', 'Cliquer pour réduire', '点击缩小'],
     'info.zoomHint': ['scroll or pinch to zoom, drag to pan, double-click to reset', 'scrollen of knijpen om te zoomen, slepen om te verschuiven, dubbelklik om te herstellen', 'Scrollen oder Ziehen mit zwei Fingern zum Zoomen, Ziehen zum Verschieben, Doppelklick zum Zurücksetzen', 'molette ou pincement pour zoomer, glisser pour déplacer, double-clic pour réinitialiser', '滚轮或双指缩放，拖动平移，双击复位'],
     'info.wiki': ['More on Wikipedia ↗', 'Meer op Wikipedia ↗', 'Mehr auf Wikipedia ↗', 'En savoir plus sur Wikipédia ↗', '在维基百科上了解更多 ↗'],
     'btn.enlarge': ['Enlarge', 'Vergroot', 'Vergrößern', 'Agrandir', '放大'],

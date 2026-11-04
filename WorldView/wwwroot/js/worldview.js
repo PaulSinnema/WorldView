@@ -61,7 +61,7 @@ const icons = {};
 let telLabels = null, telOrbits = null, lastTelOrbit = 0;
 let selected = null, trackEntity = null, orbitEntity = null, trail = [];
 let styleStage = null, googleTiles = null;
-let detectCanvas = null, detectCtx = null, lastDetect = 0, lastCam = 0, lastInfo = 0, lastTrail = 0, lastOrbit = 0, lastTick = 0;
+let detectCanvas = null, detectCtx = null, lastCam = 0, lastInfo = 0, lastTrail = 0, lastOrbit = 0, lastTick = 0;
 let audio = null;
 
 const toDeg = r => Cz.Math.toDegrees(r);
@@ -896,7 +896,6 @@ function checkGpu() {
         }
     } catch { }
 }
-export const getGpu = () => gpuName;
 
 // ---------- layers ----------
 const LOADERS = { flights: loadFlights, military: loadMilitary, trains: loadTrains, ov: loadOv, air: loadAir, satellites: loadSatellites, telescopes: loadTelescopes, quakes: loadQuakes, fires: loadFires, launches: loadLaunches, radio: loadRadio, cameras: loadCameras, plants: loadPlants, museums: loadMuseums, airports: loadAirports };
@@ -3398,8 +3397,8 @@ function addRadioStation(s) {
 }
 const isFav = key => (S.radioFav || []).some(f => f.key === key);
 const radioPublic = m => ({
-    key: m.key, name: m.name, country: (m.cc && regionName(m.cc)) || m.country || '', tags: m.tags, codec: m.codec,
-    bitrate: m.bitrate, favicon: m.favicon, geo: m.lat != null && m.lon != null, fav: isFav(m.key)
+    key: m.key, name: m.name, country: (m.cc && regionName(m.cc)) || m.country || '', tags: m.tags,
+    favicon: m.favicon, geo: m.lat != null && m.lon != null, fav: isFav(m.key)
 });
 // Countries with stations, names in the UI language
 export async function radioCountries() {
@@ -3891,7 +3890,6 @@ function onPostRender() {
     try { drawLabels(); } catch (e) { console.warn('labels', e); }
     // Every frame: boxes stay glued to their targets while the globe moves
     if (S.detect) {
-        lastDetect = now;
         // Never let the overlay break Cesium's render loop
         try { drawDetect(); } catch (e) { console.warn('detect', e); setDetect(false, true); toast(tr('toast.detectOff', { e: e?.message ?? e })); }
     }

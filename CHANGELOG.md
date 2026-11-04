@@ -2,6 +2,10 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.231] - 2026-11-04
+### Removed
+- Dead code: `getGpu` export and write-only `lastDetect` (worldview.js), unused radio `Codec`/`Bitrate` fields (WorldConsole.razor + payload), unused `info.shrink` text, unused `.radio-count` CSS.
+
 ## [1.0.230] - 2026-11-04
 ### Changed
 - Satellites/telescopes: 1.0.229 undone, navigation is free again after the first positioning.
