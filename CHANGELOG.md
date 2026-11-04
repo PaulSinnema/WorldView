@@ -2,6 +2,30 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.187] - 2026-11-04
+### Fixed
+- Detection overlay: no second name next to objects that already have their own map label (space telescopes); box only.
+
+## [1.0.186] - 2026-11-04
+### Changed
+- Satellites and space telescopes: composed view instead of the Earth straight behind — object at the upper right, Earth (centre) at the lower left, 26° apart; kept every frame while tracking.
+
+## [1.0.185] - 2026-11-04
+### Changed
+- Satellites and space telescopes: the camera sits above/behind the object, tilted just enough that the Earth is always the background (also for high orbits such as Chandra and for L2). "Zoom to" uses the same view.
+
+## [1.0.184] - 2026-11-04
+### Changed
+- Phones: no floating info box at all (it covered the dock); the info box only shows inside the tapped list row.
+
+## [1.0.183] - 2026-11-04
+### Changed
+- One shared dock panel (`DockPanel` + `DockSpec`) for all list panels: airports, museums, radio, satellites, telescopes, launches. Each panel only supplies its filters, head controls and rows; head, pager, rows, row details and phone info box are shared.
+
+## [1.0.182] - 2026-11-04
+### Changed
+- Phones (portrait and landscape): tapping a row in any list panel shows the full info box inside that row (player, photo, fields, buttons) instead of behind the panel.
+
 ## [1.0.181] - 2026-11-04
 ### Fixed
 - Telescope list could stay empty: the only list was sent once at start-up (telescopes load fast, before the UI was listening). Opening a list panel (satellites, telescopes, launches) now asks the engine for a fresh list; list errors are logged to the console and crash report.

@@ -2942,6 +2942,8 @@ export function zoomToSelection() {
         if (lat != null && lon != null) target = Cz.Cartesian3.fromDegrees(lon, lat, 0);
     }
     if (!target || S.cockpit) return false;
+    const orb = selected && ORBITERS.includes(selected.layer) ? store[selected.layer]?.get(selected.key) : null;
+    if (orb) { startOrbTrack(orb); return true; } // satellites/telescopes: Earth in the background
     stopTrack();
     const cam = viewer.camera, h = camHeight(), alt = Cz.Cartographic.fromCartesian(target).height;
     // Look down at least 15°, distance so the camera height stays the same
@@ -3008,7 +3010,35 @@ function startOrbTrack(r) {
     if (!p) return;
     viewer.trackedEntity = undefined;
     orbTrack = true;
-    viewer.camera.lookAtTransform(Cz.Transforms.eastNorthUpToFixedFrame(p), r.l2 ? new Cz.Cartesian3(0, -6e8, 4e8) : new Cz.Cartesian3(0, -1.6e6, 1.2e6));
+    viewer.camera.lookAtTransform(Cz.Transforms.eastNorthUpToFixedFrame(p), orbOffset(r, p));
+    orbAim();
+}
+// Angle between target and Earth centre as seen from the camera
+const ORB_SEP = 26 * Math.PI / 180;
+// Camera offset (east-north-up) behind the target, tilted until target and Earth centre are ORB_SEP apart
+function orbOffset(r, p) {
+    const L = r.l2 ? 7.2e8 : 2e6, R = Cz.Cartesian3.magnitude(p);
+    // Target at the origin, Earth centre at (0, 0, -R), camera at L·(0, -sin t, cos t)
+    const sep = t => Math.acos(Math.min(1, (L + Math.cos(t) * R) / Math.hypot(L * Math.sin(t), R + L * Math.cos(t))));
+    let lo = 0, hi = toRad(89);
+    for (let i = 0; i < 30; i++) { const t = (lo + hi) / 2; if (sep(t) < ORB_SEP) lo = t; else hi = t; }
+    const t = (lo + hi) / 2;
+    return new Cz.Cartesian3(0, -L * Math.sin(t), L * Math.cos(t));
+}
+// Aim between target and Earth: target upper right, Earth lower left
+function orbAim() {
+    const cam = viewer.camera, C3 = Cz.Cartesian3;
+    const inv = Cz.Matrix4.inverseTransformation(cam.transform, new Cz.Matrix4());
+    const earth = Cz.Matrix4.multiplyByPoint(inv, C3.ZERO, new C3()); // Earth centre in the target's frame
+    const a = C3.normalize(C3.negate(cam.position, new C3()), new C3());
+    const b = C3.normalize(C3.subtract(earth, cam.position, new C3()), new C3());
+    const d = C3.normalize(C3.add(a, b, new C3()), new C3());
+    const v = C3.subtract(a, b, new C3());
+    const w = C3.normalize(C3.subtract(v, C3.multiplyByScalar(d, C3.dot(d, v), new C3()), new C3()), new C3()); // Earth → target on screen
+    const q = C3.cross(d, w, new C3());
+    C3.clone(d, cam.direction);
+    C3.normalize(C3.subtract(w, q, new C3()), cam.up); // w is 45° between up and right
+    C3.normalize(C3.add(w, q, new C3()), cam.right);
 }
 function orbTrackStep() {
     if (!orbTrack) return;
@@ -3017,6 +3047,7 @@ function orbTrackStep() {
     const cam = viewer.camera;
     // Same offset in the new frame: the camera moves along with the target
     cam.lookAtTransform(Cz.Transforms.eastNorthUpToFixedFrame(p), Cz.Cartesian3.clone(cam.position));
+    orbAim();
 }
 function stopTrack() {
     if (viewer?.trackedEntity) viewer.trackedEntity = undefined;
@@ -3695,6 +3726,7 @@ function drawDetect() {
         }
         ctx.stroke();
         // Moving targets: speed next to the name
+        if (r.lbl?.show && telLabels?.show) continue; // has its own map label (telescopes): box only
         const name = String(r.label || r.key).slice(0, 18);
         ctx.fillText(MOVERS.includes(l) ? `${name} ${Math.round((r.gs || 0) * 3.6)} ${tr('u.kmh')}` : name, x + b + 3, y - b + 8);
     }

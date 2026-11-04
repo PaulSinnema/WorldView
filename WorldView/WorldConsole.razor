@@ -216,10 +216,20 @@ else if (error is not null)
     </div>
 }
 
-@if (selection is not null)
+@if (selection is not null && !isPhone)
 {
-    <section class="info @(DockOpen ? "dock-open" : "")">
-        <header><span>@selection.Title</span><button class="x" title="@T("info.close")" @onclick="ClearSelection">✕</button></header>
+    @InfoBox(false)
+}
+
+@code {
+    // Info box: floating, or on phones inside the open list row
+    private RenderFragment InfoBox(bool inRow) => @<section class="info @(inRow ? "row-info" : DockOpen ? "dock-open" : "")">
+        @if (selection is not null)
+        {
+        @if (!inRow)
+        {
+            <header><span>@selection.Title</span><button class="x" title="@T("info.close")" @onclick="ClearSelection">✕</button></header>
+        }
         @if (!string.IsNullOrEmpty(selection.Embed))
         {
             @* YouTube player: own play, sound and fullscreen controls *@
@@ -293,7 +303,8 @@ else if (error is not null)
                 }
             </ul>
         }
-    </section>
+        }
+    </section>;
 }
 
 @if (enlarged && selection is not null && HasMedia)
@@ -375,171 +386,15 @@ else if (error is not null)
 }
 @if (layers.GetValueOrDefault("airports"))
 {
-    <section class="radio airport @(airportCollapsed ? "collapsed" : "")">
-        <div class="radio-head" title="@T("radio.collapse")" @onclick="() => airportCollapsed = !airportCollapsed">
-            <span class="radio-now">
-                <b>@T("layer.airports")</b>
-                <span>@AirportSummary</span>
-            </span>
-        </div>
-        @if (!airportCollapsed)
-        {
-            <div class="radio-filters">
-                <input type="search" value="@airportText" @oninput="OnAirportText" placeholder="@T("apt.search")" aria-label="@T("apt.search")" />
-                <Combo Items="CountryItems(airportCountries)" Value="@airportCountry" ValueChanged="OnAirportCountry" Placeholder="@T("radio.allCountries")" />
-                <Combo Items="AirportPlaceItems" Value="@airportCity" ValueChanged="OnAirportCity" Placeholder="@T("mus.place")" FreeText="true" Max="500" />
-                <Combo Items="AirportTypeItems" Value="@airportType" ValueChanged="OnAirportType" Placeholder="@T("apt.allTypes")" />
-                <button class="@(airportInView ? "active" : "")" @onclick="ToggleAirportInView">@T("radio.inView")</button>
-                <button class="@(airportAtcOnly ? "active" : "")" @onclick="ToggleAirportAtc">🎧 @T("apt.atc")</button>
-                @if (airportTotal > airportList.Count)
-                {
-                    <span class="pager">
-                        <button disabled="@(airportOffset == 0)" @onclick='() => RadioCall("airportPage", -1)'>◀</button>
-                        <span>@((airportOffset + 1).ToString("N0"))–@((airportOffset + airportList.Count).ToString("N0"))</span>
-                        <button disabled="@(airportOffset + airportList.Count >= airportTotal)" @onclick='() => RadioCall("airportPage", 1)'>▶</button>
-                    </span>
-                }
-            </div>
-            <ul class="radio-list" @key="airportOffset">
-                @foreach (var a in airportList)
-                {
-                    <li data-key="@a.Key" class="@(IsRowSel(a.Key) ? "sel" : "")" @onclick='() => RowClick("airportGo", "airportDetails", a.Key)'>
-                        <span class="noicon">@(a.Atc ? "🎧" : "✈")</span>
-                        <span class="rs-main">
-                            <b>@a.Name</b>
-                            <span>@string.Join(" · ", new[] { a.Codes, a.City, a.Country, a.Type }.Where(x => !string.IsNullOrEmpty(x)))</span>
-                        </span>
-                        <button class="fold @(rowOpen == a.Key ? "on" : "")" title="@T("row.details")" @onclick='() => ToggleRow("airportDetails", a.Key)' @onclick:stopPropagation="true">@(rowOpen == a.Key ? "▾" : "▸")</button>
-                    </li>
-                    @if (rowOpen == a.Key)
-                    {
-                        @RowDetailsBox()
-                    }
-                }
-            </ul>
-        }
-    </section>
+    @DockPanel(AirportPanel())
 }
 @if (layers.GetValueOrDefault("museums"))
 {
-    <section class="radio museum @(museumCollapsed ? "collapsed" : "")">
-        <div class="radio-head" title="@T("radio.collapse")" @onclick="() => museumCollapsed = !museumCollapsed">
-            <span class="radio-now">
-                <b>@T("layer.museums")</b>
-                <span>@MuseumSummary</span>
-            </span>
-        </div>
-        @if (!museumCollapsed)
-        {
-            <div class="radio-filters">
-                <input type="search" value="@museumText" @oninput="OnMuseumText" placeholder="@T("mus.search")" aria-label="@T("mus.search")" />
-                <Combo Items="CountryItems(museumCountries)" Value="@museumCountry" ValueChanged="OnMuseumCountry" Placeholder="@T("radio.allCountries")" />
-                <Combo Items="PlaceItems" Value="@museumCity" ValueChanged="OnMuseumCity" Placeholder="@T("mus.place")" FreeText="true" Max="500" />
-                <Combo Items="MuseumTypeItems" Value="@museumType" ValueChanged="OnMuseumType" Placeholder="@T("mus.allTypes")" />
-                <button class="@(museumInView ? "active" : "")" @onclick="ToggleMuseumInView">@T("radio.inView")</button>
-                <button class="@(museumWikiOnly ? "active" : "")" @onclick="ToggleMuseumWiki">@T("mus.wikiOnly")</button>
-                @if (museumTotal > museumList.Count)
-                {
-                    <span class="pager">
-                        <button disabled="@(museumOffset == 0)" @onclick='() => RadioCall("museumPage", -1)'>◀</button>
-                        <span>@((museumOffset + 1).ToString("N0"))–@((museumOffset + museumList.Count).ToString("N0"))</span>
-                        <button disabled="@(museumOffset + museumList.Count >= museumTotal)" @onclick='() => RadioCall("museumPage", 1)'>▶</button>
-                    </span>
-                }
-            </div>
-            <ul class="radio-list" @key="museumOffset">
-                @foreach (var m in museumList)
-                {
-                    <li data-key="@m.Key" class="@(IsRowSel(m.Key) ? "sel" : "")" @onclick='() => RowClick("museumGo", "museumDetails", m.Key)'>
-                        <span class="noicon">🏛</span>
-                        <span class="rs-main">
-                            <b>@m.Name</b>
-                            <span>@string.Join(" · ", new[] { m.Type, m.City, m.Country, m.Wiki ? "Wikipedia" : "" }.Where(x => !string.IsNullOrEmpty(x)))</span>
-                        </span>
-                        <button class="fold @(rowOpen == m.Key ? "on" : "")" title="@T("row.details")" @onclick='() => ToggleRow("museumDetails", m.Key)' @onclick:stopPropagation="true">@(rowOpen == m.Key ? "▾" : "▸")</button>
-                    </li>
-                    @if (rowOpen == m.Key)
-                    {
-                        @RowDetailsBox()
-                    }
-                }
-            </ul>
-        }
-    </section>
+    @DockPanel(MuseumPanel())
 }
 @if (layers.GetValueOrDefault("radio"))
 {
-    <section class="radio @(radioCollapsed ? "collapsed" : "")">
-        <div class="radio-head" title="@T("radio.collapse")" @onclick="() => radioCollapsed = !radioCollapsed">
-            <span class="radio-now @(radioNow?.Playing == true ? "on" : "")">
-                @if (radioNow is not null)
-                {
-                    <b>@radioNow.Name</b>
-                    <span>@string.Join(" · ", new[] { radioNow.Country, radioNow.Tags }.Where(s => !string.IsNullOrEmpty(s)))</span>
-                }
-                else
-                {
-                    <b>@T("radio.title")</b>
-                }
-            </span>
-            @* Controls: a tap on them must not fold the panel *@
-            <span class="radio-ctrl" @onclick:stopPropagation="true">
-                <button title="@T("radio.prev")" @onclick='() => RadioCall("radioStep", -1)'>⏮</button>
-                <button title="@T("radio.playPause")" @onclick='() => RadioCall("radioToggle")'>@(radioNow?.Playing == true ? "⏸" : "▶")</button>
-                <button title="@T("radio.next")" @onclick='() => RadioCall("radioStep", 1)'>⏭</button>
-                <button title="@T("radio.stop")" @onclick='() => RadioCall("radioStop")'>■</button>
-                @if (radioNow is not null)
-                {
-                    <button class="star @(radioNow.Fav ? "on" : "")" title="@T("radio.fav")" @onclick='() => RadioCall("radioFav", radioNow.Key)'>★</button>
-                }
-                <input class="radio-vol" type="range" min="0" max="100" value="@radioVolume" @oninput="SetRadioVolume" title="@T("radio.volume")" aria-label="@T("radio.volume")" />
-            </span>
-        </div>
-        @if (!radioCollapsed)
-        {
-            <div class="radio-filters">
-                <input type="search" value="@radioText" @oninput="OnRadioText" placeholder="@T("radio.search")" aria-label="@T("radio.search")" />
-                <Combo Items="CountryItems(radioCountries)" Value="@radioCountry" ValueChanged="OnRadioCountry" Placeholder="@T("radio.allCountries")" />
-                <Combo Items="GenreItems" Value="@radioGenre" ValueChanged="OnRadioGenre" Placeholder="@T("radio.allGenres")" />
-                <button class="@(radioInView ? "active" : "")" @onclick="ToggleRadioInView">@T("radio.inView")</button>
-                <button class="@(radioFavOnly ? "active" : "")" @onclick="ToggleRadioFav">★ @T("radio.favorites")</button>
-                <span class="pager">
-                    <span class="muted">@(radioTotal > 0 ? T("radio.count", "n", radioTotal.ToString("N0")) : T("radio.none"))</span>
-                    @if (radioTotal > radioList.Count)
-                    {
-                        <button disabled="@(radioOffset == 0)" @onclick='() => RadioCall("radioPage", -1)'>◀</button>
-                        <span>@((radioOffset + 1).ToString("N0"))–@((radioOffset + radioList.Count).ToString("N0"))</span>
-                        <button disabled="@(radioOffset + radioList.Count >= radioTotal)" @onclick='() => RadioCall("radioPage", 1)'>▶</button>
-                    }
-                </span>
-            </div>
-            <ul class="radio-list" @key="radioOffset">
-                @foreach (var s in radioList)
-                {
-                    <li data-key="@s.Key" class="@(s.Key == radioNow?.Key ? "current" : "") @(IsRowSel(s.Key) ? "sel" : "")" @onclick='() => RowClick("radioPlay", "radioDetails", s.Key)'>
-                        @if (!string.IsNullOrEmpty(s.Favicon))
-                        {
-                            <img src="@s.Favicon" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'" />
-                        }
-                        else
-                        {
-                            <span class="noicon">📻</span>
-                        }
-                        <span class="rs-main">
-                            <b>@s.Name</b>
-                            <span>@string.Join(" · ", new[] { s.Country, s.Tags, s.Geo ? "" : T("radio.noGeo") }.Where(x => !string.IsNullOrEmpty(x)))</span>
-                        </span>
-                        <button class="star @(s.Fav ? "on" : "")" title="@T("radio.fav")" @onclick='() => RadioCall("radioFav", s.Key)' @onclick:stopPropagation="true">★</button>
-                        <button class="fold @(rowOpen == s.Key ? "on" : "")" title="@T("row.details")" @onclick='() => ToggleRow("radioDetails", s.Key)' @onclick:stopPropagation="true">@(rowOpen == s.Key ? "▾" : "▸")</button>
-                    </li>
-                    @if (rowOpen == s.Key)
-                    {
-                        @RowDetailsBox()
-                    }
-                }
-            </ul>
-        }
-    </section>
+    @DockPanel(RadioPanel())
 }
 </div>
 }
@@ -1058,6 +913,9 @@ else if (error is not null)
     // ---------- row details (museum/radio list): folded open under the row, one at a time ----------
     private string? rowOpen, rowScroll, rowImg; // rowImg: enlarged museum photo
     private bool rowIsMuseum;
+    private bool rowPhone; // row opened by a phone tap: the info box moves into it
+    private bool isPhone; // set on every selection
+    private bool InfoInRow => rowPhone && selection is not null && rowOpen == selection.Key;
     // Row of the selected item (info box) or the folded-open row
     private bool IsRowSel(string key) => key == selection?.Key || key == rowOpen;
     private RowDetails? rowDetails;
@@ -1065,6 +923,7 @@ else if (error is not null)
     private Task ToggleRow(string fn, string key)
     {
         if (rowOpen == key) { rowOpen = null; return Task.CompletedTask; }
+        rowPhone = false;
         return OpenRow(fn, key);
     }
 
@@ -1074,7 +933,7 @@ else if (error is not null)
         var phone = module is not null && await module.InvokeAsync<bool>("isPhone");
         if (phone && rowOpen == key) { rowOpen = null; return; }
         await RadioCall(action, key);
-        if (phone) await OpenRow(detailsFn, key);
+        if (phone) { rowPhone = true; await OpenRow(detailsFn, key); }
     }
 
     private async Task OpenRow(string fn, string key)
@@ -1090,8 +949,12 @@ else if (error is not null)
         StateHasChanged();
     }
 
-    private RenderFragment RowDetailsBox() => @<li class="row-details">
-        @if (rowDetails is null)
+    private RenderFragment RowDetailsBox() => @<li class="row-details @(InfoInRow ? "wide" : "")">
+        @if (InfoInRow)
+        {
+            @InfoBox(true)
+        }
+        else if (rowDetails is null)
         {
             <span class="muted">…</span>
         }
@@ -1302,17 +1165,15 @@ else if (error is not null)
         StateHasChanged();
     }
 
-    private RenderFragment ListPanel(ListDef d) => @<section class="radio @(lists[d.Name].Collapsed ? "collapsed" : "")">
-        <div class="radio-head" title="@T("radio.collapse")" @onclick="() => ToggleList(d.Name)">
-            <span class="radio-now">
-                <b>@T("layer." + d.Name)</b>
-                <span>@ListSummary(d)</span>
-            </span>
-        </div>
-        @if (!lists[d.Name].Collapsed)
+    private RenderFragment ListPanel(ListDef d)
+    {
+        var s = lists[d.Name];
+        return DockPanel(new DockSpec
         {
-            var s = lists[d.Name];
-            <div class="radio-filters">
+            Collapsed = s.Collapsed,
+            Toggle = () => ToggleList(d.Name),
+            Head = PanelHead(T("layer." + d.Name), ListSummary(d)),
+            Filters = @<span class="pf">
                 <input type="search" value="@s.Q" @oninput='e => { s.Q = e.Value?.ToString() ?? ""; return DebouncedList(d.Name); }' placeholder="@T(d.Search)" aria-label="@T(d.Search)" />
                 <Combo Items="s.OptA" Value="@s.A" ValueChanged='v => { s.A = v; return SendList(d.Name); }' Placeholder="@T(d.AllA)" />
                 @if (d.AllB is not null)
@@ -1324,27 +1185,88 @@ else if (error is not null)
                 {
                     <button class="@(s.Flag ? "active" : "")" @onclick='() => { s.Flag = !s.Flag; return SendList(d.Name); }'>🎥 @T(d.Flag)</button>
                 }
-                @if (s.Total > s.Items.Count)
+            </span>,
+            Total = s.Total, Offset = s.Offset, Count = s.Items.Count,
+            Page = dir => RadioCall("listPage", d.Name, dir),
+            Rows = s.Items.Select(it => new PanelRow(it.Key, it.Name, it.Sub, it.Flag ? "🎥" : d.Icon)),
+            GoFn = d.GoFn, DetailsFn = d.DetailsFn
+        });
+    }
+
+    // ---------- shared dock panel: head, filters, pager, rows with details ----------
+    private sealed class DockSpec
+    {
+        public string Css = "";
+        public bool Collapsed;
+        public Func<Task> Toggle = () => Task.CompletedTask;
+        public RenderFragment? Head, Ctrl, Filters, PagerInfo; // Ctrl: head buttons; PagerInfo: text before the pager
+        public int Total, Offset, Count;
+        public Func<int, Task> Page = _ => Task.CompletedTask;
+        public IEnumerable<PanelRow> Rows = [];
+        public Func<string, Task>? Star; // star button per row (radio favourites)
+        public string GoFn = "", DetailsFn = "";
+    }
+    private sealed record PanelRow(string Key, string Name, string Sub, string Icon, string? IconUrl = null, string? Css = null, bool Fav = false);
+
+    private static string Join(params string?[] parts) => string.Join(" · ", parts.Where(x => !string.IsNullOrEmpty(x)));
+
+    private RenderFragment PanelHead(string title, string? sub, bool on = false) => @<span class="radio-now @(on ? "on" : "")">
+        <b>@title</b>
+        @if (!string.IsNullOrEmpty(sub))
+        {
+            <span>@sub</span>
+        }
+    </span>;
+
+    private RenderFragment DockPanel(DockSpec p) => @<section class="radio @p.Css @(p.Collapsed ? "collapsed" : "")">
+        <div class="radio-head" title="@T("radio.collapse")" @onclick="p.Toggle">
+            @p.Head
+            @if (p.Ctrl is not null)
+            {
+                @* Controls: a tap on them must not fold the panel *@
+                <span class="radio-ctrl" @onclick:stopPropagation="true">@p.Ctrl</span>
+            }
+        </div>
+        @if (!p.Collapsed)
+        {
+            <div class="radio-filters">
+                @p.Filters
+                @if (p.PagerInfo is not null || p.Total > p.Count)
                 {
                     <span class="pager">
-                        <button disabled="@(s.Offset == 0)" @onclick='() => RadioCall("listPage", d.Name, -1)'>◀</button>
-                        <span>@((s.Offset + 1).ToString("N0"))–@((s.Offset + s.Items.Count).ToString("N0"))</span>
-                        <button disabled="@(s.Offset + s.Items.Count >= s.Total)" @onclick='() => RadioCall("listPage", d.Name, 1)'>▶</button>
+                        @p.PagerInfo
+                        @if (p.Total > p.Count)
+                        {
+                            <button disabled="@(p.Offset == 0)" @onclick="() => p.Page(-1)">◀</button>
+                            <span>@((p.Offset + 1).ToString("N0"))–@((p.Offset + p.Count).ToString("N0"))</span>
+                            <button disabled="@(p.Offset + p.Count >= p.Total)" @onclick="() => p.Page(1)">▶</button>
+                        }
                     </span>
                 }
             </div>
-            <ul class="radio-list" @key="s.Offset">
-                @foreach (var it in s.Items)
+            <ul class="radio-list" @key="p.Offset">
+                @foreach (var r in p.Rows)
                 {
-                    <li data-key="@it.Key" class="@(IsRowSel(it.Key) ? "sel" : "")" @onclick='() => RowClick(d.GoFn, d.DetailsFn, it.Key)'>
-                        <span class="noicon">@(it.Flag ? "🎥" : d.Icon)</span>
+                    <li data-key="@r.Key" class="@r.Css @(IsRowSel(r.Key) ? "sel" : "")" @onclick="() => RowClick(p.GoFn, p.DetailsFn, r.Key)">
+                        @if (!string.IsNullOrEmpty(r.IconUrl))
+                        {
+                            <img src="@r.IconUrl" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'" />
+                        }
+                        else
+                        {
+                            <span class="noicon">@r.Icon</span>
+                        }
                         <span class="rs-main">
-                            <b>@it.Name</b>
-                            <span>@it.Sub</span>
+                            <b>@r.Name</b>
+                            <span>@r.Sub</span>
                         </span>
-                        <button class="fold @(rowOpen == it.Key ? "on" : "")" title="@T("row.details")" @onclick='() => ToggleRow(d.DetailsFn, it.Key)' @onclick:stopPropagation="true">@(rowOpen == it.Key ? "▾" : "▸")</button>
+                        @if (p.Star is not null)
+                        {
+                            <button class="star @(r.Fav ? "on" : "")" title="@T("radio.fav")" @onclick="() => p.Star(r.Key)" @onclick:stopPropagation="true">★</button>
+                        }
+                        <button class="fold @(rowOpen == r.Key ? "on" : "")" title="@T("row.details")" @onclick="() => ToggleRow(p.DetailsFn, r.Key)" @onclick:stopPropagation="true">@(rowOpen == r.Key ? "▾" : "▸")</button>
                     </li>
-                    @if (rowOpen == it.Key)
+                    @if (rowOpen == r.Key)
                     {
                         @RowDetailsBox()
                     }
@@ -1352,6 +1274,78 @@ else if (error is not null)
             </ul>
         }
     </section>;
+
+    private DockSpec AirportPanel() => new()
+    {
+        Css = "airport",
+        Collapsed = airportCollapsed,
+        Toggle = () => { airportCollapsed = !airportCollapsed; return Task.CompletedTask; },
+        Head = PanelHead(T("layer.airports"), AirportSummary),
+        Filters = @<span class="pf">
+            <input type="search" value="@airportText" @oninput="OnAirportText" placeholder="@T("apt.search")" aria-label="@T("apt.search")" />
+            <Combo Items="CountryItems(airportCountries)" Value="@airportCountry" ValueChanged="OnAirportCountry" Placeholder="@T("radio.allCountries")" />
+            <Combo Items="AirportPlaceItems" Value="@airportCity" ValueChanged="OnAirportCity" Placeholder="@T("mus.place")" FreeText="true" Max="500" />
+            <Combo Items="AirportTypeItems" Value="@airportType" ValueChanged="OnAirportType" Placeholder="@T("apt.allTypes")" />
+            <button class="@(airportInView ? "active" : "")" @onclick="ToggleAirportInView">@T("radio.inView")</button>
+            <button class="@(airportAtcOnly ? "active" : "")" @onclick="ToggleAirportAtc">🎧 @T("apt.atc")</button>
+        </span>,
+        Total = airportTotal, Offset = airportOffset, Count = airportList.Count,
+        Page = dir => RadioCall("airportPage", dir),
+        Rows = airportList.Select(a => new PanelRow(a.Key, a.Name, Join(a.Codes, a.City, a.Country, a.Type), a.Atc ? "🎧" : "✈")),
+        GoFn = "airportGo", DetailsFn = "airportDetails"
+    };
+
+    private DockSpec MuseumPanel() => new()
+    {
+        Css = "museum",
+        Collapsed = museumCollapsed,
+        Toggle = () => { museumCollapsed = !museumCollapsed; return Task.CompletedTask; },
+        Head = PanelHead(T("layer.museums"), MuseumSummary),
+        Filters = @<span class="pf">
+            <input type="search" value="@museumText" @oninput="OnMuseumText" placeholder="@T("mus.search")" aria-label="@T("mus.search")" />
+            <Combo Items="CountryItems(museumCountries)" Value="@museumCountry" ValueChanged="OnMuseumCountry" Placeholder="@T("radio.allCountries")" />
+            <Combo Items="PlaceItems" Value="@museumCity" ValueChanged="OnMuseumCity" Placeholder="@T("mus.place")" FreeText="true" Max="500" />
+            <Combo Items="MuseumTypeItems" Value="@museumType" ValueChanged="OnMuseumType" Placeholder="@T("mus.allTypes")" />
+            <button class="@(museumInView ? "active" : "")" @onclick="ToggleMuseumInView">@T("radio.inView")</button>
+            <button class="@(museumWikiOnly ? "active" : "")" @onclick="ToggleMuseumWiki">@T("mus.wikiOnly")</button>
+        </span>,
+        Total = museumTotal, Offset = museumOffset, Count = museumList.Count,
+        Page = dir => RadioCall("museumPage", dir),
+        Rows = museumList.Select(m => new PanelRow(m.Key, m.Name, Join(m.Type, m.City, m.Country, m.Wiki ? "Wikipedia" : ""), "🏛")),
+        GoFn = "museumGo", DetailsFn = "museumDetails"
+    };
+
+    private DockSpec RadioPanel() => new()
+    {
+        Collapsed = radioCollapsed,
+        Toggle = () => { radioCollapsed = !radioCollapsed; return Task.CompletedTask; },
+        Head = PanelHead(radioNow?.Name ?? T("radio.title"), radioNow is null ? null : Join(radioNow.Country, radioNow.Tags), radioNow?.Playing == true),
+        Ctrl = @<span class="pf">
+            <button title="@T("radio.prev")" @onclick='() => RadioCall("radioStep", -1)'>⏮</button>
+            <button title="@T("radio.playPause")" @onclick='() => RadioCall("radioToggle")'>@(radioNow?.Playing == true ? "⏸" : "▶")</button>
+            <button title="@T("radio.next")" @onclick='() => RadioCall("radioStep", 1)'>⏭</button>
+            <button title="@T("radio.stop")" @onclick='() => RadioCall("radioStop")'>■</button>
+            @if (radioNow is not null)
+            {
+                var now = radioNow;
+                <button class="star @(now.Fav ? "on" : "")" title="@T("radio.fav")" @onclick='() => RadioCall("radioFav", now.Key)'>★</button>
+            }
+            <input class="radio-vol" type="range" min="0" max="100" value="@radioVolume" @oninput="SetRadioVolume" title="@T("radio.volume")" aria-label="@T("radio.volume")" />
+        </span>,
+        Filters = @<span class="pf">
+            <input type="search" value="@radioText" @oninput="OnRadioText" placeholder="@T("radio.search")" aria-label="@T("radio.search")" />
+            <Combo Items="CountryItems(radioCountries)" Value="@radioCountry" ValueChanged="OnRadioCountry" Placeholder="@T("radio.allCountries")" />
+            <Combo Items="GenreItems" Value="@radioGenre" ValueChanged="OnRadioGenre" Placeholder="@T("radio.allGenres")" />
+            <button class="@(radioInView ? "active" : "")" @onclick="ToggleRadioInView">@T("radio.inView")</button>
+            <button class="@(radioFavOnly ? "active" : "")" @onclick="ToggleRadioFav">★ @T("radio.favorites")</button>
+        </span>,
+        PagerInfo = @<span class="muted">@(radioTotal > 0 ? T("radio.count", "n", radioTotal.ToString("N0")) : T("radio.none"))</span>,
+        Total = radioTotal, Offset = radioOffset, Count = radioList.Count,
+        Page = dir => RadioCall("radioPage", dir),
+        Rows = radioList.Select(s => new PanelRow(s.Key, s.Name, Join(s.Country, s.Tags, s.Geo ? "" : T("radio.noGeo")), "📻", s.Favicon, s.Key == radioNow?.Key ? "current" : null, s.Fav)),
+        Star = k => RadioCall("radioFav", k),
+        GoFn = "radioPlay", DetailsFn = "radioDetails"
+    };
 
     // ---------- airport panel ----------
     private static readonly string[] AirportTypes = ["large", "medium"];
@@ -1457,8 +1451,9 @@ else if (error is not null)
     }
 
     [JSInvokable]
-    public void OnSelect(string? json)
+    public async Task OnSelect(string? json)
     {
+        if (module is not null) isPhone = await module.InvokeAsync<bool>("isPhone"); // phones: no floating info box
         var prevKey = selection?.Key;
         selection = string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<SelectionInfo>(json, JsonOpts);
         if (selection?.Key != prevKey) { contacts = null; enlarged = false; follow = false; } // engine drops follow on a new selection

@@ -190,6 +190,7 @@
         .radio-count > span:first-child { opacity: .6; }
         .pager { display: flex; align-items: center; gap: 6px; font-size: 11px; }
         .radio-filters .pager { margin-left: auto; }
+        .radio .pf { display: contents; } /* panel slot wrapper: children lay out as if direct */
         .pager .muted { opacity: .6; }
         .radio .pager button { padding: 1px 8px; }
         .radio .pager button:disabled { opacity: .3; cursor: default; }
@@ -219,11 +220,16 @@
         .row-details td { padding: 1px 0; word-break: break-word; }
         .row-details a { color: var(--acc); word-break: break-all; }
         .row-details p { margin: 6px 0; line-height: 1.4; font-family: system-ui, sans-serif; }
+        /* Phones: full info box inside the open row */
+        .radio-list li.row-details.wide { padding: 0 0 6px; }
+        .radio-list li.row-details .info.row-info { position: static; width: auto; min-width: 0; max-width: none; max-height: none; overflow: visible; resize: none; border: 0; background: none; font-size: 13px; }
+        .radio-list li.row-details .row-info img, .radio-list li.row-details .row-info video { width: 100%; max-width: none; max-height: 40vh; margin: 0; object-fit: contain; }
+        .radio-list li.row-details .row-info img.logo { width: auto; max-width: 96px; max-height: 96px; margin: 8px auto 2px; }
         /* Phones: one thing at a time. Settings open → map panels hidden; a list open → info box hidden (details in the row) */
         @media (max-height: 500px) and (pointer: coarse) and (min-width: 761px) { .panel { display: none; } .panel.toggled { display: block; } }
         @media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
             body:has(.panel.toggled) .info, body:has(.panel.toggled) .dock { display: none; }
-            .info.dock-open { display: none; }
+            .info:not(.row-info) { display: none; } /* phones: info only inside the list row */
             .radio-list .fold { display: none; } /* tapping the row folds it open/shut */
             /* The open list fills the height up to the top bar (both open: shared) */
             .dock { max-height: calc(100dvh - 64px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
