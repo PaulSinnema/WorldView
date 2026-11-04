@@ -44,6 +44,8 @@
             body:has(.dock .radio) .navpad { bottom: calc(76px + env(safe-area-inset-bottom)); }
             body:has(.dock .radio + .radio) .navpad { bottom: calc(130px + env(safe-area-inset-bottom)); }
             body:has(.dock .radio + .radio + .radio) .navpad { bottom: calc(184px + env(safe-area-inset-bottom)); }
+            body:has(.dock .radio + .radio + .radio + .radio) .navpad { bottom: calc(238px + env(safe-area-inset-bottom)); }
+            body:has(.dock .radio + .radio + .radio + .radio + .radio) .navpad { bottom: calc(292px + env(safe-area-inset-bottom)); }
             body:has(.dock .radio:not(.collapsed)) .navpad { display: none; }
         }
         /* Medium widths (phone landscape, tablets): centred top bar would run under the panel → panel starts below it */

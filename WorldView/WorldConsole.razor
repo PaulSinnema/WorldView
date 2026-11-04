@@ -366,9 +366,13 @@ else if (error is not null)
 }
 
 @* Bottom dock: airport, museum and radio panels stacked; lists shrink when more are open *@
-@if (layers.GetValueOrDefault("radio") || layers.GetValueOrDefault("museums") || layers.GetValueOrDefault("airports"))
+@if (layers.GetValueOrDefault("radio") || layers.GetValueOrDefault("museums") || layers.GetValueOrDefault("airports") || ListDefs.Any(d => layers.GetValueOrDefault(d.Name)))
 {
 <div class="dock @(DockBoth ? "both" : "")">
+@foreach (var d in ListDefs.Where(d => layers.GetValueOrDefault(d.Name)))
+{
+    @ListPanel(d)
+}
 @if (layers.GetValueOrDefault("airports"))
 {
     <section class="radio airport @(airportCollapsed ? "collapsed" : "")">
@@ -716,6 +720,7 @@ else if (error is not null)
         if (radioCountries.Count > 0) await LoadRadioCountries();
         if (museumCountries.Count > 0) { await LoadMuseumCountries(); await SendMuseumQuery(); } // names + list in the new language
         if (airportCountries.Count > 0) { await LoadAirportCountries(); await SendAirportQuery(); }
+        foreach (var d in ListDefs) if (layers.GetValueOrDefault(d.Name)) await SendList(d.Name); // rows in the new language
         if (showHelp) await OpenHelp();
     }
 
@@ -1143,6 +1148,12 @@ else if (error is not null)
             museumText = m.Q; museumCountry = m.Cc; museumType = m.Type; museumCity = m.City; museumInView = m.InView; museumWikiOnly = m.Wiki;
             var a = JsonSerializer.Deserialize<PanelFilter>(await module.InvokeAsync<string>("getPanelFilter", "airports"), JsonOpts) ?? new();
             airportText = a.Q; airportCountry = a.Cc; airportType = a.Type; airportCity = a.City; airportInView = a.InView; airportAtcOnly = a.Atc;
+            foreach (var d in ListDefs)
+            {
+                var f = JsonSerializer.Deserialize<PanelFilter>(await module.InvokeAsync<string>("getPanelFilter", d.Name), JsonOpts) ?? new();
+                var s = lists[d.Name];
+                s.Q = f.Q; s.A = f.A; s.B = f.B; s.InView = f.InView; s.Flag = f.Flag;
+            }
             StateHasChanged();
         }
         catch { /* no saved filter: defaults */ }
@@ -1160,7 +1171,7 @@ else if (error is not null)
 
     // A museum/radio/airport list is open: on phones the info box gives way (details fold open in the row)
     private int DockOpenCount => (layers.GetValueOrDefault("museums") && !museumCollapsed ? 1 : 0) + (layers.GetValueOrDefault("radio") && !radioCollapsed ? 1 : 0)
-        + (layers.GetValueOrDefault("airports") && !airportCollapsed ? 1 : 0);
+        + (layers.GetValueOrDefault("airports") && !airportCollapsed ? 1 : 0) + ListDefs.Count(d => layers.GetValueOrDefault(d.Name) && !lists[d.Name].Collapsed);
     private bool DockOpen => DockOpenCount > 0;
     private bool DockBoth => DockOpenCount > 1;
     private bool MuseumFiltered => museumText != "" || museumCountry != "" || museumType != "" || museumCity != "" || museumInView || museumWikiOnly;
@@ -1208,6 +1219,139 @@ else if (error is not null)
     private Task OnMuseumType(string v) { museumType = v; return SendMuseumQuery(); }
     private Task ToggleMuseumInView() { museumInView = !museumInView; return SendMuseumQuery(); }
     private Task ToggleMuseumWiki() { museumWikiOnly = !museumWikiOnly; return SendMuseumQuery(); }
+
+    // ---------- generic list panels (satellites, launches); engine side: LISTS in worldview.js ----------
+    private sealed record ListDef(string Name, string Icon, string Search, string AllA, string? AllB, string? Flag, string GoFn, string DetailsFn);
+    private static readonly ListDef[] ListDefs =
+    [
+        new("satellites", "🛰", "sat.search", "sat.allGroups", null, null, "satGo", "satDetails"),
+        new("telescopes", "🔭", "tel.search", "sat.allGroups", null, null, "telGo", "telDetails"),
+        new("launches", "🚀", "lch.search", "lch.allProviders", "lch.allStatus", "lch.webcast", "launchGo", "launchDetails")
+    ];
+    private sealed class ListState
+    {
+        public string Q = "", A = "", B = "";
+        public bool InView, Flag, Collapsed = true; // starts collapsed
+        public int Total, Offset;
+        public List<ListRow> Items = new();
+        public List<Combo.Item> OptA = new(), OptB = new();
+        public CancellationTokenSource? Cts;
+    }
+    private sealed class ListRow
+    {
+        public string Key { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Sub { get; set; } = "";
+        public bool Flag { get; set; }
+    }
+    private sealed class ListOpt
+    {
+        public string K { get; set; } = "";
+        public string V { get; set; } = "";
+    }
+    private sealed class ListPayload
+    {
+        public int Total { get; set; }
+        public int Offset { get; set; }
+        public List<ListRow> Items { get; set; } = new();
+        public List<ListOpt> A { get; set; } = new();
+        public List<ListOpt> B { get; set; } = new();
+    }
+    private readonly Dictionary<string, ListState> lists = ListDefs.ToDictionary(d => d.Name, _ => new ListState());
+
+    // Opening a panel asks the engine for a fresh list (an early list may have been sent before the UI was ready)
+    private Task ToggleList(string name)
+    {
+        var s = lists[name];
+        s.Collapsed = !s.Collapsed;
+        return s.Collapsed ? Task.CompletedTask : SendList(name);
+    }
+    private Task SendList(string name)
+    {
+        var s = lists[name];
+        return RadioCall("listSetQuery", name, JsonSerializer.Serialize(new { q = s.Q, a = s.A, b = s.B, inView = s.InView, flag = s.Flag }));
+    }
+    private async Task DebouncedList(string name)
+    {
+        var s = lists[name];
+        s.Cts?.Cancel();
+        var cts = s.Cts = new CancellationTokenSource();
+        try { await Task.Delay(400, cts.Token); } catch (TaskCanceledException) { return; }
+        await SendList(name);
+    }
+    private string ListSummary(ListDef d)
+    {
+        var s = lists[d.Name];
+        var filtered = s.Q != "" || s.A != "" || s.B != "" || s.InView || s.Flag;
+        var count = s.Total > 0 ? T("list.count", "n", s.Total.ToString("N0")) : filtered ? T("list.none") : "";
+        var a = s.OptA.FirstOrDefault(o => o.Value == s.A)?.Label;
+        var b = s.OptB.FirstOrDefault(o => o.Value == s.B)?.Label;
+        return string.Join(" · ", new[] { a, b, s.Flag && d.Flag is not null ? T(d.Flag) : null, count }.Where(x => !string.IsNullOrEmpty(x)));
+    }
+
+    [JSInvokable]
+    public void OnList(string name, string json)
+    {
+        if (!lists.TryGetValue(name, out var s)) return;
+        var r = JsonSerializer.Deserialize<ListPayload>(json, JsonOpts);
+        s.Items = r?.Items ?? new();
+        s.Total = r?.Total ?? 0;
+        s.Offset = r?.Offset ?? 0;
+        s.OptA = (r?.A ?? new()).Select(o => new Combo.Item(o.K, o.V)).ToList();
+        s.OptB = (r?.B ?? new()).Select(o => new Combo.Item(o.K, o.V)).ToList();
+        StateHasChanged();
+    }
+
+    private RenderFragment ListPanel(ListDef d) => @<section class="radio @(lists[d.Name].Collapsed ? "collapsed" : "")">
+        <div class="radio-head" title="@T("radio.collapse")" @onclick="() => ToggleList(d.Name)">
+            <span class="radio-now">
+                <b>@T("layer." + d.Name)</b>
+                <span>@ListSummary(d)</span>
+            </span>
+        </div>
+        @if (!lists[d.Name].Collapsed)
+        {
+            var s = lists[d.Name];
+            <div class="radio-filters">
+                <input type="search" value="@s.Q" @oninput='e => { s.Q = e.Value?.ToString() ?? ""; return DebouncedList(d.Name); }' placeholder="@T(d.Search)" aria-label="@T(d.Search)" />
+                <Combo Items="s.OptA" Value="@s.A" ValueChanged='v => { s.A = v; return SendList(d.Name); }' Placeholder="@T(d.AllA)" />
+                @if (d.AllB is not null)
+                {
+                    <Combo Items="s.OptB" Value="@s.B" ValueChanged='v => { s.B = v; return SendList(d.Name); }' Placeholder="@T(d.AllB)" />
+                }
+                <button class="@(s.InView ? "active" : "")" @onclick='() => { s.InView = !s.InView; return SendList(d.Name); }'>@T("radio.inView")</button>
+                @if (d.Flag is not null)
+                {
+                    <button class="@(s.Flag ? "active" : "")" @onclick='() => { s.Flag = !s.Flag; return SendList(d.Name); }'>🎥 @T(d.Flag)</button>
+                }
+                @if (s.Total > s.Items.Count)
+                {
+                    <span class="pager">
+                        <button disabled="@(s.Offset == 0)" @onclick='() => RadioCall("listPage", d.Name, -1)'>◀</button>
+                        <span>@((s.Offset + 1).ToString("N0"))–@((s.Offset + s.Items.Count).ToString("N0"))</span>
+                        <button disabled="@(s.Offset + s.Items.Count >= s.Total)" @onclick='() => RadioCall("listPage", d.Name, 1)'>▶</button>
+                    </span>
+                }
+            </div>
+            <ul class="radio-list" @key="s.Offset">
+                @foreach (var it in s.Items)
+                {
+                    <li data-key="@it.Key" class="@(IsRowSel(it.Key) ? "sel" : "")" @onclick='() => RowClick(d.GoFn, d.DetailsFn, it.Key)'>
+                        <span class="noicon">@(it.Flag ? "🎥" : d.Icon)</span>
+                        <span class="rs-main">
+                            <b>@it.Name</b>
+                            <span>@it.Sub</span>
+                        </span>
+                        <button class="fold @(rowOpen == it.Key ? "on" : "")" title="@T("row.details")" @onclick='() => ToggleRow(d.DetailsFn, it.Key)' @onclick:stopPropagation="true">@(rowOpen == it.Key ? "▾" : "▸")</button>
+                    </li>
+                    @if (rowOpen == it.Key)
+                    {
+                        @RowDetailsBox()
+                    }
+                }
+            </ul>
+        }
+    </section>;
 
     // ---------- airport panel ----------
     private static readonly string[] AirportTypes = ["large", "medium"];
@@ -1457,6 +1601,9 @@ else if (error is not null)
         public bool Fav { get; set; }
         public bool Wiki { get; set; }
         public bool Atc { get; set; }
+        public string A { get; set; } = "";
+        public string B { get; set; } = "";
+        public bool Flag { get; set; }
     }
 
     private sealed class RowDetails

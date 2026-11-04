@@ -93,6 +93,7 @@ function loadSettings() {
     radioQuery = { ...radioQuery, ...(S.panelFilters.radio || {}) };
     museumQuery = { ...museumQuery, ...(S.panelFilters.museums || {}) };
     airportQuery = { ...airportQuery, ...(S.panelFilters.airports || {}) };
+    loadListFilters();
     S.zoom = { ...ZOOM_DEFAULT, ...(S.zoom && typeof S.zoom === 'object' ? S.zoom : {}) };
     delete S.camZoom;
     // One-off reset: zoom now defaults to off for every layer
@@ -836,6 +837,7 @@ export async function init(containerId, ref) {
         if (S.layers.flights) startLayer('flights'); // load the tiles for the new view
         if (S.layers.museums) { refreshMuseums(); if (museumQuery.inView) scheduleMuseumSearch(); }
         if (S.layers.airports && airportQuery.inView) scheduleAirportSearch();
+        for (const n in listState) if (S.layers[n] && listState[n].q.inView) scheduleList(n);
     });
     window.addEventListener('blur', () => navHeld.clear());
     // Crash report: state every 3 s; normal unload/background is not a crash
@@ -899,6 +901,7 @@ function applyLayer(name, on, fromEngine) {
     S.layers[name] = on; saveSettings();
     coll[name].show = on;
     if (name === 'telescopes') telLabels.show = telOrbits.show = on;
+    if (name === 'satellites' && !on) drawIssOrbit(); // removes the ISS orbit
     if (name === 'radio' && !on) radioStop();
     if (on) startLayer(name); else stopLayer(name);
     if (!on && selected?.layer === name) clearSelection();
@@ -1248,6 +1251,9 @@ async function loadSatellites() {
         }
         propagateSats();
     }
+    drawIssOrbit(); lastIssOrbit = Date.now();
+    atcStreams().then(() => { applyIssStream(); runList('satellites'); });
+    runList('satellites');
     report('satellites', store.satellites.size ? () => 'CelesTrak (SGP4)' : 'st.sourceDown');
     return store.satellites.size ? 0 : 120000;
 }
@@ -1257,27 +1263,61 @@ function satGeo(r, date, gmst) {
     const g = sat.eciToGeodetic(pv.position, gmst ?? sat.gstime(date));
     return { lat: g.latitude, lon: g.longitude, h: g.height * 1000, v: pv.velocity };
 }
+// Satellites within 300 km of the selected one (recomputed once a second), moved every frame in onPreRender
+let satNear = [];
+const SAT_NEAR_M = 300000;
 function propagateSats() {
     if (!sat || !S.layers.satellites) return;
     const now = new Date(), gmst = sat.gstime(now);
+    const selR = selected?.layer === 'satellites' ? store.satellites.get(selected.key) : null;
+    satNear = [];
     for (const r of store.satellites.values()) {
         const g = satGeo(r, now, gmst);
         if (!g) { r.pt.show = false; continue; }
         r.lat = toDeg(g.lat); r.lon = toDeg(g.lon); r.alt = g.h;
         r.vel = g.v ? Math.hypot(g.v.x, g.v.y, g.v.z) : 0;
         r.pos = Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h);
-        r.pt.position = r.pos; r.pt.show = true;
+        r.pt.position = r.pos; r.pt.show = r.listOk !== false; // panel filter
+        if (selR && r !== selR && selR.pos && Cz.Cartesian3.distance(r.pos, selR.pos) < SAT_NEAR_M) satNear.push(r);
     }
 }
-function drawOrbit(r) {
-    if (orbitEntity) { viewer.entities.remove(orbitEntity); orbitEntity = null; }
-    if (!sat || !r.rec?.no) return;
+// One full orbit from now (fixed Earth rotation: the ring as seen in space)
+function orbitPoints(r) {
     const now = new Date(), gmst = sat.gstime(now), period = 2 * Math.PI / r.rec.no, pts = [];
     for (let i = 0; i <= 180; i++) {
         const g = satGeo(r, new Date(now.getTime() + i / 180 * period * 60000), gmst);
         if (g) pts.push(Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h));
     }
-    orbitEntity = viewer.entities.add({ polyline: { positions: pts, width: 1.5, material: Cz.Color.fromCssColorString(r.color).withAlpha(0.7) } });
+    return pts;
+}
+// Orbit lines as primitives, updated in place: re-adding entities every few seconds made the view flicker while following
+let orbitLines = null;
+function orbitLine(line, positions, color, width, dashed) {
+    orbitLines ??= viewer.scene.primitives.add(new Cz.PolylineCollection());
+    if (line) { line.positions = positions; line.show = true; return line; }
+    const c = Cz.Color.fromCssColorString(color).withAlpha(dashed ? 0.8 : 0.7);
+    return orbitLines.add({ positions, width, material: dashed ? Cz.Material.fromType('PolylineDash', { color: c, dashLength: 24 }) : Cz.Material.fromType('Color', { color: c }) });
+}
+function drawOrbit(r) {
+    if (orbitEntity && (orbitEntity.wvKey !== r.key || !sat || !r.rec?.no)) { orbitLines.remove(orbitEntity); orbitEntity = null; }
+    if (!sat || !r.rec?.no) return;
+    orbitEntity = orbitLine(orbitEntity, orbitPoints(r), r.color, 1.5, false);
+    orbitEntity.wvKey = r.key;
+}
+function hideOrbit() { if (orbitEntity) { orbitLines.remove(orbitEntity); orbitEntity = null; } }
+// ISS: orbit always shown with the satellite layer (refreshed every 30 s), plus the live view from YouTube
+const ISS_ID = '25544';
+let issOrbitEntity = null, lastIssOrbit = 0;
+function drawIssOrbit() {
+    const r = store.satellites.get(ISS_ID);
+    if (!S.layers.satellites || !sat || !r?.rec?.no) { if (issOrbitEntity) issOrbitEntity.show = false; return; }
+    issOrbitEntity = orbitLine(issOrbitEntity, orbitPoints(r), r.color, 2, true);
+}
+function applyIssStream() {
+    const r = store.satellites.get(ISS_ID), s = atcLast?.iss;
+    if (!r) return;
+    r.embed = s ? ytEmbed(s.id) : null;
+    r.ytLink = s ? `https://www.youtube.com/watch?v=${s.id}` : null;
 }
 
 // country borders + names (Natural Earth, public domain)
@@ -2200,8 +2240,8 @@ async function loadTelescopes() {
         });
         for (const [key, name, offset, wikiTitle] of L2_TELESCOPES) addTel({ key, label: name, wikiTitle, l2: true, offset, group: 'grp.telescopeL2' });
         propagateTelescopes();
-        drawTelOrbits();
     }
+    runList('telescopes'); // filter + orbits
     const n = [...store.telescopes.values()].filter(r => !r.l2).length;
     if (n) report('telescopes', 'st.telescopes', { n: L2_TELESCOPES.length }); else report('telescopes', 'st.sourceDown');
     return n ? 0 : 120000;
@@ -2219,7 +2259,7 @@ function propagateTelescopes() {
             r.pos = Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h);
         }
         r.pt.position = r.lbl.position = r.pos;
-        r.pt.show = r.lbl.show = true;
+        r.pt.show = r.lbl.show = r.listOk !== false; // panel filter
     }
 }
 // Full orbit rings (re-aligned to current Earth rotation) + dashed line to L2
@@ -2230,6 +2270,7 @@ function drawTelOrbits() {
     const ring = Cz.Material.fromType('Color', { color: Cz.Color.fromCssColorString(TEL_COLOR).withAlpha(0.55) });
     const dash = Cz.Material.fromType('PolylineDash', { color: Cz.Color.fromCssColorString(TEL_COLOR).withAlpha(0.5), dashLength: 24 });
     for (const r of store.telescopes.values()) {
+        if (r.listOk === false) continue; // filtered out in the panel
         if (r.l2) {
             const p = l2Position(r.offset);
             const start = Cz.Cartesian3.multiplyByScalar(Cz.Cartesian3.normalize(p, new Cz.Cartesian3()), 8e6, new Cz.Cartesian3());
@@ -2435,11 +2476,19 @@ const AIRPORT_MEDIUM_H = 3e6; // medium airports only below this height
 let airportQuery = { q: '', cc: '', type: '', city: '', inView: false, atc: false }, airportTimer = null, airportsLoaded = false;
 let airportAll = [], airportOffset = 0, airportPlaces = [], airportCc = {};
 // YouTube ATC streams (fetcher), shared with the camera layer; refreshed after 30 min
-let atcP = null, atcAt = 0;
+let atcP = null, atcAt = 0, atcLast = null;
 function atcStreams() {
-    if (!atcP || Date.now() - atcAt > 30 * 60000) { atcAt = Date.now(); atcP = tryJson(`${FEED_URL}/atc-streams.json?b=${Math.floor(Date.now() / 60000)}`, 20000); }
+    if (!atcP || Date.now() - atcAt > 30 * 60000) {
+        atcAt = Date.now();
+        atcP = tryJson(`${FEED_URL}/atc-streams.json?b=${Math.floor(Date.now() / 60000)}`, 20000).then(j => { if (j) { atcLast = j; applyIssStream(); } return j; });
+    }
     return atcP;
 }
+// YouTube video id from watch/live/embed/youtu.be URLs; embed URL for the info box player
+function ytId(url) {
+    return String(url || '').match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|live\/|embed\/)|youtu\.be\/)([\w-]{11})/)?.[1] || null;
+}
+function ytEmbed(id) { return `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1`; }
 function airportMatch(r, text = lowTrim(airportQuery.q), city = lowTrim(airportQuery.city), noCity = false) {
     const q = airportQuery;
     return (!q.cc || r.cc === q.cc) && (!q.type || r.type === q.type) && (!q.atc || !!r.embed)
@@ -2550,6 +2599,115 @@ export function airportGo(key) {
     if (store.airports.has(key)) select('airports', key, true);
 }
 
+// ---------- generic list panels (satellites, launches): text, combo a, combo b, in view, flag ----------
+// q: { q, a, b, inView, flag }; filters also decide what shows on the globe (r.listOk)
+const LISTS = {
+    satellites: {
+        match: (r, q, t) => (!q.a || r.group === q.a) && (!t || r.label.toLowerCase().includes(t) || r.key === t),
+        sort: (a, b) => (b.key === ISS_ID) - (a.key === ISS_ID) || a.label.localeCompare(b.label, loc()),
+        row: r => ({ key: r.key, name: r.label, sub: [`NORAD ${r.key}`, tr(r.group), r.alt ? `${Math.round(r.alt / 1000).toLocaleString(loc())} km` : ''].filter(Boolean).join(' · '), flag: !!r.embed }),
+        optA: () => SAT_GROUPS.map(([, , l]) => ({ k: l, v: tr(l) })),
+        optB: () => [],
+        apply: r => { if (r.pt) r.pt.show = r.listOk !== false; }
+    },
+    launches: {
+        match: (r, q, t) => (!q.a || r.provider === q.a) && (!q.b || r.status === q.b) && (!q.flag || !!r.embed) && (!t || r.label.toLowerCase().includes(t) || (r.provider || '').toLowerCase().includes(t)),
+        sort: (a, b) => new Date(a.net) - new Date(b.net),
+        row: r => ({ key: r.key, name: r.label, sub: [new Date(r.net).toLocaleString(loc(), { dateStyle: 'medium', timeStyle: 'short' }), countdown(r.net), r.status, r.loc].filter(Boolean).join(' · '), flag: !!r.embed }),
+        optA: () => [...new Set([...store.launches.values()].map(r => r.provider).filter(Boolean))].sort().map(v => ({ k: v, v })),
+        optB: () => [...new Set([...store.launches.values()].map(r => r.status).filter(Boolean))].sort().map(v => ({ k: v, v })),
+        apply: r => { if (r.bb) r.bb.show = r.listOk !== false; }
+    },
+    telescopes: {
+        match: (r, q, t) => (!q.a || r.group === q.a) && (!t || r.label.toLowerCase().includes(t) || r.key === t),
+        sort: (a, b) => a.label.localeCompare(b.label, loc()),
+        row: r => ({ key: r.key, name: r.label, sub: [r.l2 ? 'L2' : `NORAD ${r.key}`, tr(r.group), r.l2 ? tr('v.millionKm', { n: 1.5 }) : r.alt ? `${Math.round(r.alt / 1000).toLocaleString(loc())} km` : ''].filter(Boolean).join(' · '), flag: false }),
+        optA: () => ['grp.telescope', 'grp.telescopeL2'].map(k => ({ k, v: tr(k) })),
+        optB: () => [],
+        apply: r => { if (r.pt) r.pt.show = r.lbl.show = r.listOk !== false; },
+        after: () => drawTelOrbits()
+    }
+};
+// Saved filters are merged in by loadListFilters() once the settings are read
+const listState = Object.fromEntries(Object.keys(LISTS).map(n => [n, { q: { q: '', a: '', b: '', inView: false, flag: false }, all: [], offset: 0, timer: null }]));
+function loadListFilters() { for (const n in listState) listState[n].q = { ...listState[n].q, ...(S.panelFilters?.[n] || {}) }; }
+export function listSetQuery(name, json) {
+    const st = listState[name];
+    if (!st) return;
+    try { st.q = { ...st.q, ...JSON.parse(json) }; } catch { }
+    savePanelFilter(name, st.q);
+    st.offset = 0;
+    runList(name);
+}
+function scheduleList(name) {
+    const st = listState[name];
+    clearTimeout(st.timer);
+    st.timer = setTimeout(() => runList(name), 300);
+}
+function runList(name) {
+    try { runListInner(name); } catch (e) { console.warn('list', name, e); crumb(`list ${name}: ${e?.message}`); }
+}
+function runListInner(name) {
+    const st = listState[name], L = LISTS[name], q = st.q, t = lowTrim(q.q);
+    const rect = q.inView && viewer ? viewer.camera.computeViewRectangle() : null;
+    const list = [];
+    for (const r of store[name].values()) {
+        r.listOk = L.match(r, q, t);
+        L.apply(r);
+        // No position on Earth (L2): never "in view"
+        if (r.listOk && (!rect || (Number.isFinite(r.lon) && Number.isFinite(r.lat) && inView(rect, Cz.Cartographic.fromDegrees(r.lon, r.lat))))) list.push(r);
+    }
+    L.after?.();
+    list.sort(L.sort);
+    st.all = list;
+    st.offset = Math.min(st.offset, Math.max(0, Math.floor((list.length - 1) / LIST_PAGE) * LIST_PAGE));
+    emitList(name);
+}
+function emitList(name) {
+    const st = listState[name], L = LISTS[name];
+    notify('OnList', name, JSON.stringify({ total: st.all.length, offset: st.offset, items: st.all.slice(st.offset, st.offset + LIST_PAGE).map(L.row), a: L.optA(), b: L.optB() }));
+}
+export function listPage(name, dir) {
+    const st = listState[name];
+    if (!st) return;
+    st.offset = Math.max(0, Math.min(st.offset + dir * LIST_PAGE, Math.floor((st.all.length - 1) / LIST_PAGE) * LIST_PAGE));
+    emitList(name);
+}
+// Row click / details per panel (RowClick passes only the key)
+export function satGo(key) { if (store.satellites.has(key)) select('satellites', key, true); }
+export function telGo(key) { if (store.telescopes.has(key)) select('telescopes', key, true); }
+export async function telDetails(key) {
+    const r = store.telescopes.get(key);
+    if (!r) return null;
+    if (r.wikiTitle && r.wiki?.lang !== S.lang) await loadWiki(r);
+    const f = [[tr('f.group'), tr(r.group)]];
+    if (r.l2) f.push([tr('f.location'), tr('v.l2')], [tr('f.distance'), tr('v.millionKm', { n: 1.5 })]);
+    else {
+        f.push([tr('f.norad'), r.key], [tr('f.altitude'), `${Math.round(r.alt / 1000).toLocaleString(loc())} km`], [tr('f.speed'), `${r.vel.toFixed(2)} km/s`]);
+        if (r.rec?.no) f.push([tr('f.period'), `${(2 * Math.PI / r.rec.no).toFixed(1)} min`]);
+        f.push([tr('f.position'), fmtPos(r.lat, r.lon)]);
+    }
+    const w = r.wiki?.lang === S.lang ? r.wiki : null;
+    return JSON.stringify({ fields: f, summary: w?.extract || null, link: w?.url || null, image: w?.thumb || null });
+}
+export function launchGo(key) { if (store.launches.has(key)) select('launches', key, true); }
+export function satDetails(key) {
+    const r = store.satellites.get(key);
+    if (!r) return null;
+    const f = [[tr('f.group'), tr(r.group)], [tr('f.norad'), r.key], [tr('f.altitude'), `${Math.round(r.alt / 1000).toLocaleString(loc())} km`], [tr('f.speed'), `${r.vel.toFixed(2)} km/s`]];
+    if (r.rec?.no) f.push([tr('f.period'), `${(2 * Math.PI / r.rec.no).toFixed(1)} min`]);
+    f.push([tr('f.position'), fmtPos(r.lat, r.lon)]);
+    if (r.ytLink) f.push([tr('f.youtube'), r.ytLink]);
+    return JSON.stringify({ fields: f, summary: null, link: null, image: null });
+}
+export function launchDetails(key) {
+    const r = store.launches.get(key);
+    if (!r) return null;
+    const fields = [];
+    infoRows(r.info, fields);
+    return JSON.stringify({ fields, summary: null, link: null, image: null });
+}
+
 // Wikipedia summary + photo of a Wikidata item (museums), cached per language
 // Returns the running load when one is busy, so a second caller (row details) waits for the same result
 function loadQidWiki(r) {
@@ -2596,16 +2754,18 @@ async function loadFires() {
     return 1800000;
 }
 async function loadLaunches() {
-    const ck = 'wv-ll2';
+    const ck = 'wv-ll2b'; // b: with webcasts (detailed mode)
     let list = null;
     try { const c = JSON.parse(localStorage.getItem(ck) || 'null'); if (c && Date.now() - c.t < 3600000) list = c.d; } catch { }
     if (!list) {
-        const j = await tryJson('https://ll.thespacedevs.com/2.3.0/launches/upcoming/?limit=40&mode=normal', 25000);
+        const j = await tryJson('https://ll.thespacedevs.com/2.3.0/launches/upcoming/?limit=40&mode=detailed', 40000);
         if (!j?.results) { report('launches', 'st.sourceDownLimit'); return 600000; }
         list = j.results.map(l => ({
             id: l.id, name: l.name, net: l.net, status: l.status?.name, provider: l.launch_service_provider?.name,
             rocket: l.rocket?.configuration?.full_name, pad: l.pad?.name, loc: l.pad?.location?.name,
-            lat: Number(l.pad?.latitude), lon: Number(l.pad?.longitude), mission: l.mission?.description
+            lat: Number(l.pad?.latitude), lon: Number(l.pad?.longitude), mission: l.mission?.description,
+            // YouTube webcasts, best first (priority: lower = better)
+            yt: (l.vid_urls || []).map(v => ({ p: v.priority ?? 99, id: ytId(v.url), title: v.title || v.publisher?.name || '' })).filter(v => v.id).sort((a, b) => a.p - b.p).map(({ id, title }) => ({ id, title }))
         }));
         try { localStorage.setItem(ck, JSON.stringify({ t: Date.now(), d: list })); } catch { }
     }
@@ -2613,12 +2773,13 @@ async function loadLaunches() {
     const img = icon('rocket', '#c080ff');
     for (const l of list) {
         if (!Number.isFinite(l.lat) || !Number.isFinite(l.lon)) continue;
-        addBillboard('launches', {
-            key: l.id, lat: l.lat, lon: l.lon, label: l.name, net: l.net,
-            info: [['mission', l.name], ['launchTime', () => new Date(l.net).toLocaleString(loc())], ['countdown', () => countdown(l.net)], ['status', l.status || '—'],
-                ['provider', l.provider || '—'], ['rocket', l.rocket || '—'], ['pad', l.pad || '—'], ['location', l.loc || '—'], ['description', (l.mission || '—').slice(0, 280)]]
-        }, img, 0.8);
+        const yt = l.yt?.[0];
+        const info = [['mission', l.name], ['launchTime', () => new Date(l.net).toLocaleString(loc())], ['countdown', () => countdown(l.net)], ['status', l.status || '—'],
+            ['provider', l.provider || '—'], ['rocket', l.rocket || '—'], ['pad', l.pad || '—'], ['location', l.loc || '—'], ['description', (l.mission || '—').slice(0, 280)]];
+        if (yt) info.push(['youtube', `https://www.youtube.com/watch?v=${yt.id}`]);
+        addBillboard('launches', { key: l.id, lat: l.lat, lon: l.lon, label: l.name, net: l.net, provider: l.provider || '', status: l.status || '', loc: l.loc || '', embed: yt ? ytEmbed(yt.id) : null, info }, img, 0.8);
     }
+    runList('launches');
     validateSel('launches');
     report('launches', 'st.launches');
     return 3600000;
@@ -2781,6 +2942,7 @@ export function zoomToSelection() {
         if (lat != null && lon != null) target = Cz.Cartesian3.fromDegrees(lon, lat, 0);
     }
     if (!target || S.cockpit) return false;
+    stopTrack();
     const cam = viewer.camera, h = camHeight(), alt = Cz.Cartographic.fromCartesian(target).height;
     // Look down at least 15°, distance so the camera height stays the same
     const pitch = Math.min(cam.pitch, toRad(-15)), above = h - alt;
@@ -2804,12 +2966,13 @@ function select(layer, key, fly) {
         position: Cz.CallbackPositionProperty ? new Cz.CallbackPositionProperty(posFn, false) : new Cz.CallbackProperty(posFn, false),
         point: { pixelSize: 20, color: Cz.Color.TRANSPARENT, outlineColor: glow, outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY },
         // Aircraft keep their normal trail (fetcher history); others get the glow trail
-        polyline: moving && !AIR_DELAY[layer] ? { positions: new Cz.CallbackProperty(() => trail, false), width: 3, material: new Cz.PolylineGlowMaterialProperty({ glowPower: 0.25, color: glow }) } : undefined,
+        // Trail ends at the current position (points are added once a second; else its end lags behind the object)
+        polyline: moving && !AIR_DELAY[layer] ? { positions: new Cz.CallbackProperty(() => { const p = currentCartesian(); return p && trail.length ? [...trail, p] : trail; }, false), width: 3, material: new Cz.PolylineGlowMaterialProperty({ glowPower: 0.25, color: glow }) } : undefined,
         viewFrom: r.l2 ? new Cz.Cartesian3(0, -6e8, 4e8) : ORBITERS.includes(layer) ? new Cz.Cartesian3(0, -1.6e6, 1.2e6) : new Cz.Cartesian3(0, -30000, 20000)
     });
     if (layer === 'satellites') { drawOrbit(r); lastOrbit = Date.now(); }
     const zoom = S.zoom[layer] === true;
-    if (moving) { if (zoom) viewer.trackedEntity = trackEntity; }
+    if (moving) { if (zoom) { if (ORBITERS.includes(layer)) startOrbTrack(r); else viewer.trackedEntity = trackEntity; } }
     else if (fly && zoom) flyTo(r.lon, r.lat, layer === 'cameras' ? 1500 : layer === 'museums' ? 3000 : layer === 'airports' ? 12000 : layer === 'radio' ? 150000 : 400000);
     if (layer === 'radio' && radioCurrent !== key) radioPlay(key, false);
     if (AIR_DELAY[layer]) startLive(layer, key);
@@ -2837,11 +3000,33 @@ function stopLive() {
     if (liveRec) liveRec.liveUntil = 0;
     liveRec = null;
 }
+// Satellites/telescopes: own tracking in the target's east-north-up frame, moved every frame in onPreRender
+// (Cesium's trackedEntity jumped away for a frame every few seconds); the mouse still rotates/zooms around the target
+let orbTrack = false;
+function startOrbTrack(r) {
+    const p = currentCartesian();
+    if (!p) return;
+    viewer.trackedEntity = undefined;
+    orbTrack = true;
+    viewer.camera.lookAtTransform(Cz.Transforms.eastNorthUpToFixedFrame(p), r.l2 ? new Cz.Cartesian3(0, -6e8, 4e8) : new Cz.Cartesian3(0, -1.6e6, 1.2e6));
+}
+function orbTrackStep() {
+    if (!orbTrack) return;
+    const p = selected && ORBITERS.includes(selected.layer) ? currentCartesian() : null;
+    if (!p) { stopTrack(); return; }
+    const cam = viewer.camera;
+    // Same offset in the new frame: the camera moves along with the target
+    cam.lookAtTransform(Cz.Transforms.eastNorthUpToFixedFrame(p), Cz.Cartesian3.clone(cam.position));
+}
+function stopTrack() {
+    if (viewer?.trackedEntity) viewer.trackedEntity = undefined;
+    if (orbTrack) { orbTrack = false; viewer.camera.lookAtTransform(Cz.Matrix4.IDENTITY); }
+}
 // Follow: keep the selected aircraft in the screen centre at the current height, heading and tilt
 let follow = false;
 export function setFollow(on) {
     follow = !!on && !!selected;
-    if (follow && viewer.trackedEntity) viewer.trackedEntity = undefined;
+    if (follow) stopTrack();
 }
 function followStep() {
     if (!follow || !selected || S.cockpit) return;
@@ -2857,10 +3042,10 @@ function followStep() {
 export function clearSelection(notifyUi = true) {
     follow = false;
     if (S.cockpit) setCockpit(false);
-    if (viewer) viewer.trackedEntity = undefined;
+    if (viewer) stopTrack();
     if (trackEntity) viewer.entities.remove(trackEntity);
-    if (orbitEntity) viewer.entities.remove(orbitEntity);
-    trackEntity = orbitEntity = null; selected = null; trail = []; cityPick = null;
+    hideOrbit();
+    trackEntity = null; selected = null; trail = []; cityPick = null;
     stopLive();
     setStreamMode(false);
     if (notifyUi) notify('OnSelect', null);
@@ -2892,6 +3077,7 @@ function pushInfo() {
         f.push([tr('f.group'), tr(r.group)], [tr('f.norad'), r.key], [tr('f.altitude'), `${Math.round(r.alt / 1000).toLocaleString(loc())} km`], [tr('f.speed'), `${r.vel.toFixed(2)} km/s`]);
         if (r.rec?.no) f.push([tr('f.period'), `${(2 * Math.PI / r.rec.no).toFixed(1)} min`]);
         f.push([tr('f.position'), fmtPos(r.lat, r.lon)]);
+        if (r.ytLink) f.push([tr('f.youtube'), r.ytLink]); // ISS live view
     } else {
         infoRows(r.info, f);
     }
@@ -3133,7 +3319,7 @@ export function radioFav(key) {
 // ---------- camera ----------
 function flyTo(lon, lat, height, dur = 2.5) {
     if (S.cockpit) setCockpit(false);
-    viewer.trackedEntity = undefined;
+    stopTrack();
     const oblique = height < 60000;
     const dest = Cz.Cartesian3.fromDegrees(lon, oblique ? lat - height / 111320 : lat, height);
     viewer.camera.flyTo({ destination: dest, orientation: { heading: 0, pitch: toRad(oblique ? -45 : -90), roll: 0 }, duration: dur });
@@ -3271,6 +3457,8 @@ export function setTrails(on) { S.trails = !!on; saveSettings(); updateAirTrails
 // Budget for slow devices: fewer trails when an update takes too long, coarser steps when zoomed out, iOS less often
 const AIR_TRAIL_H = 4e5, AIR_TRAIL_M = 50000, AIR_TRAIL_CAP = LITE ? 80 : 300, AIR_TRAIL_EVERY = LITE ? 2000 : 1000;
 let airTrails = null, lastAirTrails = 0, airTrailMax = LITE ? 40 : 150;
+// On the ground: the ground flag, or slow and low (many transponders never send the flag: taxiing, parked)
+const onGround = r => r.ground || ((r.gs ?? 0) < 30 && (r.alt ?? 0) < 300);
 const airTrailLines = new Map(); // layer:key -> polyline
 function updateAirTrails(now) {
     const h = camHeight(), on = S.trails && !S.cockpit && h < AIR_TRAIL_H && (S.layers.flights || S.layers.military);
@@ -3294,7 +3482,7 @@ function updateAirTrails(now) {
         if (!S.layers[l]) continue;
         for (const r of store[l].values()) {
             const fx = r.fixes;
-            if (!fx || fx.length < 2 || r.ground) continue;
+            if (!fx || fx.length < 2 || onGround(r)) continue;
             const td = now - (r.delay ?? 0), p = airPos(r, td);
             // Icon up to 50 km outside the view: its trail may still be in view (checked per point below)
             if (wide && !Cz.Rectangle.contains(wide, Cz.Cartographic.fromDegrees(p[1], p[0], 0, c))) continue;
@@ -3358,7 +3546,8 @@ function tick() {
     if (selected && now - lastTrail > 1000) {
         lastTrail = now;
         // No trail for trains, nor for aircraft on the ground (taxiing gives odd tracks)
-        const noTrail = selected.layer === 'trains' || selected.layer === 'ov' || (MOVERS.includes(selected.layer) && store[selected.layer].get(selected.key)?.ground);
+        const sr = store[selected.layer].get(selected.key);
+        const noTrail = selected.layer === 'trains' || selected.layer === 'ov' || (PLANES.includes(selected.layer) && sr && onGround(sr));
         if (noTrail) trail = [];
         else {
             const p = currentCartesian();
@@ -3367,10 +3556,30 @@ function tick() {
     }
     if (S.layers.telescopes && now % 1000 < 250) propagateTelescopes();
     if (S.layers.telescopes && now - lastTelOrbit > 30000) { lastTelOrbit = now; drawTelOrbits(); }
+    if (S.layers.satellites && now - lastIssOrbit > 30000) { lastIssOrbit = now; drawIssOrbit(); }
     if (selected?.layer === 'satellites' && now - lastOrbit > 10000) { lastOrbit = now; const r = store.satellites.get(selected.key); if (r) drawOrbit(r); }
     if (selected && now - lastInfo > 2000) { lastInfo = now; pushInfo(); }
 }
 function onPreRender() {
+    // Selected satellite: its dot every frame (the rest once a second); else it jumps ~8 km per second against the smoothly following camera
+    // Selected telescope: same per-frame move (dot + its label)
+    if (selected?.layer === 'telescopes' && sat) {
+        const r = store.telescopes.get(selected.key), p = r && !r.l2 && currentCartesian();
+        if (p) r.pos = r.pt.position = r.lbl.position = p;
+    }
+    if (selected?.layer === 'satellites' && sat) {
+        const r = store.satellites.get(selected.key), p = r && currentCartesian();
+        if (p) r.pos = r.pt.position = p; // r.pos also drives the detect box and label
+        // Neighbours (docked craft, nearby satellites) every frame too: else they sweep ~8 km back and forth against the camera
+        if (satNear.length) {
+            const now = new Date(), gmst = sat.gstime(now);
+            for (const n of satNear) {
+                const g = satGeo(n, now, gmst);
+                if (g) n.pos = n.pt.position = Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h);
+            }
+        }
+    }
+    orbTrackStep();
     navStep();
     followStep();
     if (!S.cockpit || !selected) return;
@@ -3521,7 +3730,7 @@ function navStep() {
     // Move over the globe relative to the screen (heading-aware), keeping height and view angle
     const dx = navVel.x, dy = navVel.y;
     if (dx || dy) {
-        if (viewer.trackedEntity) viewer.trackedEntity = undefined;
+        stopTrack();
         const c = cam.positionCartographic, hd = cam.heading;
         const ang = Math.min(0.6, h / R_EARTH) * 0.6 * dt; // ≈ half a view per second
         const east = dy * Math.sin(hd) + dx * Math.cos(hd), north = dy * Math.cos(hd) - dx * Math.sin(hd);
@@ -3535,7 +3744,7 @@ function navStep() {
 // Turn/tilt around the point in the screen centre; looking past the globe: tilt back down
 function orbit(dHeading, dPitch) {
     const cam = viewer.camera, cv = viewer.scene.canvas;
-    if (viewer.trackedEntity) viewer.trackedEntity = undefined;
+    stopTrack();
     const target = cam.pickEllipsoid(new Cz.Cartesian2(cv.clientWidth / 2, cv.clientHeight / 2));
     if (!target) {
         cam.setView({ orientation: { heading: cam.heading + dHeading, pitch: Math.max(toRad(-90), cam.pitch - Math.abs(dPitch) - 0.02), roll: 0 } });
@@ -3562,7 +3771,7 @@ function orbit(dHeading, dPitch) {
 function northDown() {
     if (S.cockpit) return;
     const c = viewCenter();
-    viewer.trackedEntity = undefined;
+    stopTrack();
     viewer.camera.flyTo({ destination: Cz.Cartesian3.fromDegrees(c.lon, c.lat, Math.min(2.2e7, camHeight())), orientation: { heading: 0, pitch: toRad(-90), roll: 0 }, duration: 0.8 });
 }
 // On-screen nav pad (touch): hold a button to turn, tilt or zoom

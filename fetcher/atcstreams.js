@@ -96,7 +96,7 @@ async function uploadsOf(c, key) {
     return v;
 }
 // Live search across all channels (100 units), every 6 h: finds streams on channels not listed here
-const SEARCH_EVERY = 6 * 3600000, SEARCH_QUERIES = ['airport live ATC', 'flightradar24 live'];
+const SEARCH_EVERY = 6 * 3600000, SEARCH_QUERIES = ['airport live ATC', 'flightradar24 live', 'ISS live earth from space'];
 let searchAt = 0, searchHits = [];
 async function searchLive(key) {
     if (Date.now() - searchAt < SEARCH_EVERY) return searchHits;
@@ -196,7 +196,15 @@ export async function fetchAtcStreams(key, airportRows) {
         if (vids.length > n) debug[c.channel] = { unmatched: vids.filter(v => !c.airports.some(x => x[4].test(v.title))).map(v => v.title) };
     });
     // Live search: any channel, matched against all known airports (only video ids not found above)
+    let iss = null;
     if (key) {
+        try {
+            const hits = await searchLive(key);
+            // ISS live view for the satellite layer: NASA first, else any live ISS stream
+            const issHits = hits.filter(h => /\bISS\b|space station/i.test(h.title));
+            const best = issHits.find(h => /nasa/i.test(h.channel)) || issHits[0];
+            if (best) iss = { id: best.id, title: best.title, channel: best.channel };
+        } catch { }
         try {
             const hits = await searchLive(key), all = CHANNELS.flatMap(c => c.airports), idx = airportIndex(airportRows);
             const unmatched = [];
@@ -215,5 +223,6 @@ export async function fetchAtcStreams(key, airportRows) {
             debug.unmatched = unmatched;
         } catch (e) { log.push(`search: ${e.message}`); }
     }
-    return { streams, log: log.join(', '), debug };
+    if (key) log.push(`iss ${iss ? iss.channel : 'none'}`);
+    return { streams, iss, log: log.join(', '), debug };
 }

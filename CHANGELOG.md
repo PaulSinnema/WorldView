@@ -2,6 +2,54 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.181] - 2026-11-04
+### Fixed
+- Telescope list could stay empty: the only list was sent once at start-up (telescopes load fast, before the UI was listening). Opening a list panel (satellites, telescopes, launches) now asks the engine for a fresh list; list errors are logged to the console and crash report.
+
+## [1.0.180] - 2026-11-04
+### Added
+- List panel for Space telescopes (search name/NORAD, group Earth orbit / L2, In view); filter also hides dots, labels and orbit rings; row details with Wikipedia summary and photo.
+### Fixed
+- Selected telescope moves every frame (as satellites), so it no longer jumps when followed close up.
+
+## [1.0.179] - 2026-11-04
+### Fixed
+- Following the ISS close up: docked/nearby craft (Progress MS-34, Poisk) swept back and forth; satellites within 300 km of the selected one now also move every frame.
+- The glow trail of the selected satellite ended up to a second behind it (its end jumped each second); it now always ends at the current position.
+
+## [1.0.178] - 2026-11-04
+### Fixed
+- Selected satellite close up (camera ~25 km from the ISS): the red dot with its "ISS (ZARYA)" box jumped around the green target ring. The detect box and label used the position stored once a second (~8 km jumps, huge at that distance); the selected satellite's stored position is now also updated every frame.
+
+## [1.0.177] - 2026-11-04
+### Fixed
+- Following a satellite: every few seconds the view jumped away for one or two frames (seen in a screen recording, ~3.6 s apart). Satellites and telescopes are no longer followed via Cesium's `trackedEntity` but by own tracking in the target's east-north-up frame, moved every frame; mouse rotate/zoom around the target still works. Navigating, "zoom to", fly-to and closing the info box end the tracking.
+
+## [1.0.176] - 2026-11-04
+### Fixed
+- Selected satellite (e.g. ISS) jittered when zoomed in: its dot moved once a second (~8 km jumps) while the following camera moves smoothly; the selected satellite's dot now moves every frame.
+
+## [1.0.175] - 2026-11-04
+### Fixed
+- Following a satellite (zoom button on): the view flickered briefly every 10–30 s. The orbit lines (selected satellite every 10 s, ISS every 30 s) were removed and re-added as entities; now primitives updated in place.
+
+## [1.0.174] - 2026-11-04
+### Added
+- List panels for Satellites (search name/NORAD, group, In view; ISS first) and Launches (search name/provider, provider, status, In view, 🎥 webcast; by launch time), like museums: paged per 200, row details, filters also decide what shows on the globe and are kept. One generic panel (`ListPanel` in C#, `LISTS` in worldview.js) for both.
+
+## [1.0.173] - 2026-11-04
+### Fixed
+- Aircraft trails stayed on for some aircraft on the ground: besides the ground flag, slow (< 30 m/s) and low (< 300 m) now counts as on the ground (many transponders never send the flag); also for the selected aircraft's trail.
+
+## [1.0.172] - 2026-11-04
+### Added
+- Launches: the YouTube webcast (best by Launch Library priority) plays in the info box, with a link; launch list now fetched in detailed mode (cached 1 h).
+- ISS: orbit always drawn (dashed) while the satellite layer is on, refreshed every 30 s; the info box plays a live ISS view from YouTube (found by the fetcher, NASA first).
+
+## Fetcher 1.24.0 - 2026-11-04
+### Added
+- Live search also for "ISS live earth from space"; best hit as `iss` in `atc-streams.json` (search now 300 units per 6 h).
+
 ## [1.0.171] - 2026-11-03
 ### Changed
 - YouTube stream in the info box: globe limited to 24 fps while it plays, so the video gets CPU/GPU time (smoother playback); back to full speed when the info box closes.

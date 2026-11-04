@@ -21,7 +21,7 @@ import { fetchAtcStreams } from './atcstreams.js';
 import { fetchAirports } from './airports.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.23.1';
+const VERSION = '1.24.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -277,7 +277,7 @@ function tick() {
     // With YOUTUBE_API_KEY: ≈ 24 units per run (uploads + live status), far below the 10,000 daily quota
     every('atc', 30 * 60000, async () => {
         const d = await fetchAtcStreams(env.YOUTUBE_API_KEY, (await readJson('airports.json'))?.a);
-        if (d.streams.length) await put('atc-streams.json', { t: Math.round(Date.now() / 1000), streams: d.streams });
+        if (d.streams.length || d.iss) await put('atc-streams.json', { t: Math.round(Date.now() / 1000), streams: d.streams, iss: d.iss });
         await put('atc-debug.json', { t: new Date().toISOString(), debug: d.debug }); // temporary: why a channel gives nothing
         log(`atc streams: ${d.streams.length} (${d.log})`);
     });
