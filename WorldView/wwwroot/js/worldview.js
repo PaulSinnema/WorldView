@@ -819,17 +819,19 @@ export async function init(containerId, ref) {
             hoverQueued = false;
             if (!hoverPos) return;
             const { x, y } = hoverPos;
-            let on = orbNameHits.concat(labelHits).some(([hx, hy, w, h]) => x >= hx && x <= hx + w && y >= hy && y <= hy + h);
+            let on = (S.detect ? orbNameHits.concat(detectHits) : []).concat(labelHits).some(([hx, hy, w, h]) => x >= hx && x <= hx + w && y >= hy && y <= hy + h);
             if (!on) { const id = scene.pick(hoverPos)?.id; on = !!(id?.wv || id?.city || id?.country || id?.region); }
             scene.canvas.style.cursor = on ? 'pointer' : '';
         }, 80);
     }, Cz.ScreenSpaceEventType.MOUSE_MOVE);
     handler.setInputAction(e => {
-        // Orbit names (detection on): click selects the object
-        const oh = S.detect ? orbNameHits.findLast(([x, y, w, h]) => e.position.x >= x && e.position.x <= x + w && e.position.y >= y && e.position.y <= y + h) : null;
+        const inHit = ([x, y, w, h]) => e.position.x >= x && e.position.x <= x + w && e.position.y >= y && e.position.y <= y + h;
+        // Detection on: orbit names, then target boxes + labels: click selects the object
+        const oh = S.detect ? orbNameHits.findLast(inHit) ?? detectHits.findLast(inHit) : null;
         if (oh) { select(oh[4], oh[5], true); return; }
-        // Labels live on the 2D canvas: hit-test them first (cities, countries)
-        const hit = labelHits.findLast(([x, y, w, h]) => e.position.x >= x && e.position.x <= x + w && e.position.y >= y && e.position.y <= y + h)?.[4];
+        // Labels live on the 2D canvas: hit-test them first (telescopes, cities, countries)
+        const hit = labelHits.findLast(inHit)?.[4];
+        if (hit?.wv) { select(hit.wv.layer, hit.wv.key, true); return; }
         if (hit?.city) { selectCity(hit.city); return; }
         if (hit?.country) { selectCountry(hit.country); return; }
         if (hit?.region) { selectRegion(hit.region); return; }
@@ -2372,7 +2374,7 @@ async function loadTelescopes() {
         const color = Cz.Color.fromCssColorString(TEL_COLOR);
         const addTel = r => {
             r.pt = coll.telescopes.add({ pixelSize: 8, color, outlineColor: Cz.Color.BLACK, outlineWidth: 1, id: { wv: { layer: 'telescopes', key: r.key } } });
-            r.lbl = telLabels.add({ text: r.label, font: '24px "Share Tech Mono", monospace', scale: 0.5, fillColor: color, outlineColor: Cz.Color.BLACK, outlineWidth: 4, style: Cz.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cz.Cartesian2(8, -8), horizontalOrigin: Cz.HorizontalOrigin.LEFT });
+            r.lbl = telLabels.add({ id: { wv: { layer: 'telescopes', key: r.key } }, text: r.label, font: '24px "Share Tech Mono", monospace', scale: 0.5, fillColor: color, outlineColor: Cz.Color.BLACK, outlineWidth: 4, style: Cz.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cz.Cartesian2(8, -8), horizontalOrigin: Cz.HorizontalOrigin.LEFT });
             store.telescopes.set(r.key, r);
         };
         // L2 telescopes need no download: in the list straight away
@@ -3687,7 +3689,7 @@ export function setLang(lang) {
 export function setZoom(layer, on) { S.zoom[layer] = !!on; saveSettings(); }
 export function setDetect(on, fromEngine = false) {
     S.detect = !!on; saveSettings();
-    if (!S.detect && detectCtx) { detectCtx.clearRect(0, 0, detectCanvas.width, detectCanvas.height); orbNameHits = []; }
+    if (!S.detect && detectCtx) { detectCtx.clearRect(0, 0, detectCanvas.width, detectCanvas.height); orbNameHits = []; detectHits = []; }
     if (fromEngine) notify('OnToggle', 'detect', S.detect);
 }
 export function setCockpit(on) {
@@ -4011,7 +4013,7 @@ function drawDetect() {
     const shownNow = new Set();
     ctx.lineWidth = 1; ctx.font = `600 ${S.detectFont}px "Share Tech Mono", monospace`;
     ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3;
-    const b = 11, drawn = [];
+    const b = 11, drawn = [], hits = [];
     for (const [, x, y, r, l] of items) {
         // Declutter: skip targets overlapping an already boxed one
         if (drawn.length >= 250) break;
@@ -4025,13 +4027,18 @@ function drawDetect() {
         }
         ctx.stroke();
         // Moving targets: speed next to the name
-        if (r.lbl?.show && telLabels?.show) continue; // has its own map label (telescopes): box only
-        const name = String(r.label || r.key).slice(0, 18);
-        detectText(ctx, MOVERS.includes(l) ? `${name} ${Math.round((r.gs || 0) * 3.6)} ${tr('u.kmh')}` : name, x + b + 3, y - b + 8);
+        let tw = 0;
+        if (!(r.lbl?.show && telLabels?.show)) { // telescopes have their own map label: box only
+            const name = String(r.label || r.key).slice(0, 18);
+            tw = detectText(ctx, MOVERS.includes(l) ? `${name} ${Math.round((r.gs || 0) * 3.6)} ${tr('u.kmh')}` : name, x + b + 3, y - b + 8);
+        }
+        hits.push([x - b - 2, Math.min(y - b, y - b + 8 - S.detectFont) - 2, 2 * b + 4 + (tw ? tw + 3 : 0), 2 * b + 4 + Math.max(0, S.detectFont - 8), l, r.key]); // box + label: click selects
     }
+    detectHits = hits;
     drawOrbitNames(ctx, occ, toWin, w, h, drawn);
     detectShown = shownNow;
 }
+let detectHits = []; // [x, y, w, h, layer, key] of the boxes + labels drawn last frame
 // Label text with a dark outline, optionally on a black plate: readable on any background (fillStyle = layer colour, set by the caller)
 function detectText(ctx, text, x, y) {
     const lw = ctx.lineWidth, sb = ctx.shadowBlur, fs = ctx.fillStyle, px = S.detectFont;
@@ -4045,6 +4052,7 @@ function detectText(ctx, text, x, y) {
     ctx.strokeText(text, x, y);
     ctx.fillText(text, x, y);
     ctx.lineWidth = lw; ctx.shadowBlur = sb;
+    return ctx.measureText(text).width;
 }
 // Detection on: name along the orbit line of a satellite/telescope whose object is off screen; a click on it selects the object
 let orbNameHits = [];

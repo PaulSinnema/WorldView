@@ -1232,7 +1232,7 @@ else if (error is not null)
             Total = s.Total, Offset = s.Offset, Count = s.Items.Count,
             Page = dir => RadioCall("listPage", d.Name, dir),
             Rows = s.Items.Select(it => new PanelRow(it.Key, it.Name, it.Sub, it.Flag ? d.FlagIcon : d.Icon)),
-            GoFn = d.GoFn, DetailsFn = d.DetailsFn
+            GoFn = d.GoFn, DetailsFn = d.DetailsFn, Layer = d.Name
         });
     }
 
@@ -1248,6 +1248,7 @@ else if (error is not null)
         public IEnumerable<PanelRow> Rows = [];
         public Func<string, Task>? Star; // star button per row (radio favourites)
         public string GoFn = "", DetailsFn = "";
+        public string Layer = ""; // layer of the panel: zoom toggle + ✕ (turns the layer off)
     }
     private sealed record PanelRow(string Key, string Name, string Sub, string Icon, string? IconUrl = null, string? Css = null, bool Fav = false);
 
@@ -1268,6 +1269,14 @@ else if (error is not null)
             {
                 @* Controls: a tap on them must not fold the panel *@
                 <span class="radio-ctrl" @onclick:stopPropagation="true">@p.Ctrl</span>
+            }
+            @if (p.Layer != "")
+            {
+                var z = zoomOn.GetValueOrDefault(p.Layer);
+                <span class="radio-ctrl" @onclick:stopPropagation="true">
+                    <button class="pz @(z ? "on" : "")" title="@T(z ? "zoom.on" : "zoom.off")" @onclick="() => ToggleZoom(p.Layer)">⌖</button>
+                    <button class="px" title="@T("info.close")" @onclick="() => ToggleLayer(p.Layer, false)">✕</button>
+                </span>
             }
         </div>
         @if (!p.Collapsed)
@@ -1335,7 +1344,7 @@ else if (error is not null)
         Total = airportTotal, Offset = airportOffset, Count = airportList.Count,
         Page = dir => RadioCall("airportPage", dir),
         Rows = airportList.Select(a => new PanelRow(a.Key, a.Name, Join(a.Codes, a.City, a.Country, a.Type), a.Atc ? "🎧" : "✈")),
-        GoFn = "airportGo", DetailsFn = "airportDetails"
+        GoFn = "airportGo", DetailsFn = "airportDetails", Layer = "airports"
     };
 
     private DockSpec MuseumPanel() => new()
@@ -1355,7 +1364,7 @@ else if (error is not null)
         Total = museumTotal, Offset = museumOffset, Count = museumList.Count,
         Page = dir => RadioCall("museumPage", dir),
         Rows = museumList.Select(m => new PanelRow(m.Key, m.Name, Join(m.Type, m.City, m.Country, m.Wiki ? "Wikipedia" : ""), "🏛")),
-        GoFn = "museumGo", DetailsFn = "museumDetails"
+        GoFn = "museumGo", DetailsFn = "museumDetails", Layer = "museums"
     };
 
     private DockSpec RadioPanel() => new()
@@ -1387,7 +1396,7 @@ else if (error is not null)
         Page = dir => RadioCall("radioPage", dir),
         Rows = radioList.Select(s => new PanelRow(s.Key, s.Name, Join(s.Country, s.Tags, s.Geo ? "" : T("radio.noGeo")), "📻", s.Favicon, s.Key == radioNow?.Key ? "current" : null, s.Fav)),
         Star = k => RadioCall("radioFav", k),
-        GoFn = "radioPlay", DetailsFn = "radioDetails"
+        GoFn = "radioPlay", DetailsFn = "radioDetails", Layer = "radio"
     };
 
     // ---------- airport panel ----------

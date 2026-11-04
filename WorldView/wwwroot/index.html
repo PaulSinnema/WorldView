@@ -166,6 +166,9 @@
         .radio button.active { background: rgba(255,79,216,.25); border-color: #ff4fd8; }
         .radio-head { display: flex; align-items: center; gap: 5px; padding: 6px 8px; cursor: pointer; } /* tap folds the panel open/shut */
         .radio-ctrl { display: flex; align-items: center; gap: 5px; cursor: default; }
+        .radio-head .pz, .radio-head .px { padding: 2px 6px; background: none; } /* zoom on select, close (layer off) */
+        .radio-head .pz { opacity: .35; }
+        .radio-head .pz.on { opacity: 1; color: var(--ok); }
         .radio-now { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
         .radio-now b, .radio-now span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         .radio-now b { color: #fff; font-weight: normal; }

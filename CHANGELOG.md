@@ -2,6 +2,14 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.237] - 2026-11-05
+### Added
+- Every list panel (flights, military, satellites, telescopes, launches, airports, museums, radio) has a ⌖ zoom toggle (same as behind its data layer) and a ✕ on the right of its header; ✕ closes the panel and turns the data layer off.
+
+## [1.0.236] - 2026-11-05
+### Added
+- Clicking a label selects its object: detection boxes and their labels (aircraft, satellites, museums, …) and the telescope name labels on the map; hand cursor over them.
+
 ## [1.0.235] - 2026-11-04
 ### Added
 - Settings (with Detection on): detection label size (10–24 px) and an optional black plate under the labels with adjustable opacity; saved with the other settings.
