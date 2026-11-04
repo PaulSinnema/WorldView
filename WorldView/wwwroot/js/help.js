@@ -12,7 +12,7 @@ const en = [
         <li><b>Flights</b> and <b>Military flights</b>: live positions, type, registration and a photo of the aircraft.</li>
         <li><b>Trains</b>: the Netherlands (NS, with rolling stock and seats), Finland, the US and Canada.</li>
         <li><b>Bus, tram, metro</b>: all Dutch public transport.</li>
-        <li><b>Satellites</b> and <b>Space telescopes</b> (Hubble, JWST, …) with their orbits.</li>
+        <li><b>Satellites</b> and <b>Space telescopes</b> (Hubble, JWST, …) with their orbits. ISS, Hubble, Chandra and JWST as 3D models in real size (NASA 3D Resources).</li>
         <li><b>Earthquakes</b>, <b>Wildfires</b>, <b>Launches</b>, <b>Radio</b> and <b>Traffic cameras</b>.</li><li><b>Airports</b>: large and medium airports with a list panel; the 🎧 filter shows airports with a live YouTube stream with ATC audio.</li>
 <li><b>Power plants</b>: about 35,000 plants worldwide, colour per energy source, size per capacity (WRI database, ≈ 2021).</li><li><b>Museums</b>: museums from OpenStreetMap; well-known ones when zoomed out, all of them when zoomed in. Click for kind, opening hours, website and Wikipedia.</li></ul>
         <p>The <b>⌖</b> button next to a layer sets whether the globe zooms in when you click an object of that layer.</p>`],
@@ -52,7 +52,7 @@ const nl = [
         <li><b>Vluchten</b> en <b>Militaire vluchten</b>: live posities, type, registratie en een foto van het toestel.</li>
         <li><b>Treinen</b>: Nederland (NS, met materieel en zitplaatsen), Finland, de VS en Canada.</li>
         <li><b>Bus, tram, metro</b>: al het Nederlandse openbaar vervoer.</li>
-        <li><b>Satellieten</b> en <b>Ruimtetelescopen</b> (Hubble, JWST, …) met hun banen.</li>
+        <li><b>Satellieten</b> en <b>Ruimtetelescopen</b> (Hubble, JWST, …) met hun banen. ISS, Hubble, Chandra en JWST als 3D-model op ware grootte (NASA 3D Resources).</li>
         <li><b>Aardbevingen</b>, <b>Bosbranden</b>, <b>Lanceringen</b>, <b>Radio</b> en <b>Verkeerscamera's</b>.</li><li><b>Luchthavens</b>: grote en middelgrote luchthavens met een lijstpaneel; het 🎧-filter toont luchthavens met een live YouTube-stream met ATC-geluid.</li>
 <li><b>Energiecentrales</b>: zo'n 35.000 centrales wereldwijd, kleur per energiebron, grootte naar vermogen (WRI-database, ± 2021).</li><li><b>Musea</b>: musea uit OpenStreetMap; uitgezoomd de bekende, ingezoomd allemaal. Klik voor soort, openingstijden, website en Wikipedia.</li></ul>
         <p>Met de knop <b>⌖</b> naast een laag stel je in of de globe inzoomt als je een object van die laag aanklikt.</p>`],

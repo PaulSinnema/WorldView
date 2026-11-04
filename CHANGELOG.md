@@ -2,6 +2,126 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.215] - 2026-11-04
+### Fixed
+- L2 line still flickered between positions. Reproduced and tested live: a single straight segment from 85 m to 1.5 million km from the camera renders unreliably (the depth along it is interpolated between two wildly different ends). The line now has 50 points spaced geometrically from the telescope (100 m, 150 m, … 1.5 million km): steady in every captured frame.
+
+## [1.0.214] - 2026-11-04
+### Fixed
+- L2 line invisible or jumping close to JWST. Checked live: the line was in view and in front of the camera, but the dash pattern breaks down when one end is 85 m and the other 1.5 million km away. Now a solid, semi-transparent line (and visible again close by; 1.0.213's hiding removed).
+
+## [1.0.213] - 2026-11-04
+### Fixed
+- L2 line: back to ending at the telescope (1.0.212's shortened line collapsed to a dot from close by). It is now hidden within 50,000 km of the telescope: from there it runs past or behind the camera and its clipped end swung about; the 3D model shows the telescope anyway.
+
+## [1.0.212] - 2026-11-04
+### Fixed
+- L2 line still swung about close to JWST (seen in a screen recording): a moved line is drawn about a frame late, ~2 km off at 110 km/s, and from 85 m away its end swung in all directions. The line now stops 2,000 km short of the telescope, where that lag is invisible.
+
+## [1.0.211] - 2026-11-04
+### Fixed
+- L2 line jumped about (1.0.210's turned collection) and flickered (1.0.209). Now each L2 telescope has one line in its own small collection, created once and moved every frame; it is no longer removed and re-added every 30 s with the orbit rings.
+
+## [1.0.210] - 2026-11-04
+### Fixed
+- L2 line flickered after 1.0.209 (rewritten every frame). The line now stays as drawn in its own collection, which is turned every frame from the drawn L2 direction to the current one (only a matrix changes).
+
+## [1.0.209] - 2026-11-04
+### Fixed
+- JWST/Euclid: the dashed line to L2 was drawn every 30 s while the telescope moves ~110 km/s in the Earth-fixed frame, so the line drifted up to 3,000 km away from it. The line now moves with the telescope every frame.
+
+## [1.0.208] - 2026-11-04
+### Fixed
+- View spun around when turning a tracked object until it lined up with the Earth: the composition (object upper right, Earth lower left) was forced every frame and flipped there. It now only sets the first view; once you turn or zoom (mouse or keys) the camera keeps looking at the object with your own "up", without snapping or flipping.
+
+## [1.0.207] - 2026-11-04
+### Fixed
+- Arrow keys while tracking a satellite/telescope panned the globe (and stopped tracking), so the object vanished at once (at L2 a pan step is millions of km). Now arrow keys and the nav pad turn around the object, and +/- zoom towards it.
+
+## [1.0.206] - 2026-11-04
+### Fixed
+- Rotating around a tracked satellite/telescope stopped halfway in one direction: Cesium keeps the camera from passing over the target's "pole" (its local up). Free rotation while tracking (restored afterwards). Also no breakdown when target and Earth line up exactly: the last screen layout is kept.
+
+## [1.0.205] - 2026-11-04
+### Fixed
+- Orbit line still wobbled close up: the line consists of straight 0.5 s pieces (3.75 km), which bow 0.25 m from the true path; from 50 m the object swayed off its line twice a second. Within ±5 s of the object the line now has 0.05 s pieces (2.5 mm).
+
+## [1.0.204] - 2026-11-04
+### Fixed
+- Orbit line of a tracked object wobbled: rings are re-aligned to the Earth's rotation, which moved the far part ~15 km at once every 10–30 s. The tracked object's ring (and the ISS ring while a satellite is tracked) is now re-aligned every second; the others stay at 30 s. Model heading uses the frame's clock time too.
+
+## [1.0.203] - 2026-11-04
+### Fixed
+- Model and selection ring now and then drawn shifted for a frame: they were computed at different moments (the ring when Cesium updates entities, the model and camera later in the frame; at 7.5 km/s a few ms is metres). Everything for the tracked object now uses the frame's own clock time, also L2.
+
+## [1.0.202] - 2026-11-04
+### Fixed
+- Docked craft listed separately (ISS (NAUKA), Soyuz, Progress, Dragon, …) were followed from 2,000 km while ISS (ZARYA) was followed close by. Any object within 2 km of a 3D model now gets that model's close-up distance.
+
+## [1.0.201] - 2026-11-04
+### Fixed
+- ISS model stood on its edge (truss along the motion, modules pointing up). Now in flight attitude: modules along the motion, truss across it, the whole station flat over the Earth.
+
+## [1.0.200] - 2026-11-04
+### Fixed
+- 3D models flickered light/dark (ISS, Hubble, …): Cesium's dynamic environment map is regenerated as a model moves (7.5 km/s), so its lighting kept changing. Turned off for the models.
+- ISS model: removed the stray ball-shaped parts floating above the station; true proportions now (truss 109 m, modules 72 m).
+- JWST model: variant B (deployed, no loose fragments around it), 0.37 MB instead of 2.3 MB.
+
+## [1.0.199] - 2026-11-04
+### Fixed
+- Satellite list empty for a long time: the CelesTrak groups were fetched one after another (up to 20 s each). Now all at once, with the same caching as the telescopes (cache used at once up to a week, background refresh after 6 h, 10 s timeout, older cache as fallback).
+
+## [1.0.198] - 2026-11-04
+### Fixed
+- Telescope list stayed empty for ~30 s: it waited for every CelesTrak request, and one that hung waited for the browser's own timeout. Now: L2 telescopes (JWST, Euclid) appear at once; cached orbits (up to a week old) are used straight away and refreshed in the background after 6 h; a download gives up after 8 s and falls back to an older cache; a second load during the download no longer adds telescopes twice.
+
+## [1.0.197] - 2026-11-04
+### Fixed
+- 3D models flickered light/dark: the heading came from the frame-to-frame position change, which flipped when the position was written twice in one frame, so the model kept turning against the sunlight. Heading now from the orbit itself (position 1 s ahead).
+
+## [1.0.196] - 2026-11-04
+### Changed
+- Hubble model back to the original with the aperture door closed (the opened door did not look right).
+
+## [1.0.195] - 2026-11-04
+### Fixed
+- Hubble model: open aperture door no longer floats loose. Hinge moved slightly inside the rim so the door overlaps the tube (no background showing through); the dark interior no longer includes the door's square decal planes (the dark block above the tube).
+
+## [1.0.194] - 2026-11-04
+### Fixed
+- Kink in orbit lines (Hubble, ISS, …): the exact piece around the object (real Earth rotation) joined the ring (fixed rotation) abruptly. Now blended smoothly over ±15 min, sampled half an orbit back and half ahead.
+### Changed
+- Hubble model: aperture door open (~105° about its hinge), with a dark interior; tube walls visible from inside.
+
+## [1.0.193] - 2026-11-04
+### Changed
+- 3D models: minimum size 8 px instead of 36 px, so a model shrinks with distance (at 36 px Hubble stopped shrinking at ~300 m and looked far away while it was close by).
+
+## [1.0.192] - 2026-11-04
+### Fixed
+- A deselected telescope or satellite vanished from a close view: only the selected one moved every frame, the rest once a second (7.5 km jumps; L2 110 km). Now all telescopes, and satellites within 3,000 km of the camera (max 300), move every frame.
+- Orbit line missing close up: the ring's 180–240 chords lay hundreds of metres inside the real path. Every orbit line (telescopes, ISS, selected satellite) now has a dense Earth-fixed piece of ±60 s around the object, so it stays exactly on its line.
+
+## [1.0.191] - 2026-11-04
+### Changed
+- No trail for satellites and space telescopes any more: their orbit line already shows the path. Aircraft, ships and trains keep theirs.
+
+## [1.0.190] - 2026-11-04
+### Fixed
+- Trail of a tracked satellite/telescope flickered: its end point was computed separately (ms later); now it ends at the same per-frame position as dot, model and camera. L2 telescopes (JWST, Euclid) get no trail: in the Earth-fixed frame it is only a sweep from the Earth's rotation.
+
+## [1.0.189] - 2026-11-04
+### Fixed
+- 3D models flickered: camera and model used positions computed a few ms apart (metres at 7.5 km/s); now one position per frame. Close by, the dot and selection ring are hidden so they no longer fight with the model surface.
+- JWST/Euclid tracking: the selected L2 telescope now moves every frame (L2 sweeps ~110 km/s in the Earth-fixed frame; once a second made it jump away).
+- Tracking satellites/telescopes: minimum zoom distance 1 m instead of 30 m (restored when tracking stops).
+
+## [1.0.188] - 2026-11-04
+### Added
+- 3D models in real size for ISS, Hubble, Chandra and JWST (NASA 3D Resources, compressed to `wwwroot/models/*.glb`, 0.1–2.3 MB). Far away they stay visible as a 36 px icon; zooming in grows them to true size. Nose along the direction of motion (real attitude is not public).
+- Tracking one of these: camera at 4× the object's size instead of 2,000 km, so the model is seen in real size; same composition (object upper right, Earth lower left).
+
 ## [1.0.187] - 2026-11-04
 ### Fixed
 - Detection overlay: no second name next to objects that already have their own map label (space telescopes); box only.

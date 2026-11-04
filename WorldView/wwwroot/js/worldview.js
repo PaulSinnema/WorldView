@@ -784,6 +784,7 @@ export async function init(containerId, ref) {
     telLabels.show = telOrbits.show = S.layers.telescopes;
     // L2 lies at ~1.5 million km: extend the far plane
     viewer.camera.frustum.far = 1e10;
+    loadModels(); // ISS + telescopes as 3D models (async, non-blocking)
 
     // Map labels: crisp native text on a 2D canvas above the globe (see drawLabels)
     labelCanvas = document.createElement('canvas');
@@ -900,7 +901,7 @@ function applyLayer(name, on, fromEngine) {
     if (!LAYERS.includes(name)) return;
     S.layers[name] = on; saveSettings();
     coll[name].show = on;
-    if (name === 'telescopes') telLabels.show = telOrbits.show = on;
+    if (name === 'telescopes') { telLabels.show = telOrbits.show = on; if (l2Lines) l2Lines.show = on; }
     if (name === 'satellites' && !on) drawIssOrbit(); // removes the ISS orbit
     if (name === 'radio' && !on) radioStop();
     if (on) startLayer(name); else stopLayer(name);
@@ -1218,24 +1219,39 @@ function posAt(r, now) {
 }
 
 // satellites
+// Same caching as tleById: cache at once (up to a week), background refresh after 6 h, 10 s timeout, older cache as fallback
 async function tleGroup(g) {
     const ck = 'wv-tle-' + g;
-    try { const c = JSON.parse(localStorage.getItem(ck) || 'null'); if (c && Date.now() - c.t < 6 * 3600000) return c.d; } catch { }
-    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 20000);
-    try {
-        const r = await fetch(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${g}&FORMAT=tle`, { signal: ctl.signal });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const d = await r.text();
-        try { localStorage.setItem(ck, JSON.stringify({ t: Date.now(), d })); } catch { }
-        return d;
-    } finally { clearTimeout(t); }
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem(ck) || 'null'); } catch { }
+    const fresh = async () => {
+        const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 10000);
+        try {
+            const r = await fetch(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${g}&FORMAT=tle`, { signal: ctl.signal });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const d = await r.text();
+            try { localStorage.setItem(ck, JSON.stringify({ t: Date.now(), d })); } catch { }
+            return d;
+        } finally { clearTimeout(t); }
+    };
+    if (c && Date.now() - c.t < 7 * 86400000) {
+        if (Date.now() - c.t > 6 * 3600000) fresh().catch(() => { });
+        return c.d;
+    }
+    try { return await fresh(); } catch (e) { if (c) return c.d; throw e; }
 }
+let satLoading = false; // TLE download running: a second load waits for it
 async function loadSatellites() {
     sat ??= await import('https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/+esm');
+    if (satLoading) return 0;
     if (!store.satellites.size) {
-        for (const [g, color, label] of SAT_GROUPS) {
-            let txt;
-            try { txt = await tleGroup(g); } catch { continue; }
+        satLoading = true;
+        // All groups at once (was one after another, up to 20 s each); added in group order for the duplicate check
+        const txts = await Promise.all(SAT_GROUPS.map(([g]) => tleGroup(g).catch(() => null)));
+        satLoading = false;
+        for (const [gi, [g, color, label]] of SAT_GROUPS.entries()) {
+            const txt = txts[gi];
+            if (!txt) continue;
             const lines = txt.split(/\r?\n/).map(s => s.trimEnd()).filter(Boolean);
             for (let i = 0; i + 2 < lines.length; i += 3) {
                 const name = lines[i].trim(), l1 = lines[i + 1], l2 = lines[i + 2];
@@ -1270,7 +1286,8 @@ function propagateSats() {
     if (!sat || !S.layers.satellites) return;
     const now = new Date(), gmst = sat.gstime(now);
     const selR = selected?.layer === 'satellites' ? store.satellites.get(selected.key) : null;
-    satNear = [];
+    const cam = viewer.camera.positionWC;
+    satNear = []; camNear = [];
     for (const r of store.satellites.values()) {
         const g = satGeo(r, now, gmst);
         if (!g) { r.pt.show = false; continue; }
@@ -1279,15 +1296,31 @@ function propagateSats() {
         r.pos = Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h);
         r.pt.position = r.pos; r.pt.show = r.listOk !== false; // panel filter
         if (selR && r !== selR && selR.pos && Cz.Cartesian3.distance(r.pos, selR.pos) < SAT_NEAR_M) satNear.push(r);
+        else if (r !== selR && r.pt.show && camNear.length < CAM_NEAR_MAX && Cz.Cartesian3.distance(r.pos, cam) < CAM_NEAR_M) camNear.push(r);
     }
 }
-// One full orbit from now (fixed Earth rotation: the ring as seen in space)
-function orbitPoints(r) {
-    const now = new Date(), gmst = sat.gstime(now), period = 2 * Math.PI / r.rec.no, pts = [];
-    for (let i = 0; i <= 180; i++) {
-        const g = satGeo(r, new Date(now.getTime() + i / 180 * period * 60000), gmst);
+// Satellites near the camera, moved every frame (else a deselected one jumps away at ~7.5 km/s)
+let camNear = [];
+const CAM_NEAR_M = 3e6, CAM_NEAR_MAX = 300;
+// One full orbit (half back, half ahead): the ring as seen in space (fixed Earth rotation), except around the object,
+// where it follows the real Earth rotation so the object stays exactly on its line close up; blended smoothly (no kink)
+const ORBIT_NEAR_MS = 60000, ORBIT_FADE_MS = 900000, ORBIT_NEAR_STEP = 500;
+function orbitPoints(r, n = 180) {
+    const now = Date.now(), g0 = sat.gstime(new Date(now)), half = Math.PI / r.rec.no * 60000, pts = [];
+    const fade = Math.min(ORBIT_FADE_MS, half * 0.8);
+    // Weight of the real rotation: 1 near the object, cosine fade to 0 (fixed ring) further away
+    const w = dt => { const a = Math.abs(dt); return a <= ORBIT_NEAR_MS ? 1 : a >= fade ? 0 : 0.5 + 0.5 * Math.cos(Math.PI * (a - ORBIT_NEAR_MS) / (fade - ORBIT_NEAR_MS)); };
+    const push = dt => {
+        const d = new Date(now + dt), diff = ((sat.gstime(d) - g0) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+        const g = satGeo(r, d, g0 + w(dt) * diff);
         if (g) pts.push(Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h));
-    }
+    };
+    const step = 2 * half / n;
+    for (let dt = -half; dt < -ORBIT_NEAR_MS; dt += step) push(dt);
+    // Extra dense ±5 s: a 0.5 s chord (3.75 km) bows 0.25 m from the true path, a visible wobble from 50 m away
+    for (let dt = -ORBIT_NEAR_MS; dt < ORBIT_NEAR_MS; dt += Math.abs(dt) < 5000 ? 50 : ORBIT_NEAR_STEP) push(dt);
+    for (let dt = ORBIT_NEAR_MS; dt <= half; dt += step) push(dt);
+    push(-half); // close the ring
     return pts;
 }
 // Orbit lines as primitives, updated in place: re-adding entities every few seconds made the view flicker while following
@@ -2201,18 +2234,30 @@ const regionShown = new Map(), cityShown = new Map();
 const REGION_COLOR = Cz.Color.fromCssColorString('#ffe58a').withAlpha(0.9);
 
 // space telescopes
+// Cached TLE returned at once (up to a week old; refreshed in the background after 6 h); a fetch gives up after 8 s
 async function tleById(id) {
     const ck = 'wv-tle-cat-' + id;
-    try { const c = JSON.parse(localStorage.getItem(ck) || 'null'); if (c && Date.now() - c.t < 6 * 3600000) return c.d; } catch { }
-    const r = await fetch(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${id}&FORMAT=tle`);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const d = await r.text();
-    try { localStorage.setItem(ck, JSON.stringify({ t: Date.now(), d })); } catch { }
-    return d;
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem(ck) || 'null'); } catch { }
+    const fresh = async () => {
+        const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 8000);
+        try {
+            const r = await fetch(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${id}&FORMAT=tle`, { signal: ctl.signal });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const d = await r.text();
+            try { localStorage.setItem(ck, JSON.stringify({ t: Date.now(), d })); } catch { }
+            return d;
+        } finally { clearTimeout(t); }
+    };
+    if (c && Date.now() - c.t < 7 * 86400000) {
+        if (Date.now() - c.t > 6 * 3600000) fresh().catch(() => { }); // next load uses the new one
+        return c.d;
+    }
+    try { return await fresh(); } catch (e) { if (c) return c.d; throw e; } // older cache beats nothing
 }
 // Approximate Sun-Earth L2: 1.5 million km opposite the Sun (Earth-fixed frame)
-function l2Position(offset = 0) {
-    const t = Cz.JulianDate.now();
+function l2Position(offset = 0, ms) {
+    const t = ms === undefined ? Cz.JulianDate.now() : Cz.JulianDate.fromDate(new Date(ms));
     const sun = Cz.Simon1994PlanetaryPositions.computeSunPositionInEarthInertialFrame(t);
     const m = Cz.Transforms.computeIcrfToFixedMatrix(t) ?? Cz.Transforms.computeTemeToPseudoFixedMatrix(t);
     const dir = Cz.Cartesian3.normalize(Cz.Matrix3.multiplyByVector(m, sun, new Cz.Cartesian3()), new Cz.Cartesian3());
@@ -2221,16 +2266,24 @@ function l2Position(offset = 0) {
     const side = Cz.Cartesian3.normalize(Cz.Cartesian3.cross(dir, Cz.Cartesian3.UNIT_Z, new Cz.Cartesian3()), new Cz.Cartesian3());
     return Cz.Cartesian3.add(anti, Cz.Cartesian3.multiplyByScalar(side, offset, side), anti);
 }
+let telLoading = false; // TLE download running: a second load must not add everything twice
 async function loadTelescopes() {
     sat ??= await import('https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/+esm');
-    if (!store.telescopes.size) {
+    if (telLoading) return 0; // the running load finishes the job
+    if (![...store.telescopes.values()].some(r => !r.l2)) { // retry until the orbiting ones are in
+        telLoading = true;
         const color = Cz.Color.fromCssColorString(TEL_COLOR);
         const addTel = r => {
             r.pt = coll.telescopes.add({ pixelSize: 8, color, outlineColor: Cz.Color.BLACK, outlineWidth: 1, id: { wv: { layer: 'telescopes', key: r.key } } });
             r.lbl = telLabels.add({ text: r.label, font: '24px "Share Tech Mono", monospace', scale: 0.5, fillColor: color, outlineColor: Cz.Color.BLACK, outlineWidth: 4, style: Cz.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cz.Cartesian2(8, -8), horizontalOrigin: Cz.HorizontalOrigin.LEFT });
             store.telescopes.set(r.key, r);
         };
+        // L2 telescopes need no download: in the list straight away
+        for (const [key, name, offset, wikiTitle] of L2_TELESCOPES) if (!store.telescopes.has(key)) addTel({ key, label: name, wikiTitle, l2: true, offset, group: 'grp.telescopeL2' });
+        propagateTelescopes();
+        runList('telescopes');
         const tles = await Promise.all(TELESCOPES.map(([id]) => tleById(id).catch(() => null)));
+        telLoading = false;
         TELESCOPES.forEach(([id, name, wikiTitle], i) => {
             const lines = (tles[i] || '').split(/\r?\n/).map(s => s.trimEnd()).filter(Boolean);
             if (lines.length < 3 || !lines[1].startsWith('1 ') || !lines[2].startsWith('2 ')) return;
@@ -2238,7 +2291,6 @@ async function loadTelescopes() {
             try { rec = sat.twoline2satrec(lines[1], lines[2]); } catch { return; }
             addTel({ key: String(id), label: name, wikiTitle, rec, group: 'grp.telescope', color: TEL_COLOR, lat: 0, lon: 0, alt: 0, vel: 0 });
         });
-        for (const [key, name, offset, wikiTitle] of L2_TELESCOPES) addTel({ key, label: name, wikiTitle, l2: true, offset, group: 'grp.telescopeL2' });
         propagateTelescopes();
     }
     runList('telescopes'); // filter + orbits
@@ -2263,28 +2315,23 @@ function propagateTelescopes() {
     }
 }
 // Full orbit rings (re-aligned to current Earth rotation) + dashed line to L2
+let l2Lines = null; // Earth → L2 lines, moved every frame in onPreRender
+const L2_LINE_PTS = 48;
 function drawTelOrbits() {
     if (!sat || !telOrbits) return;
     telOrbits.removeAll();
-    const now = new Date(), gmst = sat.gstime(now);
     const ring = Cz.Material.fromType('Color', { color: Cz.Color.fromCssColorString(TEL_COLOR).withAlpha(0.55) });
-    const dash = Cz.Material.fromType('PolylineDash', { color: Cz.Color.fromCssColorString(TEL_COLOR).withAlpha(0.5), dashLength: 24 });
     for (const r of store.telescopes.values()) {
+        if (r.l2Line) r.l2Line.show = r.listOk !== false;
         if (r.listOk === false) continue; // filtered out in the panel
-        if (r.l2) {
-            const p = l2Position(r.offset);
-            const start = Cz.Cartesian3.multiplyByScalar(Cz.Cartesian3.normalize(p, new Cz.Cartesian3()), 8e6, new Cz.Cartesian3());
-            telOrbits.add({ positions: [start, p], width: 1, material: dash });
-            continue;
-        }
-        if (!r.rec?.no) continue;
-        const period = 2 * Math.PI / r.rec.no, pts = [];
-        for (let i = 0; i <= 240; i++) {
-            const g = satGeo(r, new Date(now.getTime() + i / 240 * period * 60000), gmst);
-            if (g) pts.push(Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h));
-        }
-        if (pts.length > 1) telOrbits.add({ positions: pts, width: 1.5, material: ring });
+        if (r.l2 || !r.rec?.no) continue; // L2 lines: onPreRender
+        const pts = orbitPoints(r, 240);
+        r.orbLine = pts.length > 1 ? telOrbits.add({ positions: pts, width: 1.5, material: ring }) : null;
     }
+}
+// Selected telescope: its ring every second (a 30 s re-alignment made the far part jump ~15 km: the line wobbled)
+function drawTelOrbit(r) {
+    if (sat && r?.orbLine && r.rec?.no) r.orbLine.positions = orbitPoints(r, 240);
 }
 
 // static point layers
@@ -2896,13 +2943,15 @@ async function loadCameras() {
 }
 
 // ---------- selection ----------
-function currentCartesian() {
+// Clock time of the frame being drawn (set in onPreRender); orbiters are computed for this one instant
+let frameMs = Date.now();
+function currentCartesian(ms = frameMs) {
     if (!selected) return undefined;
     const r = store[selected.layer].get(selected.key);
     if (!r) return undefined;
     if (MOVERS.includes(selected.layer)) { const [la, lo, al] = posAt(r, Date.now()); return Cz.Cartesian3.fromDegrees(lo, la, al); }
-    if (r.l2) return l2Position(r.offset);
-    if (ORBITERS.includes(selected.layer) && sat) { const g = satGeo(r, new Date()); if (g) return Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h); }
+    if (r.l2) return l2Position(r.offset, ms);
+    if (ORBITERS.includes(selected.layer) && sat) { const g = satGeo(r, new Date(ms)); if (g) return Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h); }
     return r.pos;
 }
 export function selectItem(layer, key) { select(layer, key, true); }
@@ -2962,14 +3011,16 @@ function select(layer, key, fly) {
     clearSelection(false);
     selected = { layer, key }; trail = []; crumb(`select ${layer}:${key}`);
     const moving = MOVERS.includes(layer) || ORBITERS.includes(layer);
-    const posFn = () => currentCartesian();
+    // Entity callbacks get this frame's clock time: same instant as dot, model and camera (else the ring is drawn metres off)
+    const posFn = time => currentCartesian(time ? Cz.JulianDate.toDate(time).getTime() : undefined);
     const glow = Cz.Color.fromCssColorString('#7dffb0');
     trackEntity = viewer.entities.add({
         position: Cz.CallbackPositionProperty ? new Cz.CallbackPositionProperty(posFn, false) : new Cz.CallbackProperty(posFn, false),
         point: { pixelSize: 20, color: Cz.Color.TRANSPARENT, outlineColor: glow, outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY },
         // Aircraft keep their normal trail (fetcher history); others get the glow trail
         // Trail ends at the current position (points are added once a second; else its end lags behind the object)
-        polyline: moving && !AIR_DELAY[layer] ? { positions: new Cz.CallbackProperty(() => { const p = currentCartesian(); return p && trail.length ? [...trail, p] : trail; }, false), width: 3, material: new Cz.PolylineGlowMaterialProperty({ glowPower: 0.25, color: glow }) } : undefined,
+        // Orbiters: no trail, their orbit line already shows the path
+        polyline: moving && !AIR_DELAY[layer] && !ORBITERS.includes(layer) ? { positions: new Cz.CallbackProperty(() => { const p = currentCartesian(); return p && trail.length ? [...trail, p] : trail; }, false), width: 3, material: new Cz.PolylineGlowMaterialProperty({ glowPower: 0.25, color: glow }) } : undefined,
         viewFrom: r.l2 ? new Cz.Cartesian3(0, -6e8, 4e8) : ORBITERS.includes(layer) ? new Cz.Cartesian3(0, -1.6e6, 1.2e6) : new Cz.Cartesian3(0, -30000, 20000)
     });
     if (layer === 'satellites') { drawOrbit(r); lastOrbit = Date.now(); }
@@ -3010,14 +3061,23 @@ function startOrbTrack(r) {
     if (!p) return;
     viewer.trackedEntity = undefined;
     orbTrack = true;
+    viewer.scene.screenSpaceCameraController.minimumZoomDistance = 1; // zoom right up to the model
+    viewer.camera.constrainedAxis = undefined; // rotate freely around the target (the default stops at its "poles")
     viewer.camera.lookAtTransform(Cz.Transforms.eastNorthUpToFixedFrame(p), orbOffset(r, p));
     orbAim();
+    orbManual = false; orbLast = null; // composed view until the user moves
 }
 // Angle between target and Earth centre as seen from the camera
 const ORB_SEP = 26 * Math.PI / 180;
 // Camera offset (east-north-up) behind the target, tilted until target and Earth centre are ORB_SEP apart
 function orbOffset(r, p) {
-    const L = r.l2 ? 7.2e8 : 2e6, R = Cz.Cartesian3.magnitude(p);
+    // With a 3D model (its own, or one within 2 km: docked craft such as Nauka, Soyuz, Dragon at the ISS): close by, real size in view
+    let model = MODEL_SIZE[MODELS[selected?.layer]?.[r.key]];
+    if (!model) for (const o of models) {
+        const q = store[o.layer]?.get(o.key)?.pos;
+        if (q && Cz.Cartesian3.distance(q, p) < 2000) { model = MODEL_SIZE[MODELS[o.layer][o.key]]; break; }
+    }
+    const L = model ? model * 4 : r.l2 ? 7.2e8 : 2e6, R = Cz.Cartesian3.magnitude(p);
     // Target at the origin, Earth centre at (0, 0, -R), camera at L·(0, -sin t, cos t)
     const sep = t => Math.acos(Math.min(1, (L + Math.cos(t) * R) / Math.hypot(L * Math.sin(t), R + L * Math.cos(t))));
     let lo = 0, hi = toRad(89);
@@ -3026,15 +3086,25 @@ function orbOffset(r, p) {
     return new Cz.Cartesian3(0, -L * Math.sin(t), L * Math.cos(t));
 }
 // Aim between target and Earth: target upper right, Earth lower left
+let orbW = null; // last Earth → target screen direction (used while they line up)
 function orbAim() {
     const cam = viewer.camera, C3 = Cz.Cartesian3;
     const inv = Cz.Matrix4.inverseTransformation(cam.transform, new Cz.Matrix4());
     const earth = Cz.Matrix4.multiplyByPoint(inv, C3.ZERO, new C3()); // Earth centre in the target's frame
     const a = C3.normalize(C3.negate(cam.position, new C3()), new C3());
     const b = C3.normalize(C3.subtract(earth, cam.position, new C3()), new C3());
-    const d = C3.normalize(C3.add(a, b, new C3()), new C3());
+    // Target and Earth (almost) in line: no direction between them; look at the target and keep the last screen layout
+    const ab = C3.add(a, b, new C3());
+    const d = C3.magnitude(ab) > 1e-6 ? C3.normalize(ab, ab) : a;
     const v = C3.subtract(a, b, new C3());
-    const w = C3.normalize(C3.subtract(v, C3.multiplyByScalar(d, C3.dot(d, v), new C3()), new C3()), new C3()); // Earth → target on screen
+    const vp = C3.subtract(v, C3.multiplyByScalar(d, C3.dot(d, v), new C3()), new C3());
+    let w;
+    if (C3.magnitude(vp) > 1e-6) w = orbW = C3.normalize(vp, vp); // Earth → target on screen
+    else {
+        w = C3.subtract(orbW ?? C3.UNIT_Z, C3.multiplyByScalar(d, C3.dot(d, orbW ?? C3.UNIT_Z), new C3()), new C3());
+        if (C3.magnitude(w) < 1e-6) w = C3.cross(d, C3.UNIT_X, new C3());
+        C3.normalize(w, w);
+    }
     const q = C3.cross(d, w, new C3());
     C3.clone(d, cam.direction);
     C3.normalize(C3.subtract(w, q, new C3()), cam.up); // w is 45° between up and right
@@ -3042,16 +3112,32 @@ function orbAim() {
 }
 function orbTrackStep() {
     if (!orbTrack) return;
-    const p = selected && ORBITERS.includes(selected.layer) ? currentCartesian() : null;
+    // Same position as this frame's dot/model (set in onPreRender); a second computation ms later jitters metres
+    const p = selected && ORBITERS.includes(selected.layer) ? store[selected.layer].get(selected.key)?.pos : null;
     if (!p) { stopTrack(); return; }
-    const cam = viewer.camera;
+    const cam = viewer.camera, C3 = Cz.Cartesian3;
+    // Moved by mouse or keys since last frame: from then on the user steers; the composition lets go (it flipped
+    // the view when target and Earth lined up, making it spin)
+    if (orbLast && !C3.equalsEpsilon(cam.position, orbLast, 1e-9, 1e-6)) orbManual = true;
+    const up = C3.clone(cam.up);
     // Same offset in the new frame: the camera moves along with the target
-    cam.lookAtTransform(Cz.Transforms.eastNorthUpToFixedFrame(p), Cz.Cartesian3.clone(cam.position));
-    orbAim();
+    cam.lookAtTransform(Cz.Transforms.eastNorthUpToFixedFrame(p), C3.clone(cam.position));
+    if (!orbManual) orbAim();
+    else {
+        // Look at the target, keep the user's own "up" (no snapping to the target's local vertical)
+        const d = C3.normalize(C3.negate(cam.position, new C3()), new C3());
+        const u = C3.subtract(up, C3.multiplyByScalar(d, C3.dot(d, up), new C3()), new C3());
+        if (C3.magnitude(u) > 1e-6) {
+            C3.normalize(u, u);
+            C3.clone(d, cam.direction); C3.clone(u, cam.up); C3.cross(d, u, cam.right);
+        }
+    }
+    orbLast = C3.clone(cam.position, orbLast ?? undefined);
 }
+let orbManual = false, orbLast = null;
 function stopTrack() {
     if (viewer?.trackedEntity) viewer.trackedEntity = undefined;
-    if (orbTrack) { orbTrack = false; viewer.camera.lookAtTransform(Cz.Matrix4.IDENTITY); }
+    if (orbTrack) { orbTrack = false; viewer.camera.lookAtTransform(Cz.Matrix4.IDENTITY); viewer.scene.screenSpaceCameraController.minimumZoomDistance = 30; viewer.camera.constrainedAxis = Cz.Cartesian3.UNIT_Z; }
 }
 // Follow: keep the selected aircraft in the screen centre at the current height, heading and tilt
 let follow = false;
@@ -3586,30 +3672,108 @@ function tick() {
         }
     }
     if (S.layers.telescopes && now % 1000 < 250) propagateTelescopes();
+    // Rings re-align to the Earth's rotation: the tracked one every second (smooth), the rest every 30 s
     if (S.layers.telescopes && now - lastTelOrbit > 30000) { lastTelOrbit = now; drawTelOrbits(); }
-    if (S.layers.satellites && now - lastIssOrbit > 30000) { lastIssOrbit = now; drawIssOrbit(); }
-    if (selected?.layer === 'satellites' && now - lastOrbit > 10000) { lastOrbit = now; const r = store.satellites.get(selected.key); if (r) drawOrbit(r); }
+    else if (selected?.layer === 'telescopes' && now - lastOrbit > 1000) { lastOrbit = now; drawTelOrbit(store.telescopes.get(selected.key)); }
+    if (S.layers.satellites && now - lastIssOrbit > (selected?.layer === 'satellites' ? 1000 : 30000)) { lastIssOrbit = now; drawIssOrbit(); }
+    if (selected?.layer === 'satellites' && now - lastOrbit > 1000) { lastOrbit = now; const r = store.satellites.get(selected.key); if (r) drawOrbit(r); }
     if (selected && now - lastInfo > 2000) { lastInfo = now; pushInfo(); }
 }
-function onPreRender() {
+// 3D models (NASA 3D Resources) in real size (m); minimumPixelSize keeps them visible as an icon from far away
+const MODELS = { satellites: { '25544': 'iss' }, telescopes: { '20580': 'hubble', '25867': 'chandra', jwst: 'jwst' } };
+const MODEL_SIZE = { iss: 109, hubble: 13.2, chandra: 19.5, jwst: 21.2 }; // longest extent (m)
+// Per-model rotation into flight attitude. ISS: modules along the motion, truss across it, flat over the Earth
+// (as delivered the truss pointed forward and the modules up: plane on its edge). Maps x→y, y→z, z→x
+const MODEL_FIX = { iss: Cz.Matrix4.fromRotation(new Cz.Matrix3(0, 0, 1, 1, 0, 0, 0, 1, 0)) };
+const MODEL_MIN_PX = 8; // small: the model visibly shrinks with distance; far away the dot and label point it out
+const models = [];
+async function loadModels() {
+    for (const [layer, keys] of Object.entries(MODELS)) {
+        for (const [key, file] of Object.entries(keys)) {
+            try {
+                // No dynamic environment map: it is regenerated as the model moves (7.5 km/s), so the lighting flickered light/dark
+                const m = await Cz.Model.fromGltfAsync({ url: `models/${file}.glb`, minimumPixelSize: MODEL_MIN_PX, show: false, id: { wv: { layer, key } }, environmentMapOptions: { enabled: false } });
+                viewer.scene.primitives.add(m);
+                models.push({ layer, key, m, hdg: 0 });
+            } catch (e) { console.warn('model', file, e); }
+        }
+    }
+}
+// Every frame: model on the object's position, nose along its motion
+function modelsStep() {
+    const C3 = Cz.Cartesian3;
+    for (const o of models) {
+        const r = S.layers[o.layer] ? store[o.layer]?.get(o.key) : null;
+        const p = r?.pos && r.pt?.show !== false ? r.pos : null;
+        o.m.show = !!p;
+        if (!p) continue;
+        // Heading from the orbit itself (position 1 s ahead): frame-to-frame differences flipped when the position
+        // was written twice in a frame, turning the model and flickering its shading
+        const g = r.rec && sat ? satGeo(r, new Date(frameMs + 1000)) : null;
+        if (g) {
+            const inv = Cz.Matrix4.inverseTransformation(Cz.Transforms.eastNorthUpToFixedFrame(p), new Cz.Matrix4());
+            const ahead = Cz.Matrix4.multiplyByPoint(inv, Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h), new C3()); // local east-north-up
+            if (Math.hypot(ahead.x, ahead.y) > 1) o.hdg = Math.atan2(ahead.x, ahead.y); // from north, towards the motion
+        }
+        o.m.modelMatrix = Cz.Transforms.headingPitchRollToFixedFrame(p, new Cz.HeadingPitchRoll(o.hdg, 0, 0));
+        const fix = MODEL_FIX[MODELS[o.layer][o.key]];
+        if (fix) Cz.Matrix4.multiply(o.m.modelMatrix, fix, o.m.modelMatrix);
+        // Close by: hide the dot, else it fights with the model's surface
+        o.px ??= r.pt.pixelSize;
+        const near = C3.distance(viewer.camera.positionWC, p) < MODEL_SIZE[MODELS[o.layer][o.key]] * 60;
+        r.pt.pixelSize = near ? 0 : o.px;
+        if (trackEntity && selected?.key === o.key) trackEntity.point.show = !near;
+    }
+}
+function onPreRender(scene, time) {
+    frameMs = time ? Cz.JulianDate.toDate(time).getTime() : Date.now(); // one instant for everything drawn this frame
     // Selected satellite: its dot every frame (the rest once a second); else it jumps ~8 km per second against the smoothly following camera
     // Selected telescope: same per-frame move (dot + its label)
-    if (selected?.layer === 'telescopes' && sat) {
-        const r = store.telescopes.get(selected.key), p = r && !r.l2 && currentCartesian();
-        if (p) r.pos = r.pt.position = r.lbl.position = p;
+    // All telescopes every frame (only a few): a deselected one no longer jumps 7.5 km/s (L2: 110 km/s) away from the camera
+    if (S.layers.telescopes && sat) {
+        const now = new Date(frameMs), gmst = sat.gstime(now);
+        for (const r of store.telescopes.values()) {
+            if (!r.pt || r.pt.show === false) continue;
+            let p = null;
+            if (r.l2) p = l2Position(r.offset, frameMs);
+            else { const g = satGeo(r, now, gmst); if (g) p = Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h); }
+            if (p) r.pos = r.pt.position = r.lbl.position = p;
+            // L2 line along with it (L2 sweeps ~110 km/s in the Earth-fixed frame): its own line in its own small collection,
+            // created once and only moved, never removed and re-added (that made it flicker)
+            if (p && r.l2) {
+                l2Lines ??= viewer.scene.primitives.add(new Cz.PolylineCollection());
+                // Points spaced geometrically from the telescope (100 m … 1.5 million km, fixed count): one straight segment from
+                // 85 m to 1.5 million km from the camera flickered (depth along it is interpolated badly); checked live
+                const dir = Cz.Cartesian3.normalize(p, new Cz.Cartesian3()), len = Cz.Cartesian3.magnitude(p), span = len - 8e6, pts = [p];
+                for (let k = 0; k <= L2_LINE_PTS; k++) pts.push(Cz.Cartesian3.multiplyByScalar(dir, len - 100 * Math.pow(span / 100, k / L2_LINE_PTS), new Cz.Cartesian3()));
+                // Solid, not dashed: the dash pattern broke down as well
+                r.l2Line ??= l2Lines.add({ positions: pts, width: 1.5, material: Cz.Material.fromType('Color', { color: Cz.Color.fromCssColorString(TEL_COLOR).withAlpha(0.45) }) });
+                r.l2Line.positions = pts;
+                r.l2Line.show = r.listOk !== false;
+            }
+        }
+    }
+    // Satellites close to the camera every frame too (list refreshed once a second)
+    if (camNear.length && sat && S.layers.satellites) {
+        const now = new Date(frameMs), gmst = sat.gstime(now);
+        for (const n of camNear) {
+            const g = satGeo(n, now, gmst);
+            if (g) n.pos = n.pt.position = Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h);
+        }
     }
     if (selected?.layer === 'satellites' && sat) {
         const r = store.satellites.get(selected.key), p = r && currentCartesian();
         if (p) r.pos = r.pt.position = p; // r.pos also drives the detect box and label
         // Neighbours (docked craft, nearby satellites) every frame too: else they sweep ~8 km back and forth against the camera
         if (satNear.length) {
-            const now = new Date(), gmst = sat.gstime(now);
+            const now = new Date(frameMs), gmst = sat.gstime(now);
             for (const n of satNear) {
                 const g = satGeo(n, now, gmst);
                 if (g) n.pos = n.pt.position = Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h);
             }
         }
     }
+    modelsStep();
     orbTrackStep();
     navStep();
     followStep();
@@ -3756,6 +3920,16 @@ function navStep() {
     // Nav pad: tilt/turn around the screen centre
     const tilt = (navHeld.has('tiltup') ? 1 : 0) - (navHeld.has('tiltdown') ? 1 : 0);
     const turn = (navHeld.has('turnr') ? 1 : 0) - (navHeld.has('turnl') ? 1 : 0);
+    // Tracking a satellite/telescope: keys and nav pad turn around it and zoom towards it (panning the globe lost it at once)
+    if (orbTrack) {
+        const cam = viewer.camera, dist = Cz.Cartesian3.magnitude(cam.position);
+        const rx = navVel.x + turn, ry = navVel.y + tilt;
+        if (rx) cam.rotateRight(rx * 0.8 * dt);
+        if (ry) cam.rotateUp(ry * 0.6 * dt);
+        if (navVel.z > 0 && dist > 2) cam.zoomIn(dist * 0.7 * navVel.z * dt);
+        if (navVel.z < 0) cam.zoomOut(dist * 0.7 * -navVel.z * dt);
+        return;
+    }
     if (tilt || turn) orbit(turn * 1.2 * dt, tilt * 0.8 * dt);
     if (!navVel.x && !navVel.y && !navVel.z) return;
     const cam = viewer.camera, h = camHeight();
