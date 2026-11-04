@@ -1015,7 +1015,7 @@ else if (error is not null)
             {
                 var f = JsonSerializer.Deserialize<PanelFilter>(await module.InvokeAsync<string>("getPanelFilter", d.Name), JsonOpts) ?? new();
                 var s = lists[d.Name];
-                s.Q = f.Q; s.A = f.A; s.B = f.B; s.InView = f.InView; s.Flag = f.Flag;
+                s.Q = f.Q; s.Q2 = f.Q2; s.A = f.A; s.B = f.B; s.InView = f.InView; s.Flag = f.Flag;
             }
             StateHasChanged();
         }
@@ -1084,16 +1084,18 @@ else if (error is not null)
     private Task ToggleMuseumWiki() { museumWikiOnly = !museumWikiOnly; return SendMuseumQuery(); }
 
     // ---------- generic list panels (satellites, launches); engine side: LISTS in worldview.js ----------
-    private sealed record ListDef(string Name, string Icon, string Search, string AllA, string? AllB, string? Flag, string GoFn, string DetailsFn, string FlagIcon = "🎥");
+    private sealed record ListDef(string Name, string Icon, string Search, string? AllA, string? AllB, string? Flag, string GoFn, string DetailsFn, string FlagIcon = "🎥", string? Search2 = null);
     private static readonly ListDef[] ListDefs =
     [
+        new("flights", "✈", "flt.callsign", null, null, null, "flightGo", "flightDetails", Search2: "flt.reg"),
+        new("military", "✈", "flt.callsign", null, null, null, "milGo", "milDetails", Search2: "flt.reg"),
         new("satellites", "🛰", "sat.search", "sat.allGroups", null, "list.model", "satGo", "satDetails", "🧊"),
         new("telescopes", "🔭", "tel.search", "sat.allGroups", null, "list.model", "telGo", "telDetails", "🧊"),
         new("launches", "🚀", "lch.search", "lch.allProviders", "lch.allStatus", "lch.webcast", "launchGo", "launchDetails")
     ];
     private sealed class ListState
     {
-        public string Q = "", A = "", B = "";
+        public string Q = "", Q2 = "", A = "", B = "";
         public bool InView, Flag, Collapsed = true; // starts collapsed
         public int Total, Offset;
         public List<ListRow> Items = new();
@@ -1132,7 +1134,7 @@ else if (error is not null)
     private Task SendList(string name)
     {
         var s = lists[name];
-        return RadioCall("listSetQuery", name, JsonSerializer.Serialize(new { q = s.Q, a = s.A, b = s.B, inView = s.InView, flag = s.Flag }));
+        return RadioCall("listSetQuery", name, JsonSerializer.Serialize(new { q = s.Q, q2 = s.Q2, a = s.A, b = s.B, inView = s.InView, flag = s.Flag }));
     }
     private async Task DebouncedList(string name)
     {
@@ -1145,7 +1147,7 @@ else if (error is not null)
     private string ListSummary(ListDef d)
     {
         var s = lists[d.Name];
-        var filtered = s.Q != "" || s.A != "" || s.B != "" || s.InView || s.Flag;
+        var filtered = s.Q != "" || s.Q2 != "" || s.A != "" || s.B != "" || s.InView || s.Flag;
         var count = s.Total > 0 ? T("list.count", "n", s.Total.ToString("N0")) : filtered ? T("list.none") : "";
         var a = s.OptA.FirstOrDefault(o => o.Value == s.A)?.Label;
         var b = s.OptB.FirstOrDefault(o => o.Value == s.B)?.Label;
@@ -1175,7 +1177,14 @@ else if (error is not null)
             Head = PanelHead(T("layer." + d.Name), ListSummary(d)),
             Filters = @<span class="pf">
                 <input type="search" value="@s.Q" @oninput='e => { s.Q = e.Value?.ToString() ?? ""; return DebouncedList(d.Name); }' placeholder="@T(d.Search)" aria-label="@T(d.Search)" />
-                <Combo Items="s.OptA" Value="@s.A" ValueChanged='v => { s.A = v; return SendList(d.Name); }' Placeholder="@T(d.AllA)" />
+                @if (d.Search2 is not null)
+                {
+                    <input type="search" value="@s.Q2" @oninput='e => { s.Q2 = e.Value?.ToString() ?? ""; return DebouncedList(d.Name); }' placeholder="@T(d.Search2)" aria-label="@T(d.Search2)" />
+                }
+                @if (d.AllA is not null)
+                {
+                    <Combo Items="s.OptA" Value="@s.A" ValueChanged='v => { s.A = v; return SendList(d.Name); }' Placeholder="@T(d.AllA)" />
+                }
                 @if (d.AllB is not null)
                 {
                     <Combo Items="s.OptB" Value="@s.B" ValueChanged='v => { s.B = v; return SendList(d.Name); }' Placeholder="@T(d.AllB)" />
@@ -1586,6 +1595,7 @@ else if (error is not null)
     private sealed class PanelFilter
     {
         public string Q { get; set; } = "";
+        public string Q2 { get; set; } = "";
         public string Cc { get; set; } = "";
         public string Tag { get; set; } = "";
         public string Type { get; set; } = "";

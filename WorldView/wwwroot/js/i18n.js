@@ -75,6 +75,8 @@ const S = {
     'mus.hint': ['Choose a country or zoom in', 'Kies een land of zoom in', 'Land wählen oder hineinzoomen', 'Choisissez un pays ou zoomez', '选择国家或放大'],
     'mus.reset': ['Clear filters', 'Filters wissen', 'Filter löschen', 'Effacer les filtres', '清除筛选'],
     'layer.airports': ['Airports', 'Luchthavens', 'Flughäfen', 'Aéroports', '机场'],
+    'flt.callsign': ['Callsign…', 'Callsign…', 'Rufzeichen…', 'Indicatif…', '呼号…'],
+    'flt.reg': ['Registration…', 'Registratie…', 'Kennzeichen…', 'Immatriculation…', '注册号…'],
     'sat.search': ['Search satellite or NORAD…', 'Zoek satelliet of NORAD…', 'Satellit oder NORAD suchen…', 'Rechercher satellite ou NORAD…', '搜索卫星或 NORAD…'],
     'tel.search': ['Search telescope or NORAD…', 'Zoek telescoop of NORAD…', 'Teleskop oder NORAD suchen…', 'Rechercher télescope ou NORAD…', '搜索望远镜或 NORAD…'],
     'sat.allGroups': ['All groups', 'Alle groepen', 'Alle Gruppen', 'Tous les groupes', '所有分组'],

@@ -2,6 +2,14 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.233] - 2026-11-04
+### Fixed
+- Trails (and detection labels) of aircraft hidden by the panel filter stayed visible without their aircraft.
+
+## [1.0.232] - 2026-11-04
+### Added
+- List panels for Flights and Military flights (like Museums): filter on callsign and registration, "in view", paging, row details; the filter also decides which aircraft show on the globe.
+
 ## [1.0.231] - 2026-11-04
 ### Removed
 - Dead code: `getGpu` export and write-only `lastDetect` (worldview.js), unused radio `Codec`/`Bitrate` fields (WorldConsole.razor + payload), unused `info.shrink` text, unused `.radio-count` CSS.

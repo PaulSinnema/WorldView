@@ -956,7 +956,7 @@ function fromFeedCivil(a, t) {
     const type = a[12] || '';
     return {
         key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: false, t: (a[10] || t) * 1000, hist: a[13],
-        label: a[1] || a[11] || a[0], type, img: airIcon(type, '#3fd0ff'),
+        label: a[1] || a[11] || a[0], call: a[1] || '', reg: a[11] || '', type, img: airIcon(type, '#3fd0ff'),
         info: [['callsign', a[1] || '—'], ['registration', a[11] || '—'], ['type', () => typeText(type)], ['country', a[8] || '—'], ['icao', a[0]], ['squawk', a[9] || '—']]
     };
 }
@@ -965,7 +965,7 @@ function fromFeedMil(a, t) {
     const type = a[9] || '';
     return {
         key: a[0], lat: a[2], lon: a[3], alt: a[4], gs: a[5], track: a[6], ground: !!a[7], mil: true, t: (a[11] || t) * 1000, hist: a[12],
-        label: a[1] || a[8] || a[0], type, img: airIcon(type, '#ffb020'),
+        label: a[1] || a[8] || a[0], call: a[1] || '', reg: a[8] || '', type, img: airIcon(type, '#ffb020'),
         info: [['callsign', a[1] || '—'], ['registration', a[8] || '—'], ['type', () => typeText(type)], ['icao', a[0]], ['squawk', a[10] || '—']]
     };
 }
@@ -1116,6 +1116,7 @@ function merge(layer, list, kind, color) {
     }
     for (const [k, r] of m) if (now - r.seen > 120000) { col.remove(r.bb); m.delete(k); }
     validateSel(layer);
+    if (LISTS[layer]) runList(layer); // panel filter on new aircraft + fresh list
 }
 // Aircraft are shown DELAY behind real time and move along a smooth curve between received fixes (Hermite: position + velocity at both ends);
 // past the newest fix they continue along their turn. Feed intervals: OpenSky 90 s (+ polling), adsb.lol 20 s
@@ -2762,10 +2763,25 @@ const LISTS = {
         optB: () => [],
         apply: r => { if (r.pt) r.pt.show = r.lbl.show = r.listOk !== false; },
         after: () => drawTelOrbits()
-    }
+    },
+    flights: airList(),
+    military: airList()
 };
+// Aircraft panels: q = callsign, q2 = registration
+// Masked callsigns ("######") last: '~' sorts after letters and digits
+const airSortKey = r => { const s = r.call || r.reg || r.key; return /^[A-Z0-9]/i.test(s) ? s : '~' + s; };
+function airList() {
+    return {
+        match: (r, q, t) => { const t2 = lowTrim(q.q2); return (!t || (r.call || '').toLowerCase().includes(t)) && (!t2 || (r.reg || '').toLowerCase().includes(t2)); },
+        sort: (a, b) => { const x = airSortKey(a), y = airSortKey(b); return x < y ? -1 : x > y ? 1 : 0; }, // ASCII codes: fast for ~10k aircraft
+        row: r => ({ key: r.key, name: r.call || r.reg || r.key, sub: [r.reg, typeText(r.type), r.ground ? tr('v.onGround') : `FL${Math.round((r.alt || 0) / FT / 100)}`].filter(Boolean).join(' · '), flag: false }),
+        optA: () => [],
+        optB: () => [],
+        apply: r => { if (r.bb) r.bb.show = r.listOk !== false && !(S.cockpit && selected?.key === r.key); }
+    };
+}
 // Saved filters are merged in by loadListFilters() once the settings are read
-const listState = Object.fromEntries(Object.keys(LISTS).map(n => [n, { q: { q: '', a: '', b: '', inView: false, flag: false }, all: [], offset: 0, timer: null }]));
+const listState = Object.fromEntries(Object.keys(LISTS).map(n => [n, { q: { q: '', q2: '', a: '', b: '', inView: false, flag: false }, all: [], offset: 0, timer: null }]));
 function loadListFilters() { for (const n in listState) listState[n].q = { ...listState[n].q, ...(S.panelFilters?.[n] || {}) }; }
 export function listSetQuery(name, json) {
     const st = listState[name];
@@ -2827,6 +2843,18 @@ export async function telDetails(key) {
     return JSON.stringify({ fields: f, summary: w?.extract || null, link: w?.url || null, image: w?.thumb || null });
 }
 export function launchGo(key) { if (store.launches.has(key)) select('launches', key, true); }
+export function flightGo(key) { if (store.flights.has(key)) select('flights', key, true); }
+export function milGo(key) { if (store.military.has(key)) select('military', key, true); }
+function airDetails(layer, key) {
+    const r = store[layer].get(key);
+    if (!r) return null;
+    const fields = [];
+    infoRows(r.info, fields);
+    fields.push([tr('f.altitude'), r.ground ? tr('v.onGround') : `${Math.round(r.alt).toLocaleString(loc())} m (FL${Math.round(r.alt / FT / 100)})`], [tr('f.speed'), `${Math.round(r.gs * 3.6)} ${tr('u.kmh')}`]);
+    return JSON.stringify({ fields, summary: null, link: null, image: null });
+}
+export function flightDetails(key) { return airDetails('flights', key); }
+export function milDetails(key) { return airDetails('military', key); }
 export function satDetails(key) {
     const r = store.satellites.get(key);
     if (!r) return null;
@@ -3693,7 +3721,7 @@ function updateAirTrails(now) {
         if (!S.layers[l]) continue;
         for (const r of store[l].values()) {
             const fx = r.fixes;
-            if (!fx || fx.length < 2 || onGround(r)) continue;
+            if (!fx || fx.length < 2 || onGround(r) || r.listOk === false) continue; // filtered out in the panel: no trail
             const td = now - (r.delay ?? 0), p = airPos(r, td);
             // Icon up to 50 km outside the view: its trail may still be in view (checked per point below)
             if (wide && !Cz.Rectangle.contains(wide, Cz.Cartographic.fromDegrees(p[1], p[0], 0, c))) continue;
@@ -3957,6 +3985,7 @@ function drawDetect() {
         if (!S.layers[l]) continue;
         for (const r of store[l].values()) {
             if (museumsFar && l === 'museums' && !r.top) continue; // hidden by distance
+            if (r.listOk === false) continue; // filtered out in its panel
             const p = r.bb ? r.bb.position : r.pos;
             if (!p || !occ.isPointVisible(p)) continue;
             const s = toWin(viewer.scene, p);
