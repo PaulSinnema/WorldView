@@ -3,8 +3,11 @@
     build: .
     restart: unless-stopped
     env_file: .env
+    # Docker waits this long after SIGTERM, so the legs get saved
+    stop_grace_period: 30s
     volumes:
       - data:/data
+      - state:/state
 
   caddy:
     image: caddy:2-alpine
@@ -25,5 +28,6 @@
 
 volumes:
   data:
+  state: # not served by Caddy
   caddy_data:
   caddy_config:

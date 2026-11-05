@@ -3311,16 +3311,95 @@ function countdown(net) {
 }
 // info rows: [fieldKey, value | () => value]
 const infoRows = (rows, f) => { for (const [k, v] of rows || []) f.push([tr('f.' + k), typeof v === 'function' ? v() : String(v)]); };
+// Moving object: own rows, altitude (aircraft), speed, heading, position
+function moverRows(L, r, f) {
+    const [la, lo] = posAt(r, Date.now());
+    infoRows(r.info, f);
+    if (PLANES.includes(L)) f.push([tr('f.altitude'), r.ground ? tr('v.onGround') : `${Math.round(r.alt).toLocaleString(loc())} m (FL${Math.round(r.alt / FT / 100)})`]);
+    f.push([tr('f.speed'), `${Math.round(r.gs * 3.6)} ${tr('u.kmh')}`], [tr('f.heading'), `${Math.round(r.track || 0)}°`], [tr('f.position'), fmtPos(la, lo)]);
+}
+// ---------- flight legs (fetcher legs.js: take-offs and landings seen at airports) ----------
+const legCache = new Map(); // path -> { t, d, busy }
+let aptLegTimer = null;
+// ttl: airport lists 5 s (open info box), aircraft legs 30 s
+function legData(path, onLoad, ttl = 30000) {
+    let c = legCache.get(path);
+    if (!c || (!c.busy && Date.now() - c.t > ttl - 500)) {
+        if (legCache.size > 500) legCache.clear();
+        c ??= { t: 0, d: null };
+        c.busy = true; legCache.set(path, c);
+        tryJson(`${FEED_URL}/${path}${path.includes('?') ? '&' : '?'}b=${Math.floor(Date.now() / ttl)}`, 15000).then(d => { c.t = Date.now(); c.d = d || c.d || {}; c.busy = false; onLoad?.(); }); // {}: fetcher without legs
+    }
+    return c.d;
+}
+// ICAO → [name, IATA] (airports.json, also without the airport layer)
+let aptNames = null, aptNamesP = null;
+function aptName(icao) {
+    const r = store.airports.get(icao);
+    if (r) return [r.label, r.iata];
+    if (!aptNames) {
+        aptNamesP ??= tryJson(`${FEED_URL}/airports.json`, 30000).then(d => { aptNames = new Map((d?.a || []).map(a => [a[0], [a[3], a[5]]])); if (selected) pushInfo(); });
+        return null;
+    }
+    return aptNames.get(icao) || null;
+}
+const aptCode = icao => icao ? aptName(icao)?.[1] || icao : '?';
+const aptLabel = icao => { const n = aptName(icao); return n ? `${n[0]} (${n[1] || icao})` : icao; };
+const hm = s => new Date(s * 1000).toLocaleTimeString(loc(), { hour: '2-digit', minute: '2-digit' });
+const aptOf = a => `${a.name} (${a.iata || a.icao})`;
+const durText = min => min >= 60 ? `${Math.floor(min / 60)}${tr('u.hour')} ${min % 60}m` : `${min}m`;
+// Aircraft info: airline and planned route (adsbdb via the fetcher), distance/time to go, where it took off, earlier legs, owner
+function legRows(hex, f, onLoad, r) {
+    const d = legData(`leg/${hex}`, onLoad);
+    const fl = legData(`flight/${hex}?call=${encodeURIComponent(r?.call || '')}`, onLoad, 120000);
+    const rt = fl?.route, al = rt?.airline;
+    if (al?.name) f.push([tr('f.airline'), al.iata ? `${al.name} (${al.iata})` : al.name]);
+    if (rt?.from && rt?.to) {
+        // Take-off seen at another airport than planned: the route for this callsign is probably outdated
+        const odd = !!d?.leg?.dep && d.leg.dep !== rt.from.icao;
+        f.push([tr('f.flightRoute'), `${aptOf(rt.from)} → ${aptOf(rt.to)}${odd ? ' · ' + tr('v.routeOdd') : ''}`]);
+        if (r && !r.ground && !odd && Number.isFinite(rt.to.lat)) {
+            const [la, lo] = posAt(r, Date.now()), km = Math.round(distKm(la, lo, rt.to.lat, rt.to.lon));
+            f.push([tr('f.toGo'), `${km.toLocaleString(loc())} km${r.gs > 30 ? ` · ~${durText(Math.round(km * 1000 / r.gs / 60))}` : ''}`]);
+        }
+    }
+    if (d?.leg) f.push([tr('f.departed'), `${aptLabel(d.leg.dep)} · ${hm(d.leg.depT)}`]);
+    const prev = (d?.legs || []).slice(-3).map(([a, at, b, bt]) => `${aptCode(a)}${at ? ' ' + hm(at) : ''} → ${aptCode(b)}${bt ? ' ' + hm(bt) : ''}`);
+    if (prev.length) f.push([tr('f.earlierLegs'), prev.join(' · ')]);
+    const o = fl?.owner;
+    if (o?.owner && o.owner !== al?.name) f.push([tr('f.owner'), o.cc ? `${o.owner} (${regionName(o.cc) || o.cc})` : o.owner]);
+}
+// Airport info: departures and arrivals of the last hours, for the fold-open rows
+function airportLegItems(icao) {
+    const d = legData(`airport/${icao}`, () => { if (selected?.key === icao) pushInfo(); }, 5000);
+    if (!d) return { hours: 6, loading: true, dep: [], arr: [] };
+    const item = (x, other, airborne) => ({
+        key: x[0], label: x[1] || x[2] || x[0], sub: [x[1] && x[2] ? x[2] : '', x[3]].filter(Boolean).join(' · '), time: hm(x[4]),
+        other: other ? aptCode(other) : '', airborne: !!airborne, inView: store.flights.has(x[0]) || store.military.has(x[0])
+    });
+    // x[7] / x[6]: planned destination / origin from the route (fetcher 1.27), shown with "~" while not seen
+    return {
+        hours: d.hours || 6, loading: false,
+        dep: (d.dep || []).map(x => ({ ...item(x, x[5], x[6] && !x[7]), plan: x[7] ? '~' + aptCode(x[7]) : '' })),
+        arr: (d.arr || []).map(x => ({ ...item(x, x[5], 0), plan: x[6] ? '~' + aptCode(x[6]) : '' }))
+    };
+}
+// Info of one aircraft without selecting it (airport info box: aircraft from its departures/arrivals)
+export function aircraftInfo(hex) {
+    const L = store.military.has(hex) ? 'military' : store.flights.has(hex) ? 'flights' : null, r = L ? store[L].get(hex) : null, f = [];
+    if (r) moverRows(L, r, f);
+    legRows(hex, f, null, r);
+    const photo = aircraftPhoto(hex);
+    return JSON.stringify({ layer: L, key: hex, title: r ? r.label || hex : hex, fields: f, inView: !!r, photo: photo?.src || null, photoLink: photo?.link || null, photoBy: photo?.by || null });
+}
 function pushInfo() {
     if (!selected) return;
     const L = selected.layer, r = store[L].get(selected.key);
     if (!r) return;
     const f = [];
     if (MOVERS.includes(L)) {
-        const [la, lo] = posAt(r, Date.now());
-        infoRows(r.info, f);
-        if (PLANES.includes(L)) f.push([tr('f.altitude'), r.ground ? tr('v.onGround') : `${Math.round(r.alt).toLocaleString(loc())} m (FL${Math.round(r.alt / FT / 100)})`]);
-        f.push([tr('f.speed'), `${Math.round(r.gs * 3.6)} ${tr('u.kmh')}`], [tr('f.heading'), `${Math.round(r.track || 0)}°`], [tr('f.position'), fmtPos(la, lo)]);
+        moverRows(L, r, f);
+        if (PLANES.includes(L)) legRows(r.key, f, () => { if (selected?.key === r.key) pushInfo(); }, r);
     } else if (r.l2) {
         const km = Cz.Cartesian3.magnitude(l2Position(r.offset)) / 1000;
         f.push([tr('f.group'), tr(r.group)], [tr('f.location'), tr('v.l2')], [tr('f.distance'), tr('v.millionKm', { n: Math.round(km / 1e5) / 10 })], [tr('f.position'), tr('v.approx')]);
@@ -3361,7 +3440,11 @@ function pushInfo() {
             img = d.img || img;
         }
     }
-    notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: f, image: photo ? null : img, video: r.video || null, embed: r.embed || null,
+    const legs = L === 'airports' ? airportLegItems(r.key) : null;
+    // Airport info: departures/arrivals again after 5 s while it stays selected
+    clearTimeout(aptLegTimer);
+    if (legs) { const key = r.key; aptLegTimer = setTimeout(() => { if (selected?.key === key) pushInfo(); }, 5000); }
+    notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: f, legs, image: photo ? null : img, video: r.video || null, embed: r.embed || null,
         canCockpit: MOVERS.includes(L), isRadio: L === 'radio', summary, link, photo: photo?.src || null, photoLink: photo?.link || null, photoBy: photo?.by || null }));
     setStreamMode(!!r.embed);
 }

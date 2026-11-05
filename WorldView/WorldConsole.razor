@@ -239,6 +239,11 @@ else if (error is not null)
 @if (selection is not null && !isPhone)
 {
     @InfoBox(false)
+    @* Aircraft picked in the airport's departures/arrivals: own box beside it (PC) *@
+    @if (subKey is not null && selection.Legs is not null)
+    {
+        @SubBox(false)
+    }
 }
 
 @code {
@@ -289,6 +294,11 @@ else if (error is not null)
                 }
             }
         </table>
+        @if (selection.Legs is { } lg)
+        {
+            @LegsBlock(lg, "dep", lg.Dep, inRow || isPhone)
+            @LegsBlock(lg, "arr", lg.Arr, inRow || isPhone)
+        }
         @if (!string.IsNullOrEmpty(selection.Summary))
         {
             <p class="summary">@selection.Summary</p>
@@ -325,6 +335,107 @@ else if (error is not null)
         }
         }
     </section>;
+
+    // ---------- airport info: fold-open departures/arrivals; a picked aircraft shows beside it (PC) or under its row (phone) ----------
+    private string? legsOpen, subKey, subLabel; // "dep"/"arr"; hex and list label of the picked aircraft
+    private SubInfo? sub;
+    private int subGen;
+
+    private RenderFragment LegsBlock(LegsInfo lg, string kind, List<LegItem> items, bool inline) => @<div class="legs">
+        <button class="legs-head" @onclick='() => legsOpen = legsOpen == kind ? null : kind'>
+            <span>@(legsOpen == kind ? "▾" : "▸") @T(kind == "dep" ? "info.departures" : "info.arrivals", "h", lg.Hours.ToString())</span>
+            <span class="muted">@(lg.Loading ? "…" : items.Count.ToString())</span>
+        </button>
+        @if (legsOpen == kind)
+        {
+            @if (lg.Loading)
+            {
+                <div class="muted legs-empty">@T("info.legsLoading")</div>
+            }
+            else
+            {
+                <ul class="legs-list">
+                    @foreach (var it in items)
+                    {
+                        <li class="@(subKey == it.Key ? "sel" : "") @(it.InView ? "" : "dim")" @onclick="() => OpenSub(it.Key, it.Label)">
+                            <span class="lg-time">@it.Time</span>
+                            <span class="lg-label">@it.Label <small>@it.Sub</small></span>
+                            <span class="lg-other">@(kind == "dep" ? "→" : "←") @(it.Airborne ? T("info.inFlight") : !string.IsNullOrEmpty(it.Other) ? it.Other : !string.IsNullOrEmpty(it.Plan) ? it.Plan : "?")</span>
+                        </li>
+                        @if (inline && subKey == it.Key)
+                        {
+                            <li class="lg-sub">@SubBox(true)</li>
+                        }
+                    }
+                </ul>
+            }
+        }
+    </div>;
+
+    private RenderFragment SubBox(bool inline) => @<section class="@(inline ? "lg-info" : "info sub")">
+        @if (!inline)
+        {
+            <header><span>@(sub is { InView: true } ? sub.Title : subLabel)</span><button class="x" title="@T("info.close")" @onclick="CloseSub">✕</button></header>
+        }
+        @if (sub is null)
+        {
+            <span class="muted legs-empty">…</span>
+        }
+        else
+        {
+            @if (!string.IsNullOrEmpty(sub.Photo))
+            {
+                <a href="@sub.PhotoLink" target="_blank"><img src="@sub.Photo" alt="@sub.Title" /></a>
+                <a class="credit" href="@sub.PhotoLink" target="_blank">© @sub.PhotoBy · Planespotters.net</a>
+            }
+            <table>
+                @foreach (var f in sub.Fields)
+                {
+                    if (f.Length < 2) continue;
+                    <tr><th>@f[0]</th><td>@f[1]</td></tr>
+                }
+            </table>
+            @if (!sub.InView)
+            {
+                <p class="summary muted">@T("info.notInView")</p>
+            }
+            else
+            {
+                <div class="info-actions"><button @onclick="SelectSub">◎ @T("btn.select")</button></div>
+            }
+        }
+    </section>;
+
+    // Open (or close) the aircraft; refreshed every 3 s while open
+    private void OpenSub(string key, string label)
+    {
+        if (subKey == key) { CloseSub(); return; }
+        subKey = key; subLabel = label; sub = null;
+        _ = SubLoop(key, ++subGen);
+    }
+
+    private async Task SubLoop(string key, int gen)
+    {
+        while (module is not null && subKey == key && subGen == gen)
+        {
+            var json = await module.InvokeAsync<string?>("aircraftInfo", key);
+            if (subKey != key || subGen != gen) return;
+            sub = string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<SubInfo>(json, JsonOpts);
+            StateHasChanged();
+            await Task.Delay(3000);
+        }
+    }
+
+    private void CloseSub() { subKey = null; sub = null; subGen++; }
+
+    // Make the picked aircraft the selection (replaces the airport info)
+    private async Task SelectSub()
+    {
+        if (sub is not { InView: true, Layer: { } layer }) return;
+        var key = sub.Key;
+        CloseSub();
+        await RadioCall("selectItem", layer, key);
+    }
 }
 
 @if (enlarged && selection is not null && HasMedia)
@@ -1508,7 +1619,7 @@ else if (error is not null)
         if (module is not null) isPhone = await module.InvokeAsync<bool>("isPhone"); // phones: no floating info box
         var prevKey = selection?.Key;
         selection = string.IsNullOrEmpty(json) ? null : JsonSerializer.Deserialize<SelectionInfo>(json, JsonOpts);
-        if (selection?.Key != prevKey) { contacts = null; enlarged = false; follow = false; } // engine drops follow on a new selection
+        if (selection?.Key != prevKey) { contacts = null; enlarged = false; follow = false; legsOpen = null; CloseSub(); } // engine drops follow on a new selection
         StateHasChanged();
     }
 
@@ -1620,6 +1731,41 @@ else if (error is not null)
         public bool IsRadio { get; set; }
         public string? Summary { get; set; }
         public string? Link { get; set; }
+        public string? Photo { get; set; }
+        public string? PhotoLink { get; set; }
+        public string? PhotoBy { get; set; }
+        public LegsInfo? Legs { get; set; } // airports only
+    }
+
+    // Departures/arrivals of an airport (fetcher legs.js, via worldview.js airportLegItems)
+    private sealed class LegsInfo
+    {
+        public int Hours { get; set; } = 6;
+        public bool Loading { get; set; }
+        public List<LegItem> Dep { get; set; } = new();
+        public List<LegItem> Arr { get; set; } = new();
+    }
+
+    private sealed class LegItem
+    {
+        public string Key { get; set; } = "";
+        public string Label { get; set; } = "";
+        public string Sub { get; set; } = "";
+        public string Time { get; set; } = "";
+        public string Other { get; set; } = "";
+        public string Plan { get; set; } = ""; // planned other airport ("~LAX"), not seen
+        public bool Airborne { get; set; }
+        public bool InView { get; set; }
+    }
+
+    // Aircraft shown without selecting it (worldview.js aircraftInfo)
+    private sealed class SubInfo
+    {
+        public string? Layer { get; set; }
+        public string Key { get; set; } = "";
+        public string Title { get; set; } = "";
+        public List<string[]> Fields { get; set; } = new();
+        public bool InView { get; set; }
         public string? Photo { get; set; }
         public string? PhotoLink { get; set; }
         public string? PhotoBy { get; set; }

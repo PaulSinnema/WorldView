@@ -156,6 +156,18 @@
         .contacts { list-style: none; margin: 0; padding: 0 10px 10px; }
         .contacts li { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid var(--line); cursor: pointer; }
         .contacts li:hover { color: #fff; }
+/* Airport info: fold-open departures/arrivals; picked aircraft beside the info box (PC) or under its row (phone) */
+.legs { margin: 0 10px 4px; }
+.legs-head { display: flex; justify-content: space-between; width: 100%; padding: 4px 0; background: none; border: 0; border-top: 1px solid var(--line); color: var(--acc); font: inherit; text-align: left; cursor: pointer; }
+.legs-list { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; }
+.legs-list > li:not(.lg-sub) { display: grid; grid-template-columns: 3.2em 1fr auto; gap: 6px; padding: 3px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.legs-list > li:hover, .legs-list > li.sel { color: #fff; }
+.legs-list > li.dim { opacity: .6; }
+.legs-list small { opacity: .7; }
+.legs-list .lg-other { white-space: nowrap; }
+.legs-list .lg-sub { padding: 4px 0 8px; }
+.legs-empty { display: block; padding: 4px 0; }
+.info.sub { left: calc(12px + min(330px, calc(100% - 24px)) + 10px + env(safe-area-inset-left)); z-index: 21; } /* above the bottom dock */
         /* Bottom dock: museum + radio panels stacked, same width */
         .dock { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 20; width: min(600px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 6px; }
         .radio { width: 100%; box-sizing: border-box; background: rgba(4, 12, 16, .95); border: 1px solid #ff4fd8; }

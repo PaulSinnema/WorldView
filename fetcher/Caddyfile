@@ -22,6 +22,17 @@
 	handle /near/* {
 		reverse_proxy fetcher:8080
 	}
+	# Flight legs per airport and per aircraft (legs.js)
+	handle /airport/* {
+		reverse_proxy fetcher:8080
+	}
+	handle /leg/* {
+		reverse_proxy fetcher:8080
+	}
+	# Planned route and owner of an aircraft (adsbdb, routes.js)
+	handle /flight/* {
+		reverse_proxy fetcher:8080
+	}
 	handle {
 		file_server
 	}

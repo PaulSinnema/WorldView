@@ -19,9 +19,10 @@ import { fetchEnergyYear } from './energy.js';
 import { fetchPlants } from './plants.js';
 import { fetchAtcStreams } from './atcstreams.js';
 import { fetchAirports } from './airports.js';
+import { setAirports, trackLegs, saveLegs, loadLegs, legStats } from './legs.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.24.0';
+const VERSION = '1.27.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;
@@ -186,9 +187,9 @@ async function refreshMuseums() {
 }
 
 // Rare datasets: fetched only when missing or older than maxAge (checked daily)
-async function refreshRare(rel, maxAge, fn) {
+async function refreshRare(rel, maxAge, fn, force = false) {
     const s = await stat(join(DATA, rel)).catch(() => null);
-    if (s && Date.now() - s.mtimeMs < maxAge) return;
+    if (s && !force && Date.now() - s.mtimeMs < maxAge) return;
     await put(rel, await fn());
     log(`${rel}: updated`);
 }
@@ -212,12 +213,14 @@ async function updateFlights() {
         const s = await fetchOpensky(await getToken());
         // civil row + [reg, type] from the aircraft database
         for (const a of s.ac) a.push(...lookup(a[0]));
+        trackLegs(s.ac, { call: 1, reg: 11, type: 12, t: 10 }, s.t);
         await writeFlights(s);
-        log(`flights: ${s.ac.length}`);
+        log(`flights: ${s.ac.length}, legs: ${legStats()}`);
     } catch (e) { token = null; throw e; }
 }
 async function updateMilitary() {
     const m = await fetchMilitary();
+    trackLegs(m.ac, { call: 1, reg: 8, type: 9, t: 11 }, m.t);
     // Track history as element 12 of each row
     const hist = trackHistory(milHist, m.ac, 11, m.t);
     m.ac = m.ac.map(a => hist.has(a[0]) ? [...a.slice(0, 12), ...Array(Math.max(0, 12 - a.length)).fill(null), hist.get(a[0])] : a);
@@ -272,7 +275,13 @@ function tick() {
     every('museums', 3600000, refreshMuseums); // hourly check; only due boxes are fetched
     every('energy', 86400000, () => refreshRare('energy-year.json', 365 * 86400000, fetchEnergyYear));
     every('plants', 86400000, () => refreshRare('plants.json', 365 * 86400000, fetchPlants));
-    every('airports', 86400000, () => refreshRare('airports.json', 30 * 86400000, fetchAirports)); // monthly
+    // Monthly; at once when the file lacks the elevation (element 9, fetcher 1.25.0); legs need the list
+    every('airports', 86400000, async () => {
+        const old = await readJson('airports.json');
+        await refreshRare('airports.json', 30 * 86400000, fetchAirports, !!old?.a?.length && old.a[0].length < 10);
+        setAirports((await readJson('airports.json'))?.a);
+    });
+    every('legs', 5 * 60000, () => saveLegs());
     // YouTube airport streams with ATC audio: live video IDs change when a stream restarts
     // With YOUTUBE_API_KEY: ≈ 24 units per run (uploads + live status), far below the 10,000 daily quota
     every('atc', 30 * 60000, async () => {
@@ -296,5 +305,12 @@ startNsApi(env.NS_API_KEY);
 // First load of the databases (the slow loop skips them while they're fresh)
 const dbFirst = refreshDb().catch(() => { });
 const ovRoutesFirst = refreshOvRoutes().catch(() => { });
+log(`legs: ${await loadLegs()}`);
+setAirports((await readJson('airports.json'))?.a);
+// docker stop / compose up send SIGTERM: save the legs first
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => {
+    try { await saveLegs(true); log('legs: saved'); } catch (e) { log(`legs: ${e.message}`); }
+    process.exit(0);
+});
 tick();
 setInterval(tick, 5000);

@@ -1,5 +1,5 @@
 ﻿// Airports from OurAirports (public domain): large and medium only, served as airports.json
-// { a: [[ident, lon, lat, name, large(0/1), iata, cc, city, enwiki title]] }
+// { a: [[ident, lon, lat, name, large(0/1), iata, cc, city, enwiki title, elevation m]] }
 const URL_AP = 'https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv';
 const UA = 'WorldView-fetcher/1.0 (+https://flights.sinnema.ch)';
 
@@ -32,7 +32,7 @@ export async function fetchAirports() {
         let title = '';
         try { title = wiki ? decodeURIComponent(wiki).replace(/_/g, ' ') : ''; } catch { title = ''; }
         a.push([f[col.icao_code] || f[col.ident], Math.round(lon * 1e4) / 1e4, Math.round(lat * 1e4) / 1e4, f[col.name], type === 'large_airport' ? 1 : 0,
-            f[col.iata_code], f[col.iso_country], f[col.municipality], title]);
+            f[col.iata_code], f[col.iso_country], f[col.municipality], title, f[col.elevation_ft] ? Math.round(Number(f[col.elevation_ft]) * 0.3048) : null]);
     }
     if (a.length < 3000) throw new Error(`only ${a.length} airports`);
     return { t: Math.round(Date.now() / 1000), a };

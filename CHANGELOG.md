@@ -2,6 +2,50 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.241] - 2026-11-05
+### Added
+- Aircraft info box: airline, planned route (from → to), distance and time to go, and the registered owner (adsbdb via the fetcher `/flight/{hex}?call=`). When the take-off was seen at another airport than planned, the route is marked as possibly outdated and no distance is shown.
+- Airport info box: departures in flight show their planned destination (`~LAX`) and arrivals without a seen take-off their planned origin, when the route fits this airport.
+
+## Fetcher 1.27.0 - 2026-11-05
+### Added
+- `routes.js`: planned route per callsign and registered owner per hex from adsbdb.com, cached in memory (routes 12 h, aircraft 7 days, unknown 6 h), at most 10 upstream calls per 10 s, concurrent requests shared.
+- API `/flight/{hex}?call={callsign}` → `{ route, owner }`, proxied by Caddy.
+- `/airport/{icao}`: departures without a seen landing get the planned destination as element 7, arrivals without a seen take-off the planned origin as element 6 (only when the route fits this airport); missing routes are fetched in the background.
+
+## Fetcher 1.26.1 - 2026-11-05
+### Changed
+- Every fresh `/near` answer (adsb.lol, wherever an app is zoomed in) and `/live/{hex}` (selected aircraft) also feeds the leg detection, not only the area around an open airport info box.
+
+## Fetcher 1.26.0 - 2026-11-05
+### Changed
+- `/airport/{icao}` also feeds the live traffic around that airport (adsb.lol, 50 nm, shared `/near` cache of 8 s) into the leg detection: take-offs and landings at an airport whose info box is open show up within seconds instead of after the next OpenSky snapshot (90 s, data often ~2 min old).
+
+## [1.0.240] - 2026-11-05
+### Changed
+- Airport info box: departures and arrivals refreshed every 5 s (was 30 s).
+
+## Fetcher 1.25.1 - 2026-11-05
+### Changed
+- `/airport/{icao}`: cached 5 s on the server and in the browser (was 30 s).
+
+## [1.0.239] - 2026-11-05
+### Fixed
+- Airport info box: departures and arrivals were only loaded when the airport was selected; now refreshed every 30 s while it stays selected.
+
+## [1.0.238] - 2026-11-05
+### Added
+- Airport info box: fold-open rows with departures and arrivals of the last 6 hours (fetcher `/airport/{icao}`). Clicking an aircraft shows its info in a second box beside the airport box (PC) or under its row (phone), refreshed every 3 s; "Select" makes it the selection.
+- Aircraft info box: "Departed from" (airport and time) and the earlier legs of today (fetcher `/leg/{hex}`).
+
+## Fetcher 1.25.0 - 2026-11-05
+### Added
+- `legs.js`: take-offs and landings at airports from the OpenSky and military feeds (ground → air within 5 km; without ground fixes: low within 15 km, then 150 m higher within 10 min; landing: air → ground, or a low descending approach and then gone for 5 min; a go-around is no landing or departure). Open legs per aircraft, finished legs kept 24 h, in memory.
+- State saved to `/state/legs-state.json` (own volume, not served by Caddy) every 5 min and on SIGTERM; read at start. `stop_grace_period: 30s`.
+- API `/airport/{icao}` (departures/arrivals of the last 6 h) and `/leg/{hex}` (open leg + legs of 24 h), proxied by Caddy.
+### Changed
+- `airports.json`: elevation in metres as element 9; an older file is fetched again at once.
+
 ## [1.0.237] - 2026-11-05
 ### Added
 - Every list panel (flights, military, satellites, telescopes, launches, airports, museums, radio) has a ⌖ zoom toggle (same as behind its data layer) and a ✕ on the right of its header; ✕ closes the panel and turns the data layer off.
