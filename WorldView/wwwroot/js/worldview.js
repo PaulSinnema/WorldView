@@ -4086,8 +4086,8 @@ function drawDetect() {
             const s = toWin(viewer.scene, p);
             if (!s || s.x < 0 || s.y < 0 || s.x > w || s.y > h) continue;
             const cx = Math.floor(s.x / DETECT_CW), cy = Math.floor(s.y / DETECT_CH), k = cx * 1000 + cy;
-            // Labelled last frame wins its cell (no flicker); else closest to the cell centre
-            const d = detectShown.has(r) ? -1 : Math.hypot(s.x - (cx + 0.5) * DETECT_CW, s.y - (cy + 0.5) * DETECT_CH);
+            // Selected object first (never decluttered away), then labelled last frame (no flicker), else closest to the cell centre
+            const d = selected?.layer === l && selected.key === r.key ? -2 : detectShown.has(r) ? -1 : Math.hypot(s.x - (cx + 0.5) * DETECT_CW, s.y - (cy + 0.5) * DETECT_CH);
             const cur = cells.get(k);
             if (!cur || d < cur[0]) cells.set(k, [d, s.x, s.y, r, l]);
         }

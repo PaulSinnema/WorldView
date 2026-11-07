@@ -2,6 +2,10 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.242] - 2026-11-07
+### Fixed
+- Detection: the selected object always gets its box and label; in busy areas (airports) the declutter skipped it when another label was drawn first within 180 px.
+
 ## [1.0.241] - 2026-11-05
 ### Added
 - Aircraft info box: airline, planned route (from → to), distance and time to go, and the registered owner (adsbdb via the fetcher `/flight/{hex}?call=`). When the take-off was seen at another airport than planned, the route is marked as possibly outdated and no distance is shown.
