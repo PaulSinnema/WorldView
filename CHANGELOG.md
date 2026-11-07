@@ -2,6 +2,10 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.248] - 2026-11-07
+### Changed
+- Geo data workflow: a script that still fails after 3 attempts no longer stops the run. Its data stays as it was, the others are updated and committed; the failure shows as an error annotation and in the run summary. `retry-fetch.mjs` logs a line at start, so the log shows the preload is active.
+
 ## [1.0.247] - 2026-11-07
 ### Fixed
 - Geo data workflow (`update-geo.yml`) failed on a single connect timeout (osmdata.openstreetmap.de). `tools/retry-fetch.mjs`, preloaded via `NODE_OPTIONS`, retries every fetch of the build scripts up to 20 times on network errors, timeouts, 408, 429 and 5xx (5 s doubling to at most 60 s); a script that still fails (download cut off halfway) runs again, at most 3 times.

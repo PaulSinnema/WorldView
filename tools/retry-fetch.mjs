@@ -4,6 +4,7 @@ const MAX = Number(process.env.FETCH_RETRIES || 20);
 const base = globalThis.fetch;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const retryable = s => s === 408 || s === 429 || s >= 500;
+console.log(`retry-fetch: active, up to ${MAX} retries per fetch`); // shows in the log that the preload is loaded
 
 globalThis.fetch = async function (input, init) {
     const url = typeof input === 'string' ? input : input?.url ?? String(input);

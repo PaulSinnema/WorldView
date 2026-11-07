@@ -21,7 +21,8 @@ jobs:
           node-version: 24
 
       # Every fetch retried up to 20 times (tools/retry-fetch.mjs: network errors, timeouts, 429, 5xx);
-      # a script that still fails (e.g. a download cut off halfway) runs again, at most 3 times
+      # a script that still fails (e.g. a download cut off halfway) runs again, at most 3 times.
+      # A source that stays down only skips its own files: the others are still updated (warning in the run summary)
       - name: Build borders, provinces and cities
         env:
           NODE_OPTIONS: --import ./tools/retry-fetch.mjs
@@ -33,7 +34,9 @@ jobs:
               echo "::warning::$* failed (attempt $i/3)"
               sleep 30
             done
-            return 1
+            echo "::error::$* gave up after 3 attempts, its data stays as it was"
+            echo "- \`$*\` failed, data not updated" >> "$GITHUB_STEP_SUMMARY"
+            return 0
           }
           run tools/build-geo.mjs
           run tools/build-tz.mjs
