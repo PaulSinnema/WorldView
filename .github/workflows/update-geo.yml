@@ -20,14 +20,27 @@ jobs:
         with:
           node-version: 24
 
+      # Every fetch retried up to 20 times (tools/retry-fetch.mjs: network errors, timeouts, 429, 5xx);
+      # a script that still fails (e.g. a download cut off halfway) runs again, at most 3 times
       - name: Build borders, provinces and cities
+        env:
+          NODE_OPTIONS: --import ./tools/retry-fetch.mjs
+          FETCH_RETRIES: 20
         run: |
-          node tools/build-geo.mjs
-          node tools/build-tz.mjs
-          node tools/build-sea.mjs
-          node tools/build-nature.mjs
-          node --max-old-space-size=6000 tools/build-coast.mjs
-          node --max-old-space-size=6000 tools/build-borders.mjs
+          run() {
+            for i in 1 2 3; do
+              node "$@" && return 0
+              echo "::warning::$* failed (attempt $i/3)"
+              sleep 30
+            done
+            return 1
+          }
+          run tools/build-geo.mjs
+          run tools/build-tz.mjs
+          run tools/build-sea.mjs
+          run tools/build-nature.mjs
+          run --max-old-space-size=6000 tools/build-coast.mjs
+          run --max-old-space-size=6000 tools/build-borders.mjs
 
       - name: Commit when changed
         id: commit

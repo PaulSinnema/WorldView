@@ -2,6 +2,10 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.247] - 2026-11-07
+### Fixed
+- Geo data workflow (`update-geo.yml`) failed on a single connect timeout (osmdata.openstreetmap.de). `tools/retry-fetch.mjs`, preloaded via `NODE_OPTIONS`, retries every fetch of the build scripts up to 20 times on network errors, timeouts, 408, 429 and 5xx (5 s doubling to at most 60 s); a script that still fails (download cut off halfway) runs again, at most 3 times.
+
 ## [1.0.246] - 2026-11-07
 ### Fixed
 - Google 3D tiles: aircraft taking off or landing were drawn beside their runway with a tilted camera. The 3D ground lies at its real height above the ellipsoid (Heathrow ≈ 72 m), aircraft on the ground were put at 0 and low ones at a barometric height (−53 m on a high-pressure day): up to 125 m under the surface. Now aircraft on the ground sit on the sampled 3D ground and low ones never under it (also their trails).
