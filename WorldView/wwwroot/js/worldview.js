@@ -1124,7 +1124,7 @@ function merge(layer, list, kind, color) {
         r.bb.rotation = -toRad(r.track || 0);
         // Dead-reckoned position, same as tick(): no jump back on refresh
         const [la, lo, al] = posAt(r, now);
-        r.bb.position = Cz.Cartesian3.fromDegrees(lo, la, al);
+        r.bb.position = AIR_DELAY[layer] ? airCartesian(r, la, lo, al) : Cz.Cartesian3.fromDegrees(lo, la, al);
     }
     for (const [k, r] of m) if (now - r.seen > 120000) { col.remove(r.bb); m.delete(k); }
     validateSel(layer);
@@ -1226,6 +1226,20 @@ function airPos(r, td) {
     while (fx[i - 1].t > td) i--;
     return hermite(fx[i - 1], fx[i], td);
 }
+// Google 3D tiles: the ground lies at its real height above the ellipsoid (Heathrow ≈ 72 m); aircraft on the ground are put on it,
+// low ones never under it (else a tilted camera shows them metres beside their runway). Height sampled per aircraft, refreshed after 5 s or 200 m
+function shownAlt(r, la, lo, al) {
+    const ground = onGround(r);
+    if (!googleTiles?.getHeight || (!ground && al > 3000)) return al;
+    const now = Date.now(), g = r.gh;
+    if (!g || now - g.t > 5000 || Math.abs(g.la - la) + Math.abs(g.lo - lo) > 0.002) {
+        const h = googleTiles.getHeight(Cz.Cartographic.fromDegrees(lo, la), viewer.scene);
+        if (Number.isFinite(h)) r.gh = { t: now, la, lo, h };
+        else if (!g) return al;
+    }
+    return ground ? r.gh.h : Math.max(al, r.gh.h);
+}
+const airCartesian = (r, la, lo, al) => Cz.Cartesian3.fromDegrees(lo, la, shownAlt(r, la, lo, al));
 function posAt(r, now) {
     if (r.fixes?.length) return airPos(r, now - (r.delay ?? 0));
     if (!r.gs || r.ground || r.noPredict) return [r.lat, r.lon, r.alt];
@@ -3078,7 +3092,7 @@ function currentCartesian(ms = frameMs) {
     if (!selected) return undefined;
     const r = store[selected.layer].get(selected.key);
     if (!r) return undefined;
-    if (MOVERS.includes(selected.layer)) { const [la, lo, al] = posAt(r, Date.now()); return Cz.Cartesian3.fromDegrees(lo, la, al); }
+    if (MOVERS.includes(selected.layer)) { const [la, lo, al] = posAt(r, Date.now()); return AIR_DELAY[selected.layer] ? airCartesian(r, la, lo, al) : Cz.Cartesian3.fromDegrees(lo, la, al); }
     if (r.l2) return l2Position(r.offset, ms);
     if (ORBITERS.includes(selected.layer) && sat) { const g = satGeo(r, new Date(ms)); if (g) return Cz.Cartesian3.fromRadians(g.lon, g.lat, g.h); }
     return r.pos;
@@ -3829,11 +3843,11 @@ function updateAirTrails(now) {
     const seen = new Set();
     for (const { l, r, td, p } of cand.slice(0, Math.round(airTrailMax))) {
         // Back from the icon along the curve it flew, until 50 km or the oldest fix
-        const pts = [Cz.Cartesian3.fromDegrees(p[1], p[0], p[2])], t0fix = r.fixes[0].t;
+        const pts = [airCartesian(r, p[0], p[1], p[2])], t0fix = r.fixes[0].t, gh = r.gh?.h ?? -1e9;
         let len = 0;
         for (let t = td - step; len < AIR_TRAIL_M; t -= step) {
             const tt = Math.max(t, t0fix), [a, b, al] = airPos(r, tt);
-            const q = Cz.Cartesian3.fromDegrees(b, a, al), prev = pts[pts.length - 1], d = Cz.Cartesian3.distance(prev, q);
+            const q = Cz.Cartesian3.fromDegrees(b, a, Math.max(al, gh)), prev = pts[pts.length - 1], d = Cz.Cartesian3.distance(prev, q);
             if (len + d > AIR_TRAIL_M) { Cz.Cartesian3.lerp(prev, q, (AIR_TRAIL_M - len) / d, q); len = AIR_TRAIL_M; } // cut at exactly 50 km
             else len += d;
             pts.push(q);
@@ -3865,7 +3879,7 @@ function tick() {
             if (r.fixes && r.delay < r.delayTarget && !(r.liveUntil > now)) r.delay = Math.min(r.delayTarget, r.delay + (now - (lastTick || now)) * 0.25); // back from live: catch up slowly
             else if (r.fixes && r.delay > r.delayTarget && !(r.liveUntil > now)) r.delay = Math.max(r.delayTarget, r.delay - (now - (lastTick || now)) * 1.0); // near feed: run 2× until ~15 s behind
             const [la, lo, al] = posAt(r, now);
-            r.bb.position = Cz.Cartesian3.fromDegrees(lo, la, al);
+            r.bb.position = AIR_DELAY[l] ? airCartesian(r, la, lo, al) : Cz.Cartesian3.fromDegrees(lo, la, al);
             if (r.fixes) { // icon points along the curve
                 const [la2, lo2] = posAt(r, now + 2000), dx = (lo2 - lo) * Math.cos(toRad(la)), dy = la2 - la;
                 if (Math.abs(dx) + Math.abs(dy) > 1e-6) { r.hdg = (toDeg(Math.atan2(dx, dy)) + 360) % 360; r.bb.rotation = -toRad(r.hdg); }
@@ -4074,8 +4088,9 @@ function drawDetect() {
     ctx.clearRect(0, 0, w, h);
     const occ = new Cz.EllipsoidalOccluder(Cz.Ellipsoid.WGS84, viewer.camera.positionWC);
     const toWin = Cz.SceneTransforms.worldToWindowCoordinates ?? Cz.SceneTransforms.wgs84ToWindowCoordinates;
-    // One candidate per screen cell: spreads labels over the whole view (also after zooming out)
-    const cells = new Map(), museumsFar = camHeight() > MUSEUM_TILE_H * 1.2;
+    // Zoomed out: one candidate per screen cell (spreads labels over the whole view); zoomed in: every object is a candidate
+    const cells = new Map(), museumsFar = camHeight() > MUSEUM_TILE_H * 1.2, grid = camHeight() > DETECT_GRID_H;
+    let n = 0;
     for (const l of LAYERS) {
         if (!S.layers[l]) continue;
         for (const r of store[l].values()) {
@@ -4085,9 +4100,10 @@ function drawDetect() {
             if (!p || !occ.isPointVisible(p)) continue;
             const s = toWin(viewer.scene, p);
             if (!s || s.x < 0 || s.y < 0 || s.x > w || s.y > h) continue;
-            const cx = Math.floor(s.x / DETECT_CW), cy = Math.floor(s.y / DETECT_CH), k = cx * 1000 + cy;
-            // Selected object first (never decluttered away), then labelled last frame (no flicker), else closest to the cell centre
-            const d = selected?.layer === l && selected.key === r.key ? -2 : detectShown.has(r) ? -1 : Math.hypot(s.x - (cx + 0.5) * DETECT_CW, s.y - (cy + 0.5) * DETECT_CH);
+            const cx = Math.floor(s.x / DETECT_CW), cy = Math.floor(s.y / DETECT_CH), k = grid ? cx * 1000 + cy : n++;
+            // Selected object first (never decluttered away), then labelled last frame (no flicker), else closest to the cell centre (grid) or airborne first
+            const d = selected?.layer === l && selected.key === r.key ? -2 : detectShown.has(r) ? -1
+                : grid ? Math.hypot(s.x - (cx + 0.5) * DETECT_CW, s.y - (cy + 0.5) * DETECT_CH) : r.ground ? 1 : 0;
             const cur = cells.get(k);
             if (!cur || d < cur[0]) cells.set(k, [d, s.x, s.y, r, l]);
         }
@@ -4096,11 +4112,32 @@ function drawDetect() {
     const shownNow = new Set();
     ctx.lineWidth = 1; ctx.font = `600 ${S.detectFont}px "Share Tech Mono", monospace`;
     ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3;
-    const b = 11, drawn = [], hits = [];
-    for (const [, x, y, r, l] of items) {
-        // Declutter: skip targets overlapping an already boxed one
+    const b = 11, px = S.detectFont, drawn = [], hits = [], used = []; // used: label rects [x, y, w, h] already on screen
+    const free = q => !used.some(u => q[0] < u[0] + u[2] && q[0] + q[2] > u[0] && q[1] < u[1] + u[3] && q[1] + q[3] > u[1]);
+    for (const [d, x, y, r, l] of items) {
         if (drawn.length >= 250) break;
-        if (drawn.some(([dx, dy]) => Math.abs(dx - x) < 180 && Math.abs(dy - y) < 30)) continue;
+        const own = !!(r.lbl?.show && telLabels?.show); // telescopes have their own map label: box only
+        const name = String(r.label || r.key).slice(0, 18);
+        // Moving targets: speed next to the name; standing still (parked, holding): name only, short labels fit in busy spots
+        const kmh = Math.round((r.gs || 0) * 3.6);
+        const text = own ? '' : MOVERS.includes(l) && kmh >= 5 ? `${name} ${kmh} ${tr('u.kmh')}` : name;
+        const tw = text ? ctx.measureText(text).width : 0;
+        // Label spots: beside the box first; else further out in 8 directions with a leader line [lx, baseline, line end x, y]
+        // The spot of last frame is tried first (no hopping)
+        const spots = [[x + b + 3, y - b + 8], [x - b - 3 - tw, y - b + 8], [x + b + 3, y + b + 2], [x - b - 3 - tw, y + b + 2], [x - tw / 2, y - b - 4], [x - tw / 2, y + b + px]];
+        for (const R of DETECT_LEADER_R) for (const a of DETECT_LEADER_A) {
+            const ex = x + Math.cos(a) * R, ey = y - Math.sin(a) * R;
+            spots.push([Math.cos(a) >= 0 ? ex + 3 : ex - 3 - tw, ey + px / 2 - 2, ex, ey]);
+        }
+        const rect = ([lx, by]) => [lx - 2, by - px, tw + 4, px + 4];
+        let si = -1;
+        if (text) {
+            const order = r.lblSpot != null ? [r.lblSpot, ...spots.keys()] : [...spots.keys()];
+            si = order.find(i => free(rect(spots[i])) && rect(spots[i])[0] >= 0 && rect(spots[i])[0] + tw + 4 <= w) ?? -1;
+            if (si < 0 && d > -2) continue; // no room: skip (the selected object is drawn anyway)
+            if (si < 0) si = 0;
+            r.lblSpot = si;
+        }
         drawn.push([x, y]);
         shownNow.add(r);
         ctx.strokeStyle = ctx.fillStyle = DETECT_COLORS[l];
@@ -4109,13 +4146,23 @@ function drawDetect() {
             ctx.moveTo(x + dx * b, y + dy * (b - 5)); ctx.lineTo(x + dx * b, y + dy * b); ctx.lineTo(x + dx * (b - 5), y + dy * b);
         }
         ctx.stroke();
-        // Moving targets: speed next to the name
-        let tw = 0;
-        if (!(r.lbl?.show && telLabels?.show)) { // telescopes have their own map label: box only
-            const name = String(r.label || r.key).slice(0, 18);
-            tw = detectText(ctx, MOVERS.includes(l) ? `${name} ${Math.round((r.gs || 0) * 3.6)} ${tr('u.kmh')}` : name, x + b + 3, y - b + 8);
+        const box = [x - b - 2, y - b - 2, 2 * b + 4, 2 * b + 4];
+        used.push(box);
+        hits.push([...box, l, r.key]); // box and label: click selects
+        if (text) {
+            const [lx, by, ex, ey] = spots[si];
+            if (ex != null) { // leader line from the box edge to the label: dark outline under the layer colour, readable on any background
+                const dx = ex - x, dy = ey - y, dl = Math.hypot(dx, dy), sb = ctx.shadowBlur, col = ctx.strokeStyle;
+                ctx.shadowBlur = 0; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(x + dx / dl * (b + 2), y + dy / dl * (b + 2)); ctx.lineTo(ex, ey);
+                ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.stroke();
+                ctx.lineWidth = 1.5; ctx.strokeStyle = col; ctx.stroke();
+                ctx.lineWidth = 1; ctx.lineCap = 'butt'; ctx.shadowBlur = sb;
+            }
+            detectText(ctx, text, lx, by);
+            used.push(rect(spots[si]));
+            hits.push([...rect(spots[si]), l, r.key]);
         }
-        hits.push([x - b - 2, Math.min(y - b, y - b + 8 - S.detectFont) - 2, 2 * b + 4 + (tw ? tw + 3 : 0), 2 * b + 4 + Math.max(0, S.detectFont - 8), l, r.key]); // box + label: click selects
     }
     detectHits = hits;
     drawOrbitNames(ctx, occ, toWin, w, h, drawn);
@@ -4188,7 +4235,10 @@ function drawOrbitNames(ctx, occ, toWin, w, h, drawn) {
     }
 }
 let detectShown = new Set();
-const DETECT_CW = 200, DETECT_CH = 40; // label grid cell (px)
+const DETECT_CW = 200, DETECT_CH = 40; // label grid cell (px), used above DETECT_GRID_H camera height
+const DETECT_GRID_H = 150000;
+// Leader line lengths (px) and directions (between the axes: 22.5°, 67.5°, …) for labels that don't fit beside their box
+const DETECT_LEADER_R = [45, 75, 110], DETECT_LEADER_A = [...Array(8).keys()].map(k => k * Math.PI / 4 + Math.PI / 8);
 // Arrow keys pan, +/- zoom; applied every frame while held for smooth motion
 const NAV_KEYS = new Set(['arrowup', 'arrowdown', 'arrowleft', 'arrowright', '+', '=', '-', '_']);
 const navHeld = new Set();

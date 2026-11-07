@@ -2,6 +2,26 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.246] - 2026-11-07
+### Fixed
+- Google 3D tiles: aircraft taking off or landing were drawn beside their runway with a tilted camera. The 3D ground lies at its real height above the ellipsoid (Heathrow ≈ 72 m), aircraft on the ground were put at 0 and low ones at a barometric height (−53 m on a high-pressure day): up to 125 m under the surface. Now aircraft on the ground sit on the sampled 3D ground and low ones never under it (also their trails).
+
+## Fetcher 1.27.1 - 2026-11-07
+### Fixed
+- adsb.lol rows (military, `/near`, `/live`): geometric (GNSS) altitude first, barometric as fallback, like OpenSky's `geo_altitude`. Barometric altitude went below 0 on high-pressure days (BAW567 at −53 m on its take-off roll at Heathrow).
+
+## [1.0.245] - 2026-11-07
+### Changed
+- Detection leader lines easier to see: 1.5 px in the layer colour on a 3.5 px dark outline (was 1 px without outline).
+
+## [1.0.244] - 2026-11-07
+### Changed
+- Detection labels that don't fit beside their box go further out (45, 75 or 110 px, 8 directions) with a thin diagonal leader line to the box. In the simulated busy apron 40 of 41 aircraft get a label (was 18).
+
+## [1.0.243] - 2026-11-07
+### Changed
+- Detection labels placed like a radar screen: right, left, above or below the box, wherever the label overlaps no other label or box (spot kept between frames); was one fixed spot and a 180 × 30 px exclusion zone. Zoomed in (camera below 150 km) every object is a candidate instead of one per 200 × 40 px screen cell, airborne before ground, so busy airports get many more labels. Objects standing still (under 5 km/h) show only their name. In a simulated busy apron (41 aircraft) 18 get a label instead of 7.
+
 ## [1.0.242] - 2026-11-07
 ### Fixed
 - Detection: the selected object always gets its box and label; in busy areas (airports) the declutter skipped it when another label was drawn first within 180 px.

@@ -36,7 +36,9 @@ export async function fetchMilitary() {
 }
 function adsbRow(a, now) {
     const ground = a.alt_baro === 'ground';
-    return [a.hex, (a.flight || '').trim(), r4(a.lat), r4(a.lon), ground ? 0 : Math.round((Number(a.alt_baro) || Number(a.alt_geom) || 0) * FT),
+    // Geometric (GNSS, above the ellipsoid) first, like OpenSky's geo_altitude: barometric goes below 0 on high-pressure days
+    const geom = Number(a.alt_geom), baro = Number(a.alt_baro);
+    return [a.hex, (a.flight || '').trim(), r4(a.lat), r4(a.lon), ground ? 0 : Math.round((Number.isFinite(geom) && a.alt_geom != null ? geom : baro || 0) * FT),
         Math.round((a.gs || 0) * KN * 10) / 10, Math.round(a.track ?? a.true_heading ?? 0), ground ? 1 : 0,
         a.r || '', a.t || '', a.squawk || '', Math.round(now - (a.seen_pos || 0))];
 }
