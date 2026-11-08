@@ -29,6 +29,10 @@
 	handle /leg/* {
 		reverse_proxy fetcher:8080
 	}
+	# METAR + TAF of an airport (aviationweather.gov)
+	handle /metar/* {
+		reverse_proxy fetcher:8080
+	}
 	# Planned route and owner of an aircraft (adsbdb, routes.js)
 	handle /flight/* {
 		reverse_proxy fetcher:8080

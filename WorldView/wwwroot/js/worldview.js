@@ -3291,25 +3291,29 @@ function stopTrack() {
 let follow = false;
 export function setFollow(on) {
     follow = !!on && !!selected;
+    followPrev = null;
     if (follow) stopTrack();
 }
 function followStep() {
     if (!follow || !selected || S.cockpit) return;
     const p = currentCartesian();
     if (!p) return;
-    const cam = viewer.camera, cv = viewer.scene.canvas;
-    const g = Cz.Cartographic.fromCartesian(p), target = Cz.Cartesian3.fromRadians(g.longitude, g.latitude, 0);
-    const ctr = cam.pickEllipsoid(new Cz.Cartesian2(cv.clientWidth / 2, cv.clientHeight / 2));
-    const range = ctr ? Cz.Cartesian3.distance(cam.positionWC, ctr) : cam.positionCartographic.height;
-    cam.lookAt(target, new Cz.HeadingPitchRange(cam.heading, Math.min(cam.pitch, toRad(-5)), range));
+    // Aim at the aircraft itself, not the ground below it: at 9 km altitude the icon swung around the centre when the view was turned
+    // Distance to where the aircraft was last frame: keeps the user's zoom, no creep as it flies towards or away from the camera
+    const cam = viewer.camera;
+    const range = Math.max(500, Cz.Cartesian3.distance(cam.positionWC, followPrev ?? p));
+    cam.lookAt(p, new Cz.HeadingPitchRange(cam.heading, Math.min(cam.pitch, toRad(-5)), range));
     cam.lookAtTransform(Cz.Matrix4.IDENTITY);
+    followPrev = Cz.Cartesian3.clone(p, followPrev ?? undefined);
 }
+let followPrev = null;
 export function clearSelection(notifyUi = true) {
     follow = false;
     if (S.cockpit) setCockpit(false);
     if (viewer) stopTrack();
     if (trackEntity) viewer.entities.remove(trackEntity);
     hideOrbit();
+    hideRoute();
     trackEntity = null; selected = null; trail = []; cityPick = null;
     stopLive();
     setStreamMode(false);
@@ -3363,7 +3367,9 @@ const hm = s => new Date(s * 1000).toLocaleTimeString(loc(), { hour: '2-digit', 
 const aptOf = a => `${a.name} (${a.iata || a.icao})`;
 const durText = min => min >= 60 ? `${Math.floor(min / 60)}${tr('u.hour')} ${min % 60}m` : `${min}m`;
 // Aircraft info: airline and planned route (adsbdb via the fetcher), distance/time to go, where it took off, earlier legs, owner
+// Returns the planned route when it fits what was seen (for the route line), else null
 function legRows(hex, f, onLoad, r) {
+    let fits = null;
     const d = legData(`leg/${hex}`, onLoad);
     const fl = legData(`flight/${hex}?call=${encodeURIComponent(r?.call || '')}`, onLoad, 120000);
     const rt = fl?.route, al = rt?.airline;
@@ -3372,6 +3378,7 @@ function legRows(hex, f, onLoad, r) {
         // Take-off seen at another airport than planned: the route for this callsign is probably outdated
         const odd = !!d?.leg?.dep && d.leg.dep !== rt.from.icao;
         f.push([tr('f.flightRoute'), `${aptOf(rt.from)} → ${aptOf(rt.to)}${odd ? ' · ' + tr('v.routeOdd') : ''}`]);
+        if (!odd && [rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon].every(Number.isFinite)) fits = rt;
         if (r && !r.ground && !odd && Number.isFinite(rt.to.lat)) {
             const [la, lo] = posAt(r, Date.now()), km = Math.round(distKm(la, lo, rt.to.lat, rt.to.lon));
             f.push([tr('f.toGo'), `${km.toLocaleString(loc())} km${r.gs > 30 ? ` · ~${durText(Math.round(km * 1000 / r.gs / 60))}` : ''}`]);
@@ -3382,6 +3389,128 @@ function legRows(hex, f, onLoad, r) {
     if (prev.length) f.push([tr('f.earlierLegs'), prev.join(' · ')]);
     const o = fl?.owner;
     if (o?.owner && o.owner !== al?.name) f.push([tr('f.owner'), o.cc ? `${o.owner} (${regionName(o.cc) || o.cc})` : o.owner]);
+    return fits;
+}
+// ---------- route line of the selected aircraft: flown part faint, the rest to the destination dashed (great circle) ----------
+let routeEnts = null, routeKey = null;
+function drawRoute(r, rt, color) {
+    const key = r && rt ? `${r.key}|${rt.from.icao}|${rt.to.icao}` : null;
+    if (key === routeKey) return;
+    hideRoute();
+    if (!key) return;
+    routeKey = key;
+    const from = Cz.Cartesian3.fromDegrees(rt.from.lon, rt.from.lat), to = Cz.Cartesian3.fromDegrees(rt.to.lon, rt.to.lat);
+    // Both parts meet at the aircraft itself (its altitude): climb from the origin, descent to the destination
+    const here = () => currentCartesian() ?? null;
+    const col = Cz.Color.fromCssColorString(color), faint = new Cz.ColorMaterialProperty(col.withAlpha(0.4));
+    const dash = new Cz.PolylineDashMaterialProperty({ color: col.withAlpha(0.9), dashLength: 18 });
+    // depthFailMaterial: also visible where hills or Google 3D tiles lie above the line
+    routeEnts = [
+        viewer.entities.add({ polyline: { positions: new Cz.CallbackProperty(() => { const h = here(); return h ? [from, h] : [from, from]; }, false), arcType: Cz.ArcType.GEODESIC, width: 2, material: faint, depthFailMaterial: faint } }),
+        viewer.entities.add({ polyline: { positions: new Cz.CallbackProperty(() => { const h = here(); return [h ?? from, to]; }, false), arcType: Cz.ArcType.GEODESIC, width: 2, material: dash, depthFailMaterial: dash } })
+    ];
+}
+function hideRoute() {
+    for (const e of routeEnts || []) viewer.entities.remove(e);
+    routeEnts = null; routeKey = null;
+}
+// ---------- METAR / TAF of an airport (aviationweather.gov via the fetcher, 5 min) ----------
+const KT = 1.852;
+function metarRows(icao, f, onLoad) {
+    const m = legData(`metar/${icao}`, onLoad, 300000)?.metar;
+    if (!m) return;
+    const w = m.wdir === 'VRB' ? tr('v.variable') : Number.isFinite(m.wdir) ? `${m.wdir}°` : '';
+    if (Number.isFinite(m.wspd)) f.push([tr('f.wind'), m.wspd === 0 ? tr('v.calm')
+        : `${w} ${m.wspd} kt (${Math.round(m.wspd * KT)} ${tr('u.kmh')})${Number.isFinite(m.wgst) ? `, ${tr('v.gusts')} ${m.wgst} kt` : ''}`.trim()]);
+    // Visibility in statute miles ("10+" = 10 or more)
+    const vs = String(m.visib ?? ''), vn = parseFloat(vs);
+    if (Number.isFinite(vn)) { const km = vn * 1.609; f.push([tr('f.visibility'), `${vs.endsWith('+') ? '≥ ' : ''}${(km >= 10 ? Math.round(km) : Math.round(km * 10) / 10).toLocaleString(loc())} km`]); }
+    if (m.wx) f.push([tr('f.weatherNow'), m.wx.split(' ').map(wxText).join(', ')]);
+    if (m.clouds?.length) f.push([tr('f.cloudLayers'), m.clouds.map(([c, b]) => cloudText(c, b)).join(' · ')]);
+    if (Number.isFinite(m.temp)) f.push([tr('f.temperature'), `${Math.round(m.temp)} °C${Number.isFinite(m.dewp) ? ` (${tr('v.dewPoint')} ${Math.round(m.dewp)} °C)` : ''}`]);
+    if (Number.isFinite(m.altim)) f.push([tr('f.qnh'), `${Math.round(m.altim)} hPa`]);
+    if (m.cat) f.push([tr('f.flightCat'), `${m.cat} · ${tr('wx.cat.' + m.cat)}`]);
+    // Trend after the METAR body (next 2 hours): BECMG / TEMPO groups or NOSIG
+    const trend = (m.raw || '').match(/\s(NOSIG|BECMG.*|TEMPO.*)$/)?.[1];
+    if (trend) f.push([tr('wx.trend'), trend === 'NOSIG' ? tr('wx.nosig') : tafGroups(trend.split(/\s+/)).filter(g => g.tok.length).map(g => `${groupLabel(g)}: ${groupText(g.tok)}`).join(' · ')]);
+    if (m.raw) f.push([tr('f.metar'), `${m.raw}${m.t ? ` (${hm(m.t)})` : ''}`]);
+    if (m.taf) {
+        // TAF per period in plain words, then the raw text
+        const tok = m.taf.trim().split(/\s+/).filter(t => !/^(TAF|AMD|COR)$/.test(t));
+        const vi = tok.findIndex(t => /^\d{4}\/\d{4}$/.test(t));
+        if (vi > 0) for (const [i, g] of tafGroups(tok.slice(vi)).entries()) {
+            const txt = groupText(g.tok);
+            if (txt) f.push([i ? '' : tr('f.forecast'), `${groupLabel(g)}: ${txt}`]);
+        }
+        f.push([tr('f.taf'), m.taf]);
+    }
+}
+// METAR/TAF in plain words (i18n keys wx.*)
+const CLOUD_COVER = { FEW: 'wx.few', SCT: 'wx.sct', BKN: 'wx.bkn', OVC: 'wx.ovc', VV: 'wx.vv' };
+function cloudText(c, base, type) {
+    if (c === 'CAVOK' || c === 'CLR' || c === 'SKC' || c === 'NSC' || c === 'NCD') return tr(c === 'CAVOK' ? 'wx.cavok' : 'wx.nsc');
+    const ft = base != null ? ` ${base.toLocaleString(loc())} ft` : '';
+    return `${CLOUD_COVER[c] ? tr(CLOUD_COVER[c]) : c}${ft}${type ? ` (${tr('wx.' + type)})` : ''}`;
+}
+// Weather code (-SHRA, BR, VCTS, …) → words: intensity, descriptor, phenomena
+function wxText(code) {
+    const m = /^(\+|-|VC)?(MI|PR|BC|DR|BL|SH|TS|FZ)?((?:DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS)*)$/.exec(code);
+    if (!m || (!m[2] && !m[3])) return code;
+    const phen = (m[3].match(/../g) || []).map(p => tr('wx.' + p)).join(', ');
+    const desc = m[2] ? tr(phen ? 'wx.' + m[2] : 'wx.' + m[2] + '1') : '';
+    const int = m[1] === '-' ? tr('wx.light') : m[1] === '+' ? tr('wx.heavy') : '';
+    return `${[int, desc, phen].filter(Boolean).join(' ')}${m[1] === 'VC' ? ` (${tr('wx.vc')})` : ''}`;
+}
+// TAF tokens from the validity period on → groups { kind: base|BECMG|TEMPO|FM, prob, from, to, tok }
+function tafGroups(tok) {
+    const out = [];
+    let g = null;
+    const start = (kind, prob = null) => { g = { kind, prob, from: null, to: null, tok: [] }; out.push(g); };
+    start('base');
+    for (let i = 0; i < tok.length; i++) {
+        const t = tok[i];
+        if (/^PROB\d{2}$/.test(t)) { start(tok[i + 1] === 'TEMPO' ? 'TEMPO' : 'PROB', +t.slice(4)); if (tok[i + 1] === 'TEMPO') i++; continue; }
+        if (t === 'BECMG' || t === 'TEMPO') { start(t); continue; }
+        if (/^FM\d{6}$/.test(t)) { start('FM'); g.from = t.slice(2, 6); continue; }
+        if (/^\d{4}\/\d{4}$/.test(t) && !g.from) { [g.from, g.to] = t.split('/'); continue; }
+        if (/^(TX|TN)/.test(t) || t === '=') continue; // max/min temperature: skipped
+        g.tok.push(t);
+    }
+    return out.filter(x => x.tok.length || x.kind === 'base');
+}
+// UTC "ddhh" of a TAF → local time; another day than today with its weekday
+function tafTime(ddhh) {
+    const now = new Date(), d = +ddhh.slice(0, 2), h = +ddhh.slice(2, 4);
+    let t = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), d, h);
+    if (t - now.getTime() > 15 * 86400000) t = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, d, h); // day of the previous month
+    else if (now.getTime() - t > 15 * 86400000) t = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, d, h);
+    const dt = new Date(t), time = dt.toLocaleTimeString(loc(), { hour: '2-digit', minute: '2-digit' });
+    return dt.toDateString() === now.toDateString() ? time : `${dt.toLocaleDateString(loc(), { weekday: 'short' })} ${time}`;
+}
+function groupLabel(g) {
+    const span = g.from ? (g.to ? `${tafTime(g.from)}–${tafTime(g.to)}` : `${tr('wx.from')} ${tafTime(g.from)}`) : '';
+    const kind = g.kind === 'BECMG' ? tr('wx.becmg') : g.kind === 'TEMPO' ? tr('wx.tempo') : '';
+    const prob = g.prob ? tr('wx.prob', { p: g.prob }) : '';
+    return [prob, kind, g.kind === 'FM' ? '' : span, g.kind === 'FM' ? span : ''].filter(Boolean).join(' ') || tr('wx.now');
+}
+// Wind, visibility, weather and clouds of one group in words
+function groupText(tok) {
+    const parts = [];
+    for (const t of tok) {
+        let m;
+        if ((m = /^(\d{3}|VRB)(\d{2,3})(?:G(\d{2,3}))?(KT|MPS)$/.exec(t))) {
+            const kt = t.endsWith('MPS') ? Math.round(+m[2] * 1.944) : +m[2], gust = m[3] ? (t.endsWith('MPS') ? Math.round(+m[3] * 1.944) : +m[3]) : null;
+            parts.push(kt === 0 ? `${tr('f.wind').toLowerCase()} ${tr('v.calm')}`
+                : `${tr('f.wind').toLowerCase()} ${m[1] === 'VRB' ? tr('v.variable') : m[1] + '°'} ${kt} kt${gust ? `, ${tr('v.gusts')} ${gust} kt` : ''}`);
+        } else if (/^\d{4}$/.test(t)) parts.push(`${tr('f.visibility').toLowerCase()} ${t === '9999' ? '≥ 10 km' : +t >= 5000 ? `${+t / 1000} km` : `${(+t).toLocaleString(loc())} m`}`);
+        else if (t === 'CAVOK') parts.push(tr('wx.cavok'));
+        else if (t === 'NSW') parts.push(tr('wx.nsw'));
+        else if (/^(NSC|SKC|NCD|CLR)$/.test(t)) parts.push(tr('wx.nsc'));
+        else if ((m = /^(FEW|SCT|BKN|OVC|VV)(\d{3}|\/\/\/)(CB|TCU)?$/.exec(t))) parts.push(cloudText(m[1], m[2] === '///' ? null : +m[2] * 100, m[3]));
+        else if (/^\d{3}V\d{3}$/.test(t)) continue; // variable wind direction: detail
+        else { const w = wxText(t); if (w !== t) parts.push(w); }
+    }
+    return parts.join(', ');
 }
 // Airport info: departures and arrivals of the last hours, for the fold-open rows
 function airportLegItems(icao) {
@@ -3413,7 +3542,7 @@ function pushInfo() {
     const f = [];
     if (MOVERS.includes(L)) {
         moverRows(L, r, f);
-        if (PLANES.includes(L)) legRows(r.key, f, () => { if (selected?.key === r.key) pushInfo(); }, r);
+        if (PLANES.includes(L)) drawRoute(r, legRows(r.key, f, () => { if (selected?.key === r.key) pushInfo(); }, r), L === 'military' ? '#ffb020' : '#3fd0ff');
     } else if (r.l2) {
         const km = Cz.Cartesian3.magnitude(l2Position(r.offset)) / 1000;
         f.push([tr('f.group'), tr(r.group)], [tr('f.location'), tr('v.l2')], [tr('f.distance'), tr('v.millionKm', { n: Math.round(km / 1e5) / 10 })], [tr('f.position'), tr('v.approx')]);
@@ -3424,6 +3553,7 @@ function pushInfo() {
         if (r.ytLink) f.push([tr('f.youtube'), r.ytLink]); // ISS live view
     } else {
         infoRows(r.info, f);
+        if (L === 'airports') metarRows(r.key, f, () => { if (selected?.key === r.key) pushInfo(); });
     }
     let img = r.image ? `${r.image}${r.image.includes('?') ? '&' : '?'}t=${Math.floor(Date.now() / 30000)}` : r.logo || null; // logo: radio station
     let summary = null, link = null, photo = null;

@@ -22,7 +22,7 @@ import { fetchAirports } from './airports.js';
 import { setAirports, trackLegs, saveLegs, loadLegs, legStats } from './legs.js';
 
 // Raise on every fetcher change (logged at start, served as /status.json)
-const VERSION = '1.27.1';
+const VERSION = '1.28.0';
 const env = process.env;
 const DATA = env.DATA_DIR || '/data';
 const TILE = 10;

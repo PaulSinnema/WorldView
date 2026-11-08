@@ -26,6 +26,30 @@ const cache = new Map(); // nr -> { t, body }
 const LIVE_TTL = 3000, live = new Map(); // hex -> { t, p }
 const aptCache = new Map(); // icao -> { t, body } (5 s; airportLegs scans all legs)
 
+// METAR + TAF of one airport from aviationweather.gov (NOAA AWC, no key), cached 5 min per airport; on failure the last answer
+const METAR_TTL = 5 * 60000, metarCache = new Map(); // icao -> { t, p }
+function metar(icao) {
+    const c = metarCache.get(icao);
+    if (c && Date.now() - c.t < METAR_TTL) return c.p;
+    const p = fetch(`https://aviationweather.gov/api/data/metar?ids=${icao}&format=json&taf=true`, { headers: { 'User-Agent': UA, Accept: 'application/json' } })
+        .then(async r => {
+            if (r.status === 204) return { icao, metar: null }; // no report for this airport
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const m = (await r.json())?.[0];
+            return {
+                icao, metar: m ? {
+                    raw: m.rawOb || '', taf: m.rawTaf || null, t: m.obsTime || null, temp: m.temp ?? null, dewp: m.dewp ?? null,
+                    wdir: m.wdir ?? null, wspd: m.wspd ?? null, wgst: m.wgst ?? null, visib: m.visib ?? null, altim: m.altim ?? null,
+                    clouds: (m.clouds || []).map(x => [x.cover, x.base ?? null]), wx: m.wxString || null, cat: m.fltCat || null
+                } : null
+            };
+        })
+        .catch(e => { console.log(new Date().toISOString(), `metar ${icao}: ${e.message}`); return c ? c.p : { icao, metar: null, error: true }; });
+    if (metarCache.size > 3000) metarCache.clear();
+    metarCache.set(icao, { t: Date.now(), p });
+    return p;
+}
+
 // Aircraft near a point for zoomed-in views GET /near/{lat}/{lon}/{nm} (0.5° grid, fixed radii, adsb.lol):
 // cached 8 s per area, at most 6 upstream calls per 10 s, 60 s pause after a 429; else the last answer (or empty)
 const NEAR_TTL = 8000, near_ = new Map(); // key -> { t, p }
@@ -102,6 +126,8 @@ export function startNsApi(key, port = 8080) {
             aptCache.set(id, { t: Date.now(), body });
             return send(200, body, 5);
         }
+        const wm = /^\/metar\/([A-Z0-9]{4})$/i.exec(path);
+        if (wm) return send(200, await metar(wm[1].toUpperCase()), 300);
         // Planned route (callsign) and registered owner (hex) from adsbdb, cached on the fetcher
         const fm = /^\/flight\/([0-9a-f]{6})$/i.exec(path);
         if (fm) {

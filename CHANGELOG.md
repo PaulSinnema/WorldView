@@ -2,6 +2,26 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.251] - 2026-11-08
+### Fixed
+- Follow: the camera aimed at the ground below the aircraft. At cruising altitude (9 km under an 18 km camera) the icon swung around the screen centre when the view was turned or tilted. Now it aims at the aircraft itself and keeps the distance (and the user's zoom) of the last frame.
+- Route line: met at the ground below the aircraft, so with a tilted or high view it ended beside the icon. Now both parts meet at the aircraft itself (climbing from the origin, descending to the destination).
+
+## [1.0.250] - 2026-11-08
+### Changed
+- METAR/TAF in plain words (all 5 languages): cloud layers (a few / scattered / mostly cloudy / overcast, thunderclouds), weather codes (light rain showers, patches of fog, …), the flight category explained (MVFR: moderate visibility or low clouds), the METAR trend for the next 2 hours, and the TAF per period ("at times 13:00–15:00: visibility 2,500 m, mostly cloudy 400 ft"; local times, another day with its weekday). The raw METAR and TAF stay below.
+
+## [1.0.249] - 2026-11-08
+### Added
+- Route line for the selected aircraft: great circle from the planned origin to the destination, the flown part faint and the rest dashed, meeting below the aircraft; only when the route fits the seen take-off. Also visible through hills and Google 3D tiles.
+- Airport info box: METAR and TAF (aviationweather.gov via the fetcher `/metar/{icao}`, 5 min): wind (kt and km/h, gusts), visibility, weather, cloud layers, temperature and dew point, QNH, flight category, raw METAR with its time and raw TAF.
+### Changed
+- Aircraft info box: "Earlier today" renamed to "Last 24 h" (the fetcher keeps legs for 24 hours, so yesterday evening's legs showed under "today").
+
+## Fetcher 1.28.0 - 2026-11-08
+### Added
+- API `/metar/{icao}`: METAR + TAF from aviationweather.gov (NOAA AWC, no key), cached 5 min per airport, the last answer on failure; proxied by Caddy.
+
 ## [1.0.248] - 2026-11-07
 ### Changed
 - Geo data workflow: a script that still fails after 3 attempts no longer stops the run. Its data stays as it was, the others are updated and committed; the failure shows as an error annotation and in the run summary. `retry-fetch.mjs` logs a line at start, so the log shows the preload is active.
