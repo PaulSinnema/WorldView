@@ -745,7 +745,7 @@ export async function init(containerId, ref) {
     saveCrashState(); // a crash during start-up is caught too
     // Previous start crashed (iOS reloads the page after running out of memory): heavy overlays off, else it loops
     const safe = crashedLastTime();
-    if (safe) { S.borders = false; S.timezones = false; S.nature = false; S.streets = false; S.envOverlay = ''; saveSettings(); }
+    if (safe) { S.borders = false; S.regions = false; S.cities = false; S.timezones = false; S.nature = false; S.streets = false; S.envOverlay = ''; saveSettings(); }
     markRisky();
     document.documentElement.lang = S.lang;
     if (!Cz) throw new Error(tr('err.cesium'));
@@ -887,6 +887,7 @@ export async function init(containerId, ref) {
 
     setStyle(S.style);
     if (S.borders) setBorders(true);
+    else if (S.regions || S.cities) applyOverlays(); // provinces and cities have their own switches
     if (S.timezones) setTimezones(true);
     if (S.nature) applyNature();
     if (S.streets) setStreets(true);
@@ -2005,12 +2006,12 @@ function decodeMvt(buf) {
     }
     return layers;
 }
-// Regions and cities follow the borders switch
+// Provinces and cities: own switches, independent of the borders switch (coastlines and sea borders do follow it)
 let regionData = null, cityData = null, overlayHooked = false;
 const REGION_LINES_MAX_H = 6e6;
 async function applyOverlays() {
     applySea();
-    const showR = S.borders && S.regions, showC = S.borders && S.cities;
+    const showR = S.regions, showC = S.cities;
     if (showR && !regionLines) await loadRegions();
     if (showC && !cityData) await loadCities();
     if (!overlayHooked && (borderLines || regionLines || cityData)) {
@@ -2288,7 +2289,7 @@ function inView(rect, carto) {
 function refreshOverlayLabels() {
     if (!viewer) return;
     const h = camHeight(), rect = viewer.camera.computeViewRectangle();
-    const showR = S.borders && S.regions, showC = S.borders && S.cities;
+    const showR = S.regions, showC = S.cities;
     refreshBorders(rect, h);
     refreshCoast();
     if (regionLines) regionLines.show = showR && h < REGION_LINES_MAX_H;
@@ -3438,9 +3439,9 @@ function metarRows(icao, f, onLoad) {
         // TAF per period in plain words, then the raw text
         const tok = m.taf.trim().split(/\s+/).filter(t => !/^(TAF|AMD|COR)$/.test(t));
         const vi = tok.findIndex(t => /^\d{4}\/\d{4}$/.test(t));
-        if (vi > 0) for (const [i, g] of tafGroups(tok.slice(vi)).entries()) {
+        if (vi > 0) for (const g of tafGroups(tok.slice(vi))) {
             const txt = groupText(g.tok);
-            if (txt) f.push([i ? '' : tr('f.forecast'), `${groupLabel(g)}: ${txt}`]);
+            if (txt) f.push([groupLabel(g), txt, 'sec.forecast']); // own section: period as label
         }
         f.push([tr('f.taf'), m.taf]);
     }
@@ -3535,14 +3536,43 @@ export function aircraftInfo(hex) {
     const photo = aircraftPhoto(hex);
     return JSON.stringify({ layer: L, key: hex, title: r ? r.label || hex : hex, fields: f, inView: !!r, photo: photo?.src || null, photoLink: photo?.link || null, photoBy: photo?.by || null });
 }
+// Info box sections: [section key, field keys] in display order; null = all other rows; rows may carry their own section as 3rd element
+const SEC_PLANE = [['sec.flight', ['f.airline', 'f.flightRoute', 'f.toGo', 'f.departed', 'f.earlierLegs']], ['sec.position', ['f.altitude', 'f.speed', 'f.heading', 'f.position']], ['sec.aircraft', null]];
+const SEC_AIRPORT = [['sec.airport', null], ['sec.weather', ['f.wind', 'f.visibility', 'f.weatherNow', 'f.cloudLayers', 'f.temperature', 'f.qnh', 'f.flightCat', 'wx.trend']], ['sec.forecast', []], ['sec.raw', ['f.metar', 'f.taf']]];
+// Rows → [label, value, section title, "raw"|""] grouped per section; other layers unchanged
+function sectionize(L, f) {
+    const def = PLANES.includes(L) ? SEC_PLANE : L === 'airports' ? SEC_AIRPORT : null;
+    if (!def) return f;
+    const byLabel = new Map(), rest = def.find(([, k]) => k === null)[0], groups = new Map(def.map(([s]) => [s, []]));
+    for (const [s, keys] of def) for (const k of keys || []) byLabel.set(tr(k), s);
+    let last = rest;
+    for (const row of f) {
+        const s = row[2] ?? (row[0] ? byLabel.get(row[0]) ?? rest : last); // empty label: continues the row above
+        last = s;
+        groups.get(s).push([row[0], row[1], tr(s), s === 'sec.raw' ? 'raw' : '']);
+    }
+    return [...groups.values()].flat();
+}
+// Route band: origin and destination codes and how far the aircraft has come (by distance)
+function routeHero(r, rt) {
+    if (!rt) return null;
+    const [la, lo] = posAt(r, Date.now()), tot = distKm(rt.from.lat, rt.from.lon, rt.to.lat, rt.to.lon), left = distKm(la, lo, rt.to.lat, rt.to.lon);
+    const pct = r.ground && left > tot / 2 ? 0 : tot > 0 ? Math.max(0, Math.min(100, Math.round(100 * (1 - left / tot)))) : 0;
+    return { from: rt.from.iata || rt.from.icao, to: rt.to.iata || rt.to.icao, fromName: rt.from.name, toName: rt.to.name, fromCity: rt.from.city || '', toCity: rt.to.city || '', pct };
+}
 function pushInfo() {
     if (!selected) return;
     const L = selected.layer, r = store[L].get(selected.key);
     if (!r) return;
     const f = [];
+    let hero = null;
     if (MOVERS.includes(L)) {
         moverRows(L, r, f);
-        if (PLANES.includes(L)) drawRoute(r, legRows(r.key, f, () => { if (selected?.key === r.key) pushInfo(); }, r), L === 'military' ? '#ffb020' : '#3fd0ff');
+        if (PLANES.includes(L)) {
+            const rt = legRows(r.key, f, () => { if (selected?.key === r.key) pushInfo(); }, r);
+            drawRoute(r, rt, L === 'military' ? '#ffb020' : '#3fd0ff');
+            hero = routeHero(r, rt);
+        }
     } else if (r.l2) {
         const km = Cz.Cartesian3.magnitude(l2Position(r.offset)) / 1000;
         f.push([tr('f.group'), tr(r.group)], [tr('f.location'), tr('v.l2')], [tr('f.distance'), tr('v.millionKm', { n: Math.round(km / 1e5) / 10 })], [tr('f.position'), tr('v.approx')]);
@@ -3588,7 +3618,7 @@ function pushInfo() {
     // Airport info: departures/arrivals again after 5 s while it stays selected
     clearTimeout(aptLegTimer);
     if (legs) { const key = r.key; aptLegTimer = setTimeout(() => { if (selected?.key === key) pushInfo(); }, 5000); }
-    notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: f, legs, image: photo ? null : img, video: r.video || null, embed: r.embed || null,
+    notify('OnSelect', JSON.stringify({ layer: L, key: selected.key, title: r.label || r.key, fields: sectionize(L, f), legs, hero, image: photo ? null : img, video: r.video || null, embed: r.embed || null,
         canCockpit: MOVERS.includes(L), isRadio: L === 'radio', summary, link, photo: photo?.src || null, photoLink: photo?.link || null, photoBy: photo?.by || null }));
     setStreamMode(!!r.embed);
 }

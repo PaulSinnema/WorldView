@@ -2,6 +2,16 @@
 
 All notable changes to WorldView. Versions follow `<Version>` in `WorldView/WorldView.csproj`.
 
+## [1.0.253] - 2026-11-08
+### Changed
+- Provinces/states and Cities no longer depend on Borders: their buttons are always in the Display section next to Borders, and they show on their own (also at start-up). Coastlines and sea borders still sit under Borders. Safe mode after a crash turns provinces and cities off too.
+
+## [1.0.252] - 2026-11-08
+### Changed
+- Info boxes tidier: aircraft rows grouped under Flight, Position and Aircraft; airport rows under Airport, Weather now and Forecast (TAF), each with a heading. The TAF periods are the labels now. Raw METAR/TAF folded away under "Raw METAR / TAF". Web addresses show their host with ↗ instead of the whole URL. Labels and values in fixed columns, row hover, shadow.
+- Aircraft with a known route get a band at the top: "AMS ──✈── CDG" with the aircraft at the share of the distance flown, cities below.
+- Info box wider: 380 px (was 330), 440 px on screens of at least 1400 × 760; the aircraft box beside the airport box moves along.
+
 ## [1.0.251] - 2026-11-08
 ### Fixed
 - Follow: the camera aimed at the ground below the aircraft. At cruising altitude (9 km under an 18 km camera) the icon swung around the screen centre when the view was turned or tilted. Now it aims at the aircraft itself and keeps the distance (and the user's zoom) of the last frame.

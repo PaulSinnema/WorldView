@@ -124,12 +124,13 @@ else if (error is not null)
         <button class="@(dayNight ? "active" : "")" @onclick="ToggleDayNight">N · @T("btn.daynight")</button>
         <button class="@(trails ? "active" : "")" @onclick="ToggleTrails" title="@T("hint.trails")">@T("btn.trails")</button>
         <button class="@(borders ? "active" : "")" @onclick="ToggleBorders">B · @T("btn.borders")</button>
+        @* Provinces and cities: own switches, also without borders *@
+        <button class="@(regions ? "active" : "")" @onclick="ToggleRegions">@T("btn.regions")</button>
+        <button class="@(cities ? "active" : "")" @onclick="ToggleCities">@T("btn.cities")</button>
     </div>
     @if (borders)
     {
         <div class="toggles" style="margin-top:4px">
-            <button class="@(regions ? "active" : "")" @onclick="ToggleRegions">@T("btn.regions")</button>
-            <button class="@(cities ? "active" : "")" @onclick="ToggleCities">@T("btn.cities")</button>
             <button class="@(coast ? "active" : "")" @onclick="ToggleCoast">@T("btn.coast")</button>
             <button class="@(eez ? "active" : "")" @onclick="ToggleEez" title="@T("hint.eez")">@T("btn.eez")</button>
         </div>
@@ -279,21 +280,49 @@ else if (error is not null)
         {
             <img class="media" src="@selection.Image" alt="@selection.Title" title="@T("info.enlarge")" @onclick="ToggleEnlarge" />
         }
+        @if (selection.Hero is { } h)
+        {
+            @* Flight: from → to with how far it has come *@
+            <div class="hero" title="@h.FromName → @h.ToName">
+                <b>@h.From</b>
+                <span class="hero-bar"><i style="width:@(h.Pct.ToString(System.Globalization.CultureInfo.InvariantCulture))%"></i><em style="left:@(h.Pct.ToString(System.Globalization.CultureInfo.InvariantCulture))%">✈</em></span>
+                <b>@h.To</b>
+            </div>
+            <div class="hero-sub"><span>@h.FromCity</span><span>@h.ToCity</span></div>
+        }
+        @* Fields grouped in sections ([label, value, section title, "raw"]); raw METAR/TAF folded away *@
         <table>
-            @foreach (var f in selection.Fields)
+            @{ string? sec = null; }
+            @foreach (var f in selection.Fields.Where(f => f.Length >= 2 && !(f.Length > 3 && f[3] == "raw")))
             {
-                if (f.Length < 2) continue;
+                var s = f.Length > 2 ? f[2] : null;
+                if (!string.IsNullOrEmpty(s) && s != sec)
+                {
+                    sec = s;
+                    <tr class="sec"><th colspan="2">@s</th></tr>
+                }
                 @if (f[1].StartsWith("https://") || f[1].StartsWith("http://"))
                 {
-                    @* Web address: opens in a new tab *@
-                    <tr><th>@f[0]</th><td><a href="@f[1]" target="_blank" rel="noopener noreferrer">@f[1]</a></td></tr>
+                    @* Web address: host only, opens in a new tab *@
+                    <tr><th>@f[0]</th><td><a href="@f[1]" target="_blank" rel="noopener noreferrer">@(Uri.TryCreate(f[1], UriKind.Absolute, out var u) ? u.Host.Replace("www.", "") : f[1]) ↗</a></td></tr>
                 }
                 else
                 {
-                    <tr><th>@f[0]</th><td>@f[1]</td></tr>
+                    <tr class="@(string.IsNullOrEmpty(f[0]) ? "cont" : "")"><th>@f[0]</th><td>@f[1]</td></tr>
                 }
             }
         </table>
+        var raw = selection.Fields.Where(f => f.Length > 3 && f[3] == "raw").ToList();
+        @if (raw.Count > 0)
+        {
+            <details class="raw">
+                <summary>@raw[0][2]</summary>
+                @foreach (var f in raw)
+                {
+                    <div><span>@f[0]</span><pre>@f[1]</pre></div>
+                }
+            </details>
+        }
         @if (selection.Legs is { } lg)
         {
             @LegsBlock(lg, "dep", lg.Dep, inRow || isPhone)
@@ -1735,6 +1764,19 @@ else if (error is not null)
         public string? PhotoLink { get; set; }
         public string? PhotoBy { get; set; }
         public LegsInfo? Legs { get; set; } // airports only
+        public HeroInfo? Hero { get; set; } // aircraft with a known route
+    }
+
+    // Route band at the top of an aircraft's info box
+    private sealed class HeroInfo
+    {
+        public string From { get; set; } = "";
+        public string To { get; set; } = "";
+        public string FromName { get; set; } = "";
+        public string ToName { get; set; } = "";
+        public string FromCity { get; set; } = "";
+        public string ToCity { get; set; } = "";
+        public double Pct { get; set; }
     }
 
     // Departures/arrivals of an airport (fetcher legs.js, via worldview.js airportLegItems)

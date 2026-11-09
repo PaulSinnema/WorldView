@@ -98,7 +98,9 @@
         .powerup { display: flex; flex-wrap: wrap; gap: 4px; }
         .powerup input { flex: 1; min-width: 0; padding: 5px; background: #061218; border: 1px solid var(--line); }
         .hint, .keys { font-size: 11px; opacity: .6; margin-top: 6px; line-height: 1.4; }
-        .info { position: fixed; left: calc(12px + env(safe-area-inset-left)); bottom: calc(44px + env(safe-area-inset-bottom)); z-index: 20; width: min(330px, calc(100% - 24px)); max-height: 60%; overflow-y: auto; background: var(--bg); border: 1px solid var(--ok); }
+        :root { --info-w: min(380px, calc(100% - 24px)); }
+        @media (min-width: 1400px) and (min-height: 760px) { :root { --info-w: 440px; } } /* wide screens: roomier info box */
+        .info { position: fixed; left: calc(12px + env(safe-area-inset-left)); bottom: calc(44px + env(safe-area-inset-bottom)); z-index: 20; width: var(--info-w); max-height: 64%; overflow-y: auto; background: var(--bg); border: 1px solid var(--ok); box-shadow: 0 6px 28px rgba(0,0,0,.45); }
         .info header { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 10px; background: rgba(125,255,176,.14); color: #fff; }
         .info .x { background: none; border: 0; cursor: pointer; }
         .info img, .info video { display: block; width: 100%; background: #000; }
@@ -146,10 +148,30 @@
         .lb-credit { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; margin-top: 2px; opacity: .8; font-size: 12px; }
         .lb-credit a { color: var(--acc); }
         .lb-cap { font-size: 12px; opacity: .8; flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .info table { width: 100%; border-collapse: collapse; margin: 4px 0; }
-        .info th { text-align: left; font-weight: normal; color: var(--acc); padding: 2px 10px; vertical-align: top; white-space: nowrap; }
-        .info td { padding: 2px 10px 2px 0; word-break: break-word; }
-        .info td a { color: var(--acc); word-break: break-all; }
+        .info table { width: 100%; border-collapse: collapse; margin: 2px 0 6px; table-layout: fixed; }
+        .info th { width: 36%; text-align: left; font-weight: normal; color: var(--acc); opacity: .85; padding: 3px 8px 3px 12px; vertical-align: top; }
+        .info td { padding: 3px 12px 3px 0; word-break: break-word; color: #e6fff0; }
+        .info td a { color: var(--acc); text-decoration: none; }
+        .info td a:hover { text-decoration: underline; }
+        .info tr:not(.sec):hover { background: rgba(125,255,176,.05); }
+        .info tr.cont th { opacity: 0; }
+        /* Section headings inside the info box */
+        .info tr.sec th { width: auto; padding: 12px 12px 4px; color: var(--ok); opacity: 1; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; border-bottom: 1px solid var(--line); }
+        .info tr.sec:first-child th { padding-top: 6px; }
+        .info tr.sec + tr th, .info tr.sec + tr td { padding-top: 6px; }
+        /* Flight route band: AMS ──✈── CDG */
+        .info .hero { display: flex; align-items: center; gap: 10px; padding: 10px 12px 2px; }
+        .info .hero b { font-size: 20px; letter-spacing: .06em; color: #fff; }
+        .info .hero-bar { position: relative; flex: 1; height: 2px; background: var(--line); }
+        .info .hero-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ok); }
+        .info .hero-bar em { position: absolute; top: 50%; transform: translate(-50%, -54%); font-style: normal; font-size: 15px; color: var(--ok); text-shadow: 0 0 6px rgba(0,0,0,.9); }
+        .info .hero-sub { display: flex; justify-content: space-between; gap: 10px; padding: 0 12px 6px; font-size: 11px; opacity: .7; }
+        /* Raw METAR/TAF: folded away */
+        .info details.raw { margin: 2px 12px 8px; border: 1px solid var(--line); }
+        .info details.raw summary { padding: 5px 8px; cursor: pointer; color: var(--acc); font-size: 12px; }
+        .info details.raw div { padding: 0 8px 8px; }
+        .info details.raw span { font-size: 11px; opacity: .7; }
+        .info details.raw pre { margin: 2px 0 0; white-space: pre-wrap; word-break: break-word; font: 11px/1.45 "Share Tech Mono", monospace; color: #cfe; }
         .info .summary { margin: 4px 10px 6px; line-height: 1.45; font-family: system-ui, sans-serif; font-size: 13px; }
         .info .wiki { display: block; margin: 0 10px 6px; color: var(--acc); }
         .info-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 10px 10px; }
@@ -167,7 +189,7 @@
 .legs-list .lg-other { white-space: nowrap; }
 .legs-list .lg-sub { padding: 4px 0 8px; }
 .legs-empty { display: block; padding: 4px 0; }
-.info.sub { left: calc(12px + min(330px, calc(100% - 24px)) + 10px + env(safe-area-inset-left)); z-index: 21; } /* above the bottom dock */
+.info.sub { left: calc(12px + var(--info-w) + 10px + env(safe-area-inset-left)); z-index: 21; } /* above the bottom dock */
         /* Bottom dock: museum + radio panels stacked, same width */
         .dock { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 20; width: min(600px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 6px; }
         .radio { width: 100%; box-sizing: border-box; background: rgba(4, 12, 16, .95); border: 1px solid #ff4fd8; }
